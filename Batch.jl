@@ -1,14 +1,30 @@
-using ProgressMeter,Logging,DataFrames,Plots,Images,ePPR
+using ProgressMeter,Logging,Statistics,DataFrames,Plots,Mmap,Images,StatsBase,DataStructures
 import Base: close
 
-function batchtests(tests::DataFrame,dataroot,resultroot,datatype...;env::Dict{String,Any}=Dict{String,Any}(),log::Dict{String,AbstractLogger}=Dict{String,AbstractLogger}(),delay=20,binwidth=10,isplot=true)
+function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
     udf=[];cdf=[]
     p = ProgressMeter.Progress(nrow(tests),1,"Batch Tests ... ",50)
     for t in eachrow(tests)
         try
-            u,c=processtest(prepare(abspath(dataroot,t[:files]),datatype...),resultroot,uuid=t[:UUID],env=env,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
-            u!=nothing && push!(udf,u)
-            c!=nothing && push!(cdf,c)
+            id = t[:ID];u=nothing
+            if id=="OriGrating"
+                u,c=processori(dataset,resultroot,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
+            elseif id=="Laser"
+                u,c=processlaser(dataset,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
+            elseif id=="Image"
+                u,c=processimage(dataset,resultroot,env,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
+            elseif id=="LaserImage"
+                u,c=processlaserimage(dataset,condroot,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
+            elseif id=="Flash"
+                u,c=processflash(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+            elseif id=="Hartley"
+                u,c=processhartley(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+            elseif id in ["OriSF","OriSFColor"]
+                u,c=processcondtest(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+            end
+            if !isnothing(u)
+                push!(udf,u);push!(cdf,c)
+            end
         catch exc
             display("============================================")
             display("Error In Processing: $(t[:files])")
@@ -21,27 +37,12 @@ function batchtests(tests::DataFrame,dataroot,resultroot,datatype...;env::Dict{S
     return vcat(udf...),vcat(cdf...)
 end
 
-function processtest(dataset::Dict,resultroot;uuid="",env::Dict{String,Any}=Dict{String,Any}(),log::Dict{String,AbstractLogger}=Dict{String,AbstractLogger}(),delay=20,binwidth=10,isplot=true)
-    if haskey(dataset,"ex")
-        testid = dataset["ex"]["ID"]
-        if testid=="OriGrating"
-            processori(dataset,resultroot,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
-        elseif testid=="Laser"
-            processlaser(dataset,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
-        elseif testid=="Image"
-            processimage(dataset,resultroot,env,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
-        elseif testid=="LaserImage"
-            processlaserimage(dataset,condroot,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
-        end
-    end
-end
-
-function close(log::Dict{String,AbstractLogger})
+function close(log::Dict{Any,AbstractLogger})
     for l in values(log)
         close(l.stream)
     end
 end
-function (log::Dict{String,AbstractLogger})(key,f,logfile)
+function (log::Dict{Any,AbstractLogger})(key,f,logfile)
     if !haskey(log,key)
         log[key] = SimpleLogger(open(logfile,"w"))
     end
@@ -331,4 +332,341 @@ function processlaser(dataset::Dict,resultroot;uuid="",delay=20,binwidth=10,minp
 
     cond[:UUID]=uuid
     return vcat(udf...),cond
+end
+
+function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
+    dataset = prepare(abspath(param[:dataexportroot],files))
+
+    # Condition Tests
+    ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood = spike["unitgood"];unitposition=spike["unitposition"]
+    condon = ex["CondTest"]["CondOn"]
+    condoff = ex["CondTest"]["CondOff"]
+    minconddur=minimum(condoff-condon)
+
+    subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
+    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
+    resultdir = joinpath(param[:resultroot],subject,siteid,testid)
+    isdir(resultdir) || mkpath(resultdir)
+
+    # Prepare LFP
+    lfregex = Regex("^$(uppercase(testid))[A-Za-z0-9_]*.imec.lf.bin")
+    lffile = joinpath(param[:dataroot],filter(i->occursin(lfregex,i),readdir(param[:dataroot]))[1])
+    nsavech=dataset["lf"]["meta"]["nSavedChans"]
+    nsample=dataset["lf"]["meta"]["nFileSamp"]
+    fs=dataset["lf"]["meta"]["fs"]
+    nch = dataset["lf"]["meta"]["snsApLfSy"][2]
+    refmask = refchmaskim(dataset["ap"]["meta"])
+    mmlfp = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
+
+    # Laminar CSD
+    epochext = 0.0
+    epochdur = 0.15
+    epoch = [-epochext epochdur+epochext]
+    epochs = condon.+epoch
+    # all epoch LFP segments
+    ys = subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"])
+    # all epoch LFP segments for each column of probe
+    cys=getepochlfpcol(ys,refmask)
+
+    if isplot
+        # Column 1
+        mcys=dropdims(mean(cys[1],dims=3),dims=3)
+        plotanalog(mcys,fs=fs,xext=epochext)
+        foreach(i->savefig(joinpath(resultdir,"column1_mean_lfp$i")),[".png",".svg"])
+
+        mccsd = dropdims(mean(csd(cys[1]),dims=3),dims=3)
+        plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs,xext=epochext)
+        foreach(i->savefig(joinpath(resultdir,"column1_mean_csd$i")),[".png",".svg"])
+
+        # Column 2
+        mcys=dropdims(mean(cys[2],dims=3),dims=3)
+        plotanalog(mcys,fs=fs,xext=epochext)
+        foreach(i->savefig(joinpath(resultdir,"column2_mean_lfp$i")),[".png",".svg"])
+
+        mccsd = dropdims(mean(csd(cys[2]),dims=3),dims=3)
+        plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs,xext=epochext)
+        foreach(i->savefig(joinpath(resultdir,"column2_mean_csd$i")),[".png",".svg"])
+    end
+
+    # Column Mean Normalized CSD
+    pys = cat(cys...,dims=3)
+    pcsd = csd(pys)
+    baseline = pcsd[:,epoch2samplerange([0 0.015],fs),:] # 0-15ms csd as baseline
+    ncsd=pcsd.-mean(baseline,dims=2) # csd relative to baseline
+    mncsd = dropdims(mean(ncsd,dims=3),dims=3)
+    mncsd[1,:].=0;mncsd[end,:].=0
+    mncsd = imfilter(mncsd,Kernel.gaussian((2,1)))
+    h=20;depths = h*(1:size(mncsd,1))
+    if isplot
+        plotanalog(mncsd,fs=fs,xext=epochext,color=:RdBu)
+        foreach(i->savefig(joinpath(resultdir,"column_mean_normalized_csd$i")),[".png",".svg"])
+    end
+    save(joinpath(resultdir,"csd.jld2"),"csd",mncsd,"depth",depths,"fs",fs)
+
+    unitgood=trues(length(unitspike))
+    # Unit Position
+    layer = haskey(param,:layer) ? param[:layer] : nothing
+    if isplot
+        plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
+        foreach(i->savefig(joinpath(resultdir,"Unit_Position$i")),[".png",".svg"])
+    end
+    save(joinpath(resultdir,"spike.jld2"),"spike",spike)
+
+    # Unit Spike Trian
+    if isplot
+        epochext = preicidur
+        for u in 1:length(unitspike)
+            ys,ns,ws,is = subrv(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
+            plotspiketrain(ys,timeline=[0,minconddur],title="Unit $(unitid[u])")
+            foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_SpikeTrian$i")),[".png",".svg"])
+        end
+    end
+
+    # Unit Depth PSTH
+    epochext = 0.0
+    epochdur = 0.15
+    epoch = [-epochext epochdur+epochext]
+    epochs = condon.+epoch
+    bw = 0.002
+    psthbins = range(epoch[1],epoch[2],step=bw)
+
+    baseindex = epoch2samplerange([0 0.015],1/bw) # 0-15ms of psth as baseline
+    unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true,shift=epochext)[1],psthbins,israte=true,normfun=x->x.-mean(x[baseindex])),unitspike)
+    depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=0:h:depths[end])
+    depthpsth = imfilter(depthpsth,Kernel.gaussian((1,1)))
+    if isplot
+        plotpsth(depthpsth,x,depths)
+        foreach(i->savefig(joinpath(resultdir,"depthpsth$i")),[".png",".svg"])
+    end
+    save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"depth",depths,"x",x)
+
+    # Binary Spike Trian of Conditions
+    bepochext = -0.3
+    bepoch = [-bepochext minconddur]
+    bepochs = condon.+bepoch
+    spikebins = range(bepoch[1],bepoch[2],step=0.001)
+
+    unitbspike = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike)
+    
+    # Unit Correlogram and Circuit
+    lag=50;unitidgood = unitid[unitgood]
+    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(unitbspike[unitgood],lag=lag)
+
+    if isplot
+        for i in 1:length(ccgs)
+            title = "Correlogram between Unit $(unitidgood[ccgis[i][1]]) and $(unitidgood[ccgis[i][2]])"
+            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=:x,xtick=[-lag,0,lag])
+            foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
+        end
+    end
+    save(joinpath(resultdir,"circuit.jld2"),"projs",projs,"eunits",eunits,"iunits",iunits)
+
+    return nothing,nothing
+end
+
+function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
+    dataset = prepare(abspath(param[:dataexportroot],files))
+
+    # Condition Tests
+    ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood=spike["unitgood"];unitposition=spike["unitposition"]
+    condon = ex["CondTest"]["CondOn"]
+    condoff = ex["CondTest"]["CondOff"]
+    condidx = ex["CondTest"]["CondIndex"]
+    minconddur=minimum(condoff-condon)
+
+    # Prepare Conditions
+    ctc = condtestcond(ex["CondTestCond"])
+    factors = finalfactor(ctc)
+    blank = haskey(param,:blank) ? param[:blank] : (:Ori,NaN)
+    ci = ctc[blank[1]].!=blank[2]
+    cctc = ctc[ci,factors]
+    ccondidx = condidx[ci]
+    ccondon=condon[ci]
+    ccondoff=condoff[ci]
+
+    bi = .!ci
+    bctc = ctc[bi,factors]
+    bcondidx=condidx[bi]
+    bcondon=condon[bi]
+    bcondoff=condoff[bi]
+
+    subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
+    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
+    resultdir = joinpath(param[:resultroot],siteid,testid)
+    isdir(resultdir) || mkpath(resultdir)
+
+    unitgood=trues(length(unitspike))
+    # Unit Position
+    layers = haskey(param,:layers) ? param[:layers] : nothing
+    if isplot
+        plotunitposition(unitposition,unitgood,spike["chposition"],unitid,layers=layers)
+        foreach(i->savefig(joinpath(resultdir,"unitposition$i")),[".png",".svg"])
+    end
+
+    # Prepare Imageset
+    imgfile = joinpath(param[:dataroot],"$(testid)_image.mat")
+    imgs = readmat(imgfile)["imageArray"]
+    imgs=mat2julia!(imgs)
+    px=613;py=135;rp=30
+
+    imageset = map(i->dropdims(mean(i[py-rp:py+rp,px-rp:px+rp,:],dims=3),dims=3),imgs)
+    imagesize = size(imageset[1])
+    x = Array{Float64}(undef,length(ccondidx),prod(imagesize))
+    foreach(i->x[i,:]=vec(imageset[ccondidx[i]]),1:size(x,1))
+
+    if :STA in param[:model]
+        for u in 1:length(unitspike), d in 0.05:0.01:0.1
+            _,y,_,_ = subrv(unitspike[u],ccondon.+d,ccondoff.+d,israte=false)
+            r=sta(x,y)
+            if isplot
+                plotsta(r,imagesize,delay=d)
+                foreach(i->savefig(joinpath(resultdir,"Unit$(unitid[u])_STA_$d$i")),[".png",".svg"])
+            end
+        end
+    end
+
+    if :ePPR in param[:model]
+        for u in 1:length(unitspike), d in 0.07:0.01:0.07
+            cellid = join(filter(!isempty,[subject,recordsession,recordsite,"U$(unitid[u])"]),"_")
+            y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d)
+            unitresultdir = joinpath(resultdir,"Unit$(unitid[u])_ePPR_$d")
+            isdir(unitresultdir) && rm(unitresultdir,recursive=true)
+
+            debug = isplot ? ePPRDebugOptions(level=DebugVisual,logdir=unitresultdir) : ePPRDebugOptions()
+            hp = ePPRHyperParams(imagesize...,ndelay=param[:epprndelay],blankcolor=128,nft=param[:epprnft],lambda=param[:epprlambda])
+            model,models = epprhypercv(x,y,hp,debug)
+
+            if isplot && !isnothing(model)
+                debug(plotmodel(model,hp),log="Model_Final (λ=$(hp.lambda))")
+            end
+        end
+    end
+
+    return nothing,nothing
+end
+
+function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
+    dataset = prepare(abspath(param[:dataexportroot],files))
+
+    # Condition Tests
+    ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood = spike["unitgood"];unitposition=spike["unitposition"]
+    condon = ex["CondTest"]["CondOn"]
+    condoff = ex["CondTest"]["CondOff"]
+    minconddur=minimum(condoff-condon)
+
+    # Prepare Conditions
+    ctc = condtestcond(ex["CondTestCond"])
+    factors = finalfactor(ctc)
+    blank = haskey(param,:blank) ? param[:blank] : (:Ori,"blank")
+    ci = ctc[blank[1]].!=blank[2]
+    cctc = ctc[ci,factors]
+    ccondon=condon[ci]
+    ccondoff=condoff[ci]
+
+    bi = .!ci
+    bctc = ctc[bi,factors]
+    bcondon=condon[bi]
+    bcondoff=condoff[bi]
+
+    subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
+    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
+    resultdir = joinpath(param[:resultroot],subject,siteid,testid)
+    isdir(resultdir) || mkpath(resultdir)
+
+    unitgood=trues(length(unitspike))
+    # Unit Position
+    layer = haskey(param,:layer) ? param[:layer] : nothing
+    if isplot
+        plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
+        foreach(i->savefig(joinpath(resultdir,"Unit_Position$i")),[".png",".svg"])
+    end
+    save(joinpath(resultdir,"spike.jld2"),"spike",spike)
+
+    # Unit Spike Trian
+    if isplot
+        epochext = preicidur
+        for u in 1:length(unitspike)
+            ys,ns,ws,is = subrv(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
+            plotspiketrain(ys,timeline=[0,minconddur],title="Unit $(unitid[u])")
+            foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_SpikeTrian$i")),[".png",".svg"])
+        end
+    end
+
+    # Condition Response
+    delay = haskey(param,:responsedelay) ? param[:responsedelay] : 0.02
+    for u in 1:length(unitspike)
+        rs = subrvr(unitspike[u],ccondon.+delay,ccondoff.+delay)
+        if isplot
+            plotcondresponse(rs,cctc,factors)
+            foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_CondResponse$i")),[".png",".svg"])
+        end
+    end
+
+    # blank condition response
+    ubmse=[]
+    if !isempty(bcondon)
+        for u in 1:length(unitspike)
+            br = subrvr(unitspike[u],bcondon.+delay,bcondoff.+delay)
+            mseuc = condresponse(br,condin(bctc))
+            push!(ubmse,(m=mseuc[1,:m],se=mseuc[1,:se]))
+        end
+    end
+
+    # Condition Response in Factor Space
+    fms,fses,fa=factorresponse(unitspike,cctc,ccondon,ccondoff,delay=delay)
+
+    optconds=[]
+    for u in 1:length(fms)
+        p = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...]
+        push!(optconds, OrderedDict(map((f,i)->f=>fa[f][i],keys(fa),p)))
+        for f in keys(fa)
+            fd = findfirst(f.==keys(fa))
+            fdn = length(fa[f])
+            fi = copy(p)
+            fi[fd]=1:fdn
+            mseuc=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn))
+            mseuc[f]=fa[f]
+            if isplot
+                plotcondresponse(dropmissing(mseuc),colors=[:black],responseline=isempty(ubmse) ? [] : [ubmse[u]])
+                foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png",".svg"])
+            end
+        end
+    end
+
+    corrcond = haskey(param,:corrcond) ? param[:corrcond] : :allcond
+    if typeof(corrcond) <: Union{Dict,NamedTuple}
+        corrcondi = findcond(cctc,corrcond)
+    elseif corrcond == :bestcond
+        corrcondi = mapfoldl(uoc->findcond(cctc,uoc),union,optconds)
+    else
+        corrcondi = 1:length(ccondon)
+    end
+    # Binary Spike Trian of Conditions
+    bepochext = -0.3
+    bepoch = [-bepochext minconddur]
+    bepochs = ccondon[corrcondi].+bepoch
+    spikebins = range(bepoch[1],bepoch[2],step=0.001)
+
+    unitbspike = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike)
+
+    # Unit Correlogram and Circuit
+    lag=50;unitidgood = unitid[unitgood]
+    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(unitbspike[unitgood],lag=lag)
+
+    if isplot
+        for i in 1:length(ccgs)
+            title = "Correlogram between Unit $(unitidgood[ccgis[i][1]]) and $(unitidgood[ccgis[i][2]])"
+            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=:x,xtick=[-lag,0,lag])
+            foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
+        end
+    end
+    save(joinpath(resultdir,"circuit.jld2"),"projs",projs,"eunits",eunits,"iunits",iunits)
+
+    return nothing,nothing
 end
