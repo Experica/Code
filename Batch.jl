@@ -1,12 +1,12 @@
-using ProgressMeter,Logging,Statistics,DataFrames,Plots,Mmap,Images,StatsBase,DataStructures
+using NeuroAnalysis,ProgressMeter,Logging,Statistics,DataFrames,Plots,Mmap,Images,StatsBase,ePPR
 import Base: close
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
-    udf=[];cdf=[]
+    rdf=[];cdf=[]
     p = ProgressMeter.Progress(nrow(tests),1,"Batch Tests ... ",50)
     for t in eachrow(tests)
         try
-            id = t[:ID];u=nothing
+            id = t[:ID];r=nothing
             if id=="OriGrating"
                 u,c=processori(dataset,resultroot,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
             elseif id=="Laser"
@@ -16,14 +16,14 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif id=="LaserImage"
                 u,c=processlaserimage(dataset,condroot,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
             elseif id=="Flash"
-                u,c=processflash(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+                r,c=processflash(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             elseif id=="Hartley"
                 u,c=processhartley(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             elseif id in ["OriSF","OriSFColor"]
-                u,c=processcondtest(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+                r,c=processcondtest(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             end
-            if !isnothing(u)
-                push!(udf,u);push!(cdf,c)
+            if !isnothing(r)
+                push!(rdf,r);push!(cdf,c)
             end
         catch exc
             display("============================================")
@@ -34,7 +34,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
         next!(p)
     end
     close(log)
-    return vcat(udf...),vcat(cdf...)
+    return vcat(rdf...),vcat(cdf...)
 end
 
 function close(log::Dict{Any,AbstractLogger})
@@ -346,8 +346,9 @@ function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any
 
     subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
     siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    sitedir = joinpath(param[:resultroot],subject,siteid)
     testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
-    resultdir = joinpath(param[:resultroot],subject,siteid,testid)
+    resultdir = joinpath(sitedir,testid)
     isdir(resultdir) || mkpath(resultdir)
 
     # Prepare LFP
@@ -357,53 +358,72 @@ function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any
     nsample=dataset["lf"]["meta"]["nFileSamp"]
     fs=dataset["lf"]["meta"]["fs"]
     nch = dataset["lf"]["meta"]["snsApLfSy"][2]
-    refmask = refchmaskim(dataset["ap"]["meta"])
+    refchmask = refchmaskim(dataset["ap"]["meta"])
+    nrow,ncol = size(refchmask)
     mmlfp = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
 
     # Laminar CSD
-    epochext = 0.0
     epochdur = 0.15
-    epoch = [-epochext epochdur+epochext]
+    epoch = [0 epochdur]
     epochs = condon.+epoch
-    # all epoch LFP segments
-    ys = subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"])
-    # all epoch LFP segments for each column of probe
-    cys=getepochlfpcol(ys,refmask)
+    # all epoch LFP segments for each channel of probe in shape
+    ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask)
 
     if isplot
-        # Column 1
-        mcys=dropdims(mean(cys[1],dims=3),dims=3)
-        plotanalog(mcys,fs=fs,xext=epochext)
-        foreach(i->savefig(joinpath(resultdir,"column1_mean_lfp$i")),[".png",".svg"])
+        for col in 1:ncol
+            mcys=dropdims(mean(ys[:,col,:,:],dims=3),dims=3)
+            plotanalog(mcys,fs=fs)
+            foreach(i->savefig(joinpath(resultdir,"column_$(col)_lfp$i")),[".png",".svg"])
 
-        mccsd = dropdims(mean(csd(cys[1]),dims=3),dims=3)
-        plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs,xext=epochext)
-        foreach(i->savefig(joinpath(resultdir,"column1_mean_csd$i")),[".png",".svg"])
-
-        # Column 2
-        mcys=dropdims(mean(cys[2],dims=3),dims=3)
-        plotanalog(mcys,fs=fs,xext=epochext)
-        foreach(i->savefig(joinpath(resultdir,"column2_mean_lfp$i")),[".png",".svg"])
-
-        mccsd = dropdims(mean(csd(cys[2]),dims=3),dims=3)
-        plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs,xext=epochext)
-        foreach(i->savefig(joinpath(resultdir,"column2_mean_csd$i")),[".png",".svg"])
+            mccsd = dropdims(mean(csd(ys[:,col,:,:]),dims=3),dims=3)
+            plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
+            foreach(i->savefig(joinpath(resultdir,"column_$(col)_csd$i")),[".png",".svg"])
+        end
     end
 
     # Column Mean Normalized CSD
-    pys = cat(cys...,dims=3)
+    pys = cat((ys[:,i,:,:] for i in 1:ncol)...,dims=3)
     pcsd = csd(pys)
     baseline = pcsd[:,epoch2samplerange([0 0.015],fs),:] # 0-15ms csd as baseline
-    ncsd=pcsd.-mean(baseline,dims=2) # csd relative to baseline
+    ncsd=pcsd.-mean(baseline,dims=2) # Δcsd relative to baseline
     mncsd = dropdims(mean(ncsd,dims=3),dims=3)
     mncsd[1,:].=0;mncsd[end,:].=0
     mncsd = imfilter(mncsd,Kernel.gaussian((2,1)))
     h=20;depths = h*(1:size(mncsd,1))
     if isplot
-        plotanalog(mncsd,fs=fs,xext=epochext,color=:RdBu)
+        plotanalog(mncsd,fs=fs,y=depths,color=:RdBu)
         foreach(i->savefig(joinpath(resultdir,"column_mean_normalized_csd$i")),[".png",".svg"])
     end
     save(joinpath(resultdir,"csd.jld2"),"csd",mncsd,"depth",depths,"fs",fs)
+
+    # Depth Power Spectrum
+    epochdur = 0.2
+    epoch = [0 epochdur]
+    epochs = condon.+epoch
+    ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask)
+    pys = cat((ys[:,i,:,:] for i in 1:ncol)...,dims=3)
+    ps,freq = powerspectrum(pys,fs)
+
+    epoch = [-epochdur 0]
+    epochs = condon.+epoch
+    ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask)
+    pys = cat((ys[:,i,:,:] for i in 1:ncol)...,dims=3)
+    bps,freq = powerspectrum(pys,fs)
+
+    rcps = ps./bps.-1
+    mrcps = imfilter(dropdims(mean(rcps,dims=3),dims=3),Kernel.gaussian((1,1)))
+    if isplot
+        mps = dropdims(mean(ps,dims=3),dims=3)
+        plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:db,color=:fire)
+        foreach(i->savefig(joinpath(resultdir,"depth_powerspectrum$i")),[".png",".svg"])
+        mbps =dropdims(mean(bps,dims=3),dims=3)
+        plotanalog(imfilter(mbps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:db,color=:fire)
+        foreach(i->savefig(joinpath(resultdir,"depth_powerspectrum_baseline$i")),[".png",".svg"])
+
+        plotanalog(mrcps,x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:db,color=:fire)
+        foreach(i->savefig(joinpath(resultdir,"depth_powerspectrum_rc$i")),[".png",".svg"])
+    end
+    save(joinpath(resultdir,"powerspectrum.jld2"),"rcps",mrcps,"depth",depths,"freq",freq)
 
     unitgood=trues(length(unitspike))
     # Unit Position
@@ -419,22 +439,21 @@ function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any
         epochext = preicidur
         for u in 1:length(unitspike)
             ys,ns,ws,is = subrv(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
-            plotspiketrain(ys,timeline=[0,minconddur],title="Unit $(unitid[u])")
+            plotspiketrain(ys,timeline=[0,minconddur],title="Unit_$(unitid[u])")
             foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_SpikeTrian$i")),[".png",".svg"])
         end
     end
 
     # Unit Depth PSTH
-    epochext = 0.0
     epochdur = 0.15
-    epoch = [-epochext epochdur+epochext]
+    epoch = [0 epochdur]
     epochs = condon.+epoch
     bw = 0.002
-    psthbins = range(epoch[1],epoch[2],step=bw)
+    psthbins = epoch[1]:bw:epoch[2]
 
     baseindex = epoch2samplerange([0 0.015],1/bw) # 0-15ms of psth as baseline
-    unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true,shift=epochext)[1],psthbins,israte=true,normfun=x->x.-mean(x[baseindex])),unitspike)
-    depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=0:h:depths[end])
+    unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true)[1],psthbins,israte=true,normfun=x->x.-mean(x[baseindex])),unitspike)
+    depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=h*(0:nrow+1))
     depthpsth = imfilter(depthpsth,Kernel.gaussian((1,1)))
     if isplot
         plotpsth(depthpsth,x,depths)
@@ -442,22 +461,20 @@ function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any
     end
     save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"depth",depths,"x",x)
 
-    # Binary Spike Trian of Conditions
+    # Single Unit Binary Spike Trian of Conditions
     bepochext = -0.3
     bepoch = [-bepochext minconddur]
     bepochs = condon.+bepoch
-    spikebins = range(bepoch[1],bepoch[2],step=0.001)
-
-    unitbspike = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike)
-    
-    # Unit Correlogram and Circuit
-    lag=50;unitidgood = unitid[unitgood]
-    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(unitbspike[unitgood],lag=lag)
+    spikebins = bepoch[1]:0.001:bepoch[2]
+    subst = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike[unitgood])
+    # Single Unit Correlogram and Circuit
+    lag=50;suid = unitid[unitgood]
+    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(subst,lag=lag)
 
     if isplot
         for i in 1:length(ccgs)
-            title = "Correlogram between Unit $(unitidgood[ccgis[i][1]]) and $(unitidgood[ccgis[i][2]])"
-            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=:x,xtick=[-lag,0,lag])
+            title = "Correlogram between Unit $(suid[ccgis[i][1]]) and $(suid[ccgis[i][2]])"
+            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=(:x,0.4),xtick=[-lag,0,lag])
             foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
         end
     end
@@ -484,57 +501,59 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
     ci = ctc[blank[1]].!=blank[2]
     cctc = ctc[ci,factors]
     ccondidx = condidx[ci]
-    ccondon=condon[ci]
-    ccondoff=condoff[ci]
+    ccondon = condon[ci]
+    ccondoff = condoff[ci]
 
     bi = .!ci
     bctc = ctc[bi,factors]
-    bcondidx=condidx[bi]
-    bcondon=condon[bi]
-    bcondoff=condoff[bi]
+    bcondidx = condidx[bi]
+    bcondon = condon[bi]
+    bcondoff = condoff[bi]
 
     subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
     siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
     testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
-    resultdir = joinpath(param[:resultroot],siteid,testid)
+    resultdir = joinpath(param[:resultroot],subject,siteid,testid)
     isdir(resultdir) || mkpath(resultdir)
 
     unitgood=trues(length(unitspike))
     # Unit Position
-    layers = haskey(param,:layers) ? param[:layers] : nothing
+    layer = haskey(param,:layer) ? param[:layer] : nothing
     if isplot
-        plotunitposition(unitposition,unitgood,spike["chposition"],unitid,layers=layers)
+        plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
         foreach(i->savefig(joinpath(resultdir,"unitposition$i")),[".png",".svg"])
     end
 
     # Prepare Imageset
     imgfile = joinpath(param[:dataroot],"$(testid)_image.mat")
     imgs = readmat(imgfile)["imageArray"]
-    imgs=mat2julia!(imgs)
-    px=613;py=135;rp=30
+    mat2julia!(imgs)
+    px=613;py=135;rp=32
 
-    imageset = map(i->dropdims(mean(i[py-rp:py+rp,px-rp:px+rp,:],dims=3),dims=3),imgs)
+    rawimageset = map(i->dropdims(mean(i[py-rp:py+rp,px-rp:px+rp,:],dims=3),dims=3),imgs)
+    imageset = map(i->gaussian_pyramid(i, 1, 4, 1.5)[2],rawimageset)
+
     imagesize = size(imageset[1])
     x = Array{Float64}(undef,length(ccondidx),prod(imagesize))
     foreach(i->x[i,:]=vec(imageset[ccondidx[i]]),1:size(x,1))
 
     if :STA in param[:model]
-        for u in 1:length(unitspike), d in 0.05:0.01:0.1
+        for u in 1:length(unitspike), d in 0.08:0.01:0.08
             _,y,_,_ = subrv(unitspike[u],ccondon.+d,ccondoff.+d,israte=false)
             r=sta(x,y)
             if isplot
                 plotsta(r,imagesize,delay=d)
-                foreach(i->savefig(joinpath(resultdir,"Unit$(unitid[u])_STA_$d$i")),[".png",".svg"])
+                foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_STA_$d$i")),[".png"])
             end
         end
     end
 
     if :ePPR in param[:model]
-        for u in 1:length(unitspike), d in 0.07:0.01:0.07
-            cellid = join(filter(!isempty,[subject,recordsession,recordsite,"U$(unitid[u])"]),"_")
-            y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d)
-            unitresultdir = joinpath(resultdir,"Unit$(unitid[u])_ePPR_$d")
+        for u in 75:75, d in 0.08:0.01:0.08
+            cellid = "$(siteid)_U$(unitid[u])"
+            unitresultdir = joinpath(resultdir,"Unit_$(unitid[u])_ePPR_$d")
             isdir(unitresultdir) && rm(unitresultdir,recursive=true)
+            y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d)
 
             debug = isplot ? ePPRDebugOptions(level=DebugVisual,logdir=unitresultdir) : ePPRDebugOptions()
             hp = ePPRHyperParams(imagesize...,ndelay=param[:epprndelay],blankcolor=128,nft=param[:epprnft],lambda=param[:epprlambda])
@@ -575,8 +594,9 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
 
     subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
     siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    sitedir = joinpath(param[:resultroot],subject,siteid)
     testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
-    resultdir = joinpath(param[:resultroot],subject,siteid,testid)
+    resultdir = joinpath(sitedir,testid)
     isdir(resultdir) || mkpath(resultdir)
 
     unitgood=trues(length(unitspike))
@@ -593,35 +613,35 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
         epochext = preicidur
         for u in 1:length(unitspike)
             ys,ns,ws,is = subrv(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
-            plotspiketrain(ys,timeline=[0,minconddur],title="Unit $(unitid[u])")
+            plotspiketrain(ys,timeline=[0,minconddur],title="Unit_$(unitid[u])")
             foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_SpikeTrian$i")),[".png",".svg"])
         end
     end
 
     # Condition Response
-    delay = haskey(param,:responsedelay) ? param[:responsedelay] : 0.02
+    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : 0.015
     for u in 1:length(unitspike)
-        rs = subrvr(unitspike[u],ccondon.+delay,ccondoff.+delay)
+        rs = subrvr(unitspike[u],ccondon.+responsedelay,ccondoff.+responsedelay)
         if isplot
-            plotcondresponse(rs,cctc,factors)
+            plotcondresponse(rs,cctc)
             foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_CondResponse$i")),[".png",".svg"])
         end
     end
 
     # blank condition response
-    ubmse=[]
+    ubr=[]
     if !isempty(bcondon)
         for u in 1:length(unitspike)
-            br = subrvr(unitspike[u],bcondon.+delay,bcondoff.+delay)
+            br = subrvr(unitspike[u],bcondon.+responsedelay,bcondoff.+responsedelay)
             mseuc = condresponse(br,condin(bctc))
-            push!(ubmse,(m=mseuc[1,:m],se=mseuc[1,:se]))
+            push!(ubr,(m=mseuc[1,:m],se=mseuc[1,:se]))
         end
     end
 
     # Condition Response in Factor Space
-    fms,fses,fa=factorresponse(unitspike,cctc,ccondon,ccondoff,delay=delay)
+    fms,fses,fa=factorresponse(unitspike,cctc,ccondon,ccondoff,responsedelay=responsedelay)
 
-    optconds=[]
+    ufs = Dict(k=>[] for k in keys(fa));optconds=[]
     for u in 1:length(fms)
         p = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...]
         push!(optconds, OrderedDict(map((f,i)->f=>fa[f][i],keys(fa),p)))
@@ -632,12 +652,14 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
             fi[fd]=1:fdn
             mseuc=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn))
             mseuc[f]=fa[f]
+            push!(ufs[f],factorresponsestats(mseuc[f],mseuc[:m],factor=f))
             if isplot
-                plotcondresponse(dropmissing(mseuc),colors=[:black],responseline=isempty(ubmse) ? [] : [ubmse[u]])
+                plotcondresponse(dropmissing(mseuc),colors=[:black],responseline=isempty(ubr) ? [] : ubr[u:u])
                 foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png",".svg"])
             end
         end
     end
+    save(joinpath(resultdir,"factorresponse.jld2"),"factorstats",ufs,"fms",fms,"fses",fses,"fa",fa)
 
     corrcond = haskey(param,:corrcond) ? param[:corrcond] : :allcond
     if typeof(corrcond) <: Union{Dict,NamedTuple}
@@ -647,22 +669,20 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
     else
         corrcondi = 1:length(ccondon)
     end
-    # Binary Spike Trian of Conditions
+    # Single Unit Binary Spike Trian of Conditions
     bepochext = -0.3
     bepoch = [-bepochext minconddur]
     bepochs = ccondon[corrcondi].+bepoch
-    spikebins = range(bepoch[1],bepoch[2],step=0.001)
-
-    unitbspike = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike)
-
-    # Unit Correlogram and Circuit
-    lag=50;unitidgood = unitid[unitgood]
-    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(unitbspike[unitgood],lag=lag)
+    spikebins = bepoch[1]:0.001:bepoch[2]
+    subst = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike[unitgood])
+    # Single Unit Correlogram and Circuit
+    lag=50;suid = unitid[unitgood]
+    ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(subst,lag=lag)
 
     if isplot
         for i in 1:length(ccgs)
-            title = "Correlogram between Unit $(unitidgood[ccgis[i][1]]) and $(unitidgood[ccgis[i][2]])"
-            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=:x,xtick=[-lag,0,lag])
+            title = "Correlogram between Unit $(suid[ccgis[i][1]]) and $(suid[ccgis[i][2]])"
+            bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=(:x,0.4),xtick=[-lag,0,lag])
             foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
         end
     end
