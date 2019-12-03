@@ -8,13 +8,14 @@ env = Dict{Any,Any}(
 meta = readmeta("$(env[:dataexportroot])/metadata.mat")
 
 # Query Test
-test = "Flash"
-tests=querymeta(meta,test=test,sourceformat="SpikeGLX",subject="AE9")
+test = "Color"
+tests=querymeta(meta,test=test,sourceformat="SpikeGLX",subject="AF5",recordsite="ODL1")
+
+
 
 # Flash of Two Colors
 param = copy(env)
-r,c = batchtests(tests,param,isplot=true)
-
+r,c = batchtests(tests[5:5,:],param,isplot=true)
 
 # Hartley Subspace Parametric and Image Response
 param = copy(env)
@@ -26,20 +27,25 @@ ur,uc = batchtests(tests[4:4,:],param,isplot=true);
 
 # Drifting Grating with Ori and SpatialFreq
 param = copy(env)
-param[:responsedelay] = 0.02
+param[:responsedelay] = 0.015
 param[:blank] = (:Ori, "blank")
 param[:corrcond] = :allcond
-ur,uc = batchtests(tests[1:3,:],param,isplot=true);
+r,c = batchtests(tests,param,isplot=true)
 
 # Drifting Grating with Ori, SpatialFreq and Color
 param = copy(env)
-param[:responsedelay] = 0.02
+param[:responsedelay] = 0.015
 param[:blank] = (:ColorID, 36)
 param[:corrcond] = :allcond
-ur,uc = batchtests(tests[1:1,:],param,isplot=true);
+r,c = batchtests(tests,param,isplot=true)
+
+# Color
+param = copy(env)
+r,c = batchtests(tests,param,isplot=true)
+
+
 
 # Save Result
-using FileIO
 resultdir = joinpath(rroot,testtype)
 !isdir(resultdir) && mkpath(resultdir)
 save(joinpath(resultdir,"batchresult.jld2"),"ur",ur,"uc",uc)
