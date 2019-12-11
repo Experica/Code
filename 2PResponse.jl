@@ -106,19 +106,31 @@ ctc = DataFrame(ex["CondTestCond"])
 factors = finalfactor(ctc)
 ci = ctc[factors[1]].!="blank"
 cctc = ctc[ci,factors]   # Remove blank
+# t = [ctc DataFrame(i=1:nrow(ctc))]
+# t = by(t, names(ctc),g->DataFrame(n=nrow(g), i=[g[:,:i]]))
+# aa=sort!(t[1:3,:]);
+# sort!(t[1:48,:]);
 ccond = condin(cctc)
 dFMean = Array{Float64}(undef, size(ccond,1))
 dFSem = Array{Float64}(undef, size(ccond,1))
 sigCellResp = DataFrame(dFMean=dFMean, dFSem=dFSem)
 cellResp = OrderedDict("ccond"=>ccond)
-
-for cell in 1:size(meanF,1)
-    for cond in 1:size(ccond,1)
-        sigCellResp.dFMean[cond] = mean(meanF[cell,:][ccond.i[cond]])
-        sigCellResp.dFSem[cond] = sem(meanF[cell,:][ccond.i[cond]])
-    end
-    push!(cellResp, string(cell)=>sigCellResp)
+test = Array{Int64}(undef, size(ccond,1))
+for con in 1:48
+    test[con]= findmax(ccond.i[con])[1]
 end
+
+tempdict = Dict(i=>meanF[i,ci] for i in 1:size(meanF,1))
+mseuc = condresponse(tempdict,condin(cctc))
+@df mseuc plot(:SpatialFreq,:m,group=:u)
+
+# for cell in 1:size(meanF,1)
+#     for cond in 1:size(ccond,1)
+#         sigCellResp.dFMean[cond] = mean(meanF[cell,:][ccond.i[cond]])
+#         sigCellResp.dFSem[cond] = sem(meanF[cell,:][ccond.i[cond]])
+#     end
+#     push!(cellResp, string(cell)=>sigCellResp)
+# end
 
 
 # insertcols!(cconF, 5, :meanResp => [1, 2])
