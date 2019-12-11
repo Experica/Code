@@ -5,27 +5,16 @@ using NeuroAnalysis,Statistics,Plots,Mmap,Images,StatsBase,LightGraphs,Interact,
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
-settimeunit(1)
 
-subject = "AE9";recordsession = "";recordsite = "u003"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-sitedir = joinpath(resultroot,subject,siteid)
-testid = "$(siteid)_000"
-resultdir = joinpath(sitedir,testid)
+datadir = joinpath(dataroot,subject,siteid)
+resultsitedir = joinpath(resultroot,subject,siteid)
+testid = "$(siteid)_Flash2Color_1"
+resultdir = joinpath(resultsitedir,testid)
 isdir(resultdir) || mkpath(resultdir)
 
-dataset = prepare(joinpath(dataexportroot,"$testid.mat"))
-nsavech=dataset["lf"]["meta"]["nSavedChans"]
-nsample=dataset["lf"]["meta"]["nFileSamp"]
-fs=dataset["lf"]["meta"]["fs"]
-nch = dataset["lf"]["meta"]["snsApLfSy"][2]
-refchmask = refchmaskim(dataset["ap"]["meta"])
-
-lfregex = Regex("^$(uppercase(testid))[A-Za-z0-9_]*.imec.lf.bin")
-lffile = joinpath(dataroot,filter(i->occursin(lfregex,i),readdir(dataroot))[1])
-mmlfp = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
-
-
+dataset = prepare(joinpath(dataexportroot,subject,"$testid.mat"))
 # Condition Test
 ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
 spike = dataset["spike"]
@@ -35,41 +24,56 @@ condoff = ex["CondTest"]["CondOff"]
 minconddur=minimum(condoff-condon)
 histogram(condoff-condon,nbins=20,title="Condition Duration(Set to $conddur)")
 
+# Prepare LFP
+lffile = matchfile(Regex("^$(testid)[A-Za-z0-9_]*.imec.lf.bin"),dir = datadir,adddir=true)[1]
+nsavech=dataset["lf"]["meta"]["nSavedChans"]
+nsample=dataset["lf"]["meta"]["nFileSamp"]
+fs=dataset["lf"]["meta"]["fs"]
+nch = dataset["lf"]["meta"]["snsApLfSy"][2]
+hx,hy,hz = dataset["lf"]["meta"]["probespacing"]
+badchmask = badchmaskim(dataset)
+nrow,ncol = size(badchmask)
+mmlfp = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
 
 # Laminar CSD
-epochdur = 0.15
+epochdur = 150
 epoch = [0 epochdur]
 epochs = condon.+epoch
-ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask) # all epoch LFP segments for each channel of probe in shape
+ys=reshape2mask(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask) # all epoch LFP segments for each channel of probe in shape
 
 col=1
 mcys=dropdims(mean(ys[:,col,:,:],dims=3),dims=3)
 plotanalog(mcys,fs=fs)
 foreach(i->savefig(joinpath(resultdir,"column_$(col)_lfp$i")),[".png",".svg"])
 
-mccsd = dropdims(mean(csd(ys[:,col,:,:]),dims=3),dims=3)
+
+mccsd = csd(mcys,h=hy,filter=Kernel.gaussian((0,1)))
+plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
+
+mccsd = dropdims(mean(csd(ys[:,col,:,:],h=hy,filter=Kernel.gaussian((2,0))),dims=3),dims=3)
 plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
 foreach(i->savefig(joinpath(resultdir,"column_$(col)_csd$i")),[".png",".svg"])
 
 # Column Mean Normalized CSD
-pys = cat((ys[:,i,:,:] for i in 1:2)...,dims=3)
-pcsd = csd(pys)
-baseline = pcsd[:,epoch2samplerange([0 0.015],fs),:] # 0-15ms csd as baseline
+pys = cat((ys[:,i,:,:] for i in 1:ncol)...,dims=3)
+pcsd = csd(pys,h=hy)
+basedur = 15 # 0-15ms csd as baseline
+baseline = pcsd[:,epoch2samplerange([0 basedur],fs),:]
 ncsd=pcsd.-mean(baseline,dims=2) # Δcsd relative to baseline
 mncsd = dropdims(mean(ncsd,dims=3),dims=3)
 mncsd[1,:].=0;mncsd[end,:].=0
 mncsd = imfilter(mncsd,Kernel.gaussian((2,1)))
-h=20;depths = h*(1:size(mncsd,1))
+depths = hy*(1:size(mncsd,1))
 plotanalog(mncsd,fs=fs,y=depths,color=:RdBu)
-foreach(i->savefig(joinpath(resultdir,"column_mean_normalized_csd$i")),[".png",".svg"])
+foreach(i->savefig(joinpath(resultdir,"column_mean_dcsd$i")),[".png",".svg"])
 save(joinpath(resultdir,"csd.jld2"),"csd",mncsd,"depth",depths,"fs",fs)
 
 
 # Depth Power Spectrum
-epochdur = 0.2
+epochdur = 200
 epoch = [0 epochdur]
 epochs = condon.+epoch
-ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask)
+ys=reshape2mask(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask)
 pys = cat((ys[:,i,:,:] for i in 1:2)...,dims=3)
 ps,freq = powerspectrum(pys,fs)
 mps = dropdims(mean(ps,dims=3),dims=3)
@@ -77,7 +81,7 @@ plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency
 
 epoch = [-epochdur 0]
 epochs = condon.+epoch
-ys=reshape2ref(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),refchmask)
+ys=reshape2mask(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask)
 pys = cat((ys[:,i,:,:] for i in 1:2)...,dims=3)
 bps,freq = powerspectrum(pys,fs)
 mbps =dropdims(mean(bps,dims=3),dims=3)
@@ -96,23 +100,22 @@ foreach(i->savefig(joinpath(resultdir,"Unit_Position$i")),[".png",".svg"])
 save(joinpath(resultdir,"spike.jld2"),"spike",spike)
 
 # Unit Spike Trian
-epochext = 0.1
+epochext = 100
 @manipulate for u in 1:length(unitspike)
 ys,ns,ws,is = subrv(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
 plotspiketrain(ys,timeline=[0,minconddur],title="Unit_$(unitid[u])")
 end
 
 # Unit Depth PSTH
-epochdur = 0.15
+epochdur = 150
 epoch = [0 epochdur]
 epochs = condon.+epoch
-bw = 0.002
+bw = 2
 psthbins = epoch[1]:bw:epoch[2]
-h=20
 
-baseindex = epoch2samplerange([0 0.015],1/bw) # 0-15ms of psth as baseline
+baseindex = epoch2samplerange([0 basedur],1/(bw*SecondPerUnit)) # 0-15ms of psth as baseline
 unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true)[1],psthbins,israte=true,normfun=x->x.-mean(x[baseindex])),unitspike)
-depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=h*(0:size(refchmask,1)+1))
+depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=hy*(0:size(badchmask,1)+1))
 depthpsth = imfilter(depthpsth,Kernel.gaussian((1,1)))
 plotpsth(depthpsth,x,depths)
 foreach(i->savefig(joinpath(resultdir,"depthpsth$i")),[".png",".svg"])
