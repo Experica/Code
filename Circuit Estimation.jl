@@ -1,30 +1,28 @@
 using NeuroAnalysis,Statistics,FileIO,Plots,LightGraphs
 
 # Combine all circuit estimations for one recording site
-env = Dict{Any,Any}(
-    :dataroot => "../Data",
-    :dataexportroot => "../DataExport",
-    :resultroot => "../Result",
-    :imageroot => "../NaturalStimuli")
+dataroot = "../Data"
+dataexportroot = "../DataExport"
+resultroot = "../Result"
 settimeunit(1)
-subject = "AE9";recordsession = "";recordsite = "u003";
+
+subject = "AE9";recordsession = "";recordsite = "u003"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-sitedir = joinpath(env[:resultroot],subject,siteid)
+sitedir = joinpath(resultroot,subject,siteid)
 layer = load(joinpath(sitedir,"layer.jld2"),"layer")
 
-
-
-testid="$(siteid)_003"
+# merge circuits
+testid="$(siteid)_000"
 spike = load(joinpath(sitedir,testid,"spike.jld2"),"spike")
-eval.([:($(Symbol(k))=spike[$k]) for k in keys(spike)])
 projs,eunits,iunits = load(joinpath(sitedir,testid,"circuit.jld2"),"projs","eunits","iunits")
-
-
+vprojs,veunits,viunits=checkcircuit(projs,eunits,iunits)
+unitgood=trues(length(spike["unitspike"]))
 
 # Unit Layer Circuit Graph
-plotcircuit(unitposition,projs,unitid=unitid,eunits=eunits,iunits=iunits,layer=layer)
-
+plotcircuit(spike["unitposition"],vprojs,findall(unitgood),unitid=spike["unitid"],eunits=veunits,iunits=viunits,layer=layer)
 foreach(i->savefig(joinpath(sitedir,"$(testid)_layer_circuit$i")),[".png",".svg"])
+
+
 
 
 

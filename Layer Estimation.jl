@@ -85,6 +85,12 @@ foreach(i->savefig(joinpath(sitedir,"layer_unitposition$i")),[".png",".svg"])
 
 
 
+
+
+
+
+
+
 # earliest response should be due to LGN M,P input to 4Ca,4Cb
 ln = ["4Cb","4Ca","4B","4A","2/3","Out"]
 lcsd = dropdims(mean(mncsd[:,epoch2samplerange([0.045 0.055],fs)],dims=2),dims=2)
@@ -127,6 +133,14 @@ hline!(bases[:,2],label="PSTH High Border")
 
 
 
+
+
+
+
+
+
+
+
 layer["Out"]=[3260,2900]
 layer["2/3"]=[2645,1800]
 layer["4A"]=[2550,1800]
@@ -138,3 +152,33 @@ layer["6"]=[1500,1800]
 layer["WM"]=[0,0]
 # Finalize Layers
 save(joinpath(sitedir,"layer.jld2"),"layer",checklayer(layer))
+
+
+
+# Layer Verification with Tuning Properties
+layer = load(joinpath(sitedir,"layer.jld2"),"layer")
+testids = ["$(siteid)_$(lpad(i,3,'0'))" for i in [8,12,13,14]]
+testn=length(testids)
+testtitles = ["Lum","L","M","S"]
+ds = load.(joinpath.(sitedir,testids,"factorresponse.jld2"),"factorstats","fms","fses","fa","responsive","modulative")
+spikes = load.(joinpath.(sitedir,testids,"spike.jld2"),"spike")
+
+f = :Dir
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60))
+for i in 1:testn
+    if f==:Ori
+        color = map((i,j)->j ? HSV(i.oo,1-i.ocv,1) : HSVA(0,0,0.5,0.2),ds[i][1][:Ori],ds[i][end])
+    elseif f==:Dir
+        color = map((i,j)->j ? HSV(i.od,1-i.dcv,1) : HSVA(0,0,0.5,0.2),ds[i][1][:Ori],ds[i][end])
+    end
+    scatter!(p,subplot=i,spikes[i]["unitposition"][:,1],spikes[i]["unitposition"][:,2],color=color,markerstrokewidth=0,markersize=3,title=testtitles[i])
+    if !isnothing(layer)
+        hline!(p,subplot=i,[layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(15,layer[k][1],text(k,6,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
+    end
+end
+foreach(i->savefig(joinpath(sitedir,"layer_unitposition_$(f)_Tuning$i")),[".png",".svg"])
+
+
+
+
+pyplot()
