@@ -6,15 +6,16 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test="Flash2Color_5"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 datadir = joinpath(dataroot,subject,siteid)
 resultsitedir = joinpath(resultroot,subject,siteid)
-testid = "$(siteid)_Flash2Color_1"
+testid = join(filter(!isempty,[siteid,test]),"_")
 resultdir = joinpath(resultsitedir,testid)
 isdir(resultdir) || mkpath(resultdir)
 
 dataset = prepare(joinpath(dataexportroot,subject,"$testid.mat"))
+
 # Condition Test
 ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
 spike = dataset["spike"]
@@ -32,42 +33,36 @@ fs=dataset["lf"]["meta"]["fs"]
 nch = dataset["lf"]["meta"]["snsApLfSy"][2]
 hx,hy,hz = dataset["lf"]["meta"]["probespacing"]
 badchmask = badchmaskim(dataset)
-nrow,ncol = size(badchmask)
-mmlfp = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
+pnrow,pncol = size(badchmask)
+mmlf = Mmap.mmap(lffile,Matrix{Int16},(nsavech,nsample),0)
 
-# Laminar CSD
+# Laminar LFP and CSD
 epochdur = 150
 epoch = [0 epochdur]
 epochs = condon.+epoch
-ys=reshape2mask(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask) # all epoch LFP segments for each channel of probe in shape
+ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask) # all LFP epochs for each channel of probe in shape
 
 col=1
 mcys=dropdims(mean(ys[:,col,:,:],dims=3),dims=3)
-plotanalog(mcys,fs=fs)
-foreach(i->savefig(joinpath(resultdir,"column_$(col)_lfp$i")),[".png",".svg"])
+plotanalog(mcys,fs=fs,cunit=:uv)
+foreach(i->savefig(joinpath(resultdir,"Column_$(col)_Mean_LFP$i")),[".png",".svg"])
 
-
-mccsd = csd(mcys,h=hy,filter=Kernel.gaussian((0,1)))
+mccsd = dropdims(mean(csd(ys[:,col,:,:],h=hy),dims=3),dims=3)
 plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
+foreach(i->savefig(joinpath(resultdir,"Column_$(col)_Mean_CSD$i")),[".png",".svg"])
 
-mccsd = dropdims(mean(csd(ys[:,col,:,:],h=hy,filter=Kernel.gaussian((2,0))),dims=3),dims=3)
-plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
-foreach(i->savefig(joinpath(resultdir,"column_$(col)_csd$i")),[".png",".svg"])
-
-# Column Mean Normalized CSD
-pys = cat((ys[:,i,:,:] for i in 1:ncol)...,dims=3)
+# Column Mean ΔCSD
+pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
 pcsd = csd(pys,h=hy)
-basedur = 15 # 0-15ms csd as baseline
-baseline = pcsd[:,epoch2samplerange([0 basedur],fs),:]
-ncsd=pcsd.-mean(baseline,dims=2) # Δcsd relative to baseline
-mncsd = dropdims(mean(ncsd,dims=3),dims=3)
-mncsd[1,:].=0;mncsd[end,:].=0
-mncsd = imfilter(mncsd,Kernel.gaussian((2,1)))
-depths = hy*(1:size(mncsd,1))
-plotanalog(mncsd,fs=fs,y=depths,color=:RdBu)
-foreach(i->savefig(joinpath(resultdir,"column_mean_dcsd$i")),[".png",".svg"])
-save(joinpath(resultdir,"csd.jld2"),"csd",mncsd,"depth",depths,"fs",fs)
-
+basedur = 15
+baseindex = epoch2samplerange([0 basedur],fs)
+dcsd=stfilter(pcsd,temporaltype=:sub,ti=baseindex,spatialtype=:annulus,ir=3,or=10)
+mdcsd = dropdims(mean(dcsd,dims=3),dims=3)
+mdcsd[[1,end],:].=0
+depths = hy*(1:size(mdcsd,1))
+plotanalog(imfilter(mdcsd,Kernel.gaussian((2,1))),fs=fs,y=depths,color=:RdBu)
+foreach(i->savefig(joinpath(resultdir,"Columns_Mean_dCSD$i")),[".png",".svg"])
+save(joinpath(resultdir,"csd.jld2"),"csd",mdcsd,"depth",depths,"fs",fs,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])")
 
 # Depth Power Spectrum
 epochdur = 200
@@ -113,14 +108,14 @@ epochs = condon.+epoch
 bw = 2
 psthbins = epoch[1]:bw:epoch[2]
 
-baseindex = epoch2samplerange([0 basedur],1/(bw*SecondPerUnit)) # 0-15ms of psth as baseline
-unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true)[1],psthbins,israte=true,normfun=x->x.-mean(x[baseindex])),unitspike)
-depthpsth,x,depths = spacepsth(unitpsth,unitposition,spacebinedges=hy*(0:size(badchmask,1)+1))
-depthpsth = imfilter(depthpsth,Kernel.gaussian((1,1)))
-plotpsth(depthpsth,x,depths)
-foreach(i->savefig(joinpath(resultdir,"depthpsth$i")),[".png",".svg"])
-save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"depth",depths,"x",x)
+baseindex = epoch2samplerange([0 basedur],1/(bw*SecondPerUnit))
+normfun = x->x.-mean(x[baseindex])
+unitpsth = map(ust->psth(subrv(ust,epochs,isminzero=true)[1],psthbins,israte=true,normfun=normfun),unitspike[unitgood])
+depthpsth,x,depths,depthnunit = spacepsth(unitpsth,unitposition[unitgood,:],spacebinedges=hy*(0:pnrow+1))
 
+plotpsth(imfilter(depthpsth,Kernel.gaussian((1,1))),x,depths,color=:minmax,n=depthnunit)
+foreach(i->savefig(joinpath(resultdir,"DepthPSTH$i")),[".png",".svg"])
+save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"depth",depths,"x",x,"n",depthnunit)
 
 
 
@@ -189,25 +184,3 @@ for i in 1:length(ccgs)
     foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
 end
 save(joinpath(resultdir,"circuit.jld2"),"projs",projs,"eunits",eunits,"iunits",iunits)
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Unit Graph
-ug = SimpleDiGraphFromIterator((Edge(i) for i in projs))
-nn = nv(ug)
-nodecolor = [in(i,eunits) ? RGB(1,0.2,0.2) : in(i,iunits) ? RGB(0.2,0.2,1) : RGB(0.4,0.4,0.4) for i in 1:nn]
-p=gplot(ug,unitposition[unitgood,1][1:nn],unitposition[unitgood,2][1:nn],nodelabel=1:nn,edgestrokec="gray30",nodefillc=map(c->coloralpha(c,0.5),nodecolor),
-nodelabelc=nodecolor,nodesize=3,arrowangleoffset=10/180*pi,arrowlengthfrac=0.025)
-
-using Compose,Cairo,Fontconfig
-draw(PDF(joinpath(resultdir,"circuitgraph.pdf"), 20Compose.cm, 20Compose.
