@@ -2,11 +2,10 @@ using NeuroAnalysis,Query,FileIO,ProgressMeter,Logging,Statistics,DataFrames,Plo
 import Base: close
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
-    rdf=[];cdf=[]
     p = ProgressMeter.Progress(size(tests,1),desc="Batch Tests ... ")
     for t in eachrow(tests)
         try
-            id = t[:ID];r=nothing
+            id = t[:ID]
             if id=="OriGrating"
                 u,c=processori(dataset,resultroot,uuid=uuid,log=log,delay=delay,binwidth=binwidth,isplot=isplot)
             elseif id=="Laser"
@@ -16,14 +15,11 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif id=="LaserImage"
                 u,c=processlaserimage(dataset,condroot,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,isplot=isplot)
             elseif id in ["Flash","Flash2Color"]
-                r,c=processflash(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+                process_flash(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             elseif id in ["Hartley","HartleySubspace"]
-                r,c=processhartley(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
+                process_hartley(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             elseif id in ["OriSF","OriSFColor","Color"]
-                r,c=processcondtest(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
-            end
-            if !isnothing(r)
-                push!(rdf,r);push!(cdf,c)
+                process_condtest(t[:files],param,uuid=t[:UUID],log=log,isplot=isplot)
             end
         catch exc
             display("============================================")
@@ -34,7 +30,6 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
         next!(p)
     end
     close(log)
-    return vcat(rdf...),vcat(cdf...)
 end
 
 function close(log::Dict{Any,AbstractLogger})
@@ -334,7 +329,7 @@ function processlaser(dataset::Dict,resultroot;uuid="",delay=20,binwidth=10,minp
     return vcat(udf...),cond
 end
 
-function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
+function process_flash(files,param;uuid="",log=nothing,isplot=true)
     dataset = prepare(abspath(param[:dataexportroot],files))
 
     # Condition Tests
@@ -486,24 +481,23 @@ function processflash(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any
     return nothing,nothing
 end
 
-function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true,nscale = 2;downsample = 2;sigma = 1.5)
-    dataset = prepare(abspath(param[:dataexportroot],files))
+function process_hartley(files,param;uuid="",log=nothing,isplot=true)
+    dataset = prepare(joinpath(param[:dataexportroot],files))
+
+    ex = dataset["ex"];subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
+    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    resultsitedir = joinpath(param[:resultroot],subject,siteid)
+    # testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
+    testid = splitdir(splitext(ex["source"])[1])[2]
+    resultdir = joinpath(resultsitedir,testid)
+    isdir(resultdir) || mkpath(resultdir)
 
     # Condition Tests
-    ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood=spike["unitgood"];unitposition=spike["unitposition"]
     condon = ex["CondTest"]["CondOn"]
     condoff = ex["CondTest"]["CondOff"]
     condidx = ex["CondTest"]["CondIndex"]
-    minconddur=minimum(condoff-condon)
-
-    subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
-    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-    resultsitedir = joinpath(param[:resultroot],subject,siteid)
-    # testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
-    testid = splitpath(splitext(ex["source"])[1])[end]
-    resultdir = joinpath(resultsitedir,testid)
-    isdir(resultdir) || mkpath(resultdir)
 
     # Prepare Conditions
     ctc = condtestcond(ex["CondTestCond"])
@@ -514,7 +508,6 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
     ccondidx = condidx[ci]
     ccondon = condon[ci]
     ccondoff = condoff[ci]
-
     bi = .!ci
     bctc = ctc[bi,factors]
     bcondidx = condidx[bi]
@@ -522,8 +515,8 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
     bcondoff = condoff[bi]
     isblank = !isempty(bcondon)
 
-    ugs = map(i->i ? "Single-" : "Multi-",unitgood)
     # Unit Position
+    ugs = map(i->i ? "Single-" : "Multi-",unitgood)
     layer = haskey(param,:layer) ? param[:layer] : nothing
     if isplot
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
@@ -534,6 +527,9 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
 
 
     # Prepare Imageset
+    nscale = haskey(param,:nscale) ? param[:nscale] : 2
+    downsample = haskey(param,:downsample) ? param[:downsample] : 2
+    sigma = haskey(param,:sigma) ? param[:sigma] : 1.5
     bgcolor = RGBA(getparam(envparam,"BGColor")...)
     masktype = getparam(envparam,"MaskType")
     maskradius = getparam(envparam,"MaskRadius")
@@ -545,6 +541,8 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
         pyramid[:size] = map(i->size(i),pyramid[:pyramid][1])
         param[imagesetname] = pyramid
     end
+
+    # Recover Image Stimuli
     imageset = param[imagesetname]
     bgcolor = oftype(imageset[:pyramid][1][1][1],bgcolor)
     unmaskindex = map(i->alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[2],imageset[:pyramid][1])
@@ -569,15 +567,14 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
         scaleindex=1
         uii = unique(ccondidx)
         uci = map(i->findall(ccondidx.==i),uii)
-
         x = Array{Float64}(undef,length(uii),prod(imageset[:size][scaleindex]))
         foreach(i->x[i,:]=vec(gray.(imagestimuli[scaleindex][uii[i]])),1:size(x,1))
 
-        for u in 1:length(unitspike), d in 30:10:60
+        for u in 1:length(unitspike), d in 30:10:100
             !unitgood[u] && continue
             y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d,israte=false)
             y = map(i->sum(y[i]),uci)
-            r=sta(x,y)
+            r = sta(x,y)
 
             if isplot
                 title = "$(ugs[u])Unit_$(unitid[u])_STA_$(d)"
@@ -603,27 +600,25 @@ function processhartley(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{A
             end
         end
     end
-
-    return nothing,nothing
 end
 
-function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),isplot=true)
-    dataset = prepare(abspath(param[:dataexportroot],files))
+function process_condtest(files,param;uuid="",log=nothing,isplot=true)
+    dataset = prepare(joinpath(param[:dataexportroot],files))
+
+    ex = dataset["ex"];subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
+    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+    resultsitedir = joinpath(param[:resultroot],subject,siteid)
+    # testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
+    testid = splitdir(splitext(ex["source"])[1])[2]
+    resultdir = joinpath(resultsitedir,testid)
+    isdir(resultdir) || mkpath(resultdir)
 
     # Condition Tests
-    ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood = spike["unitgood"];unitposition=spike["unitposition"]
     condon = ex["CondTest"]["CondOn"]
     condoff = ex["CondTest"]["CondOff"]
     minconddur=minimum(condoff-condon)
-
-    subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
-    siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-    resultsitedir = joinpath(param[:resultroot],subject,siteid)
-    # testid = join(filter(!isempty,[siteid,ex["TestID"]]),"_")
-    testid = splitpath(splitext(ex["source"])[1])[end]
-    resultdir = joinpath(resultsitedir,testid)
-    isdir(resultdir) || mkpath(resultdir)
 
     # Prepare Conditions
     ctc = condtestcond(ex["CondTestCond"])
@@ -635,7 +630,7 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
     else
         blank = haskey(param,:blank) ? param[:blank] : (:SpatialFreq,0)
     end
-    ci = ctc[!,blank[1]].!=blank[2]
+    ci = ctc[!,blank[1]].!==blank[2]
     cctc = ctc[ci,factors]
     ccond = condin(cctc)
     ccondon=condon[ci]
@@ -646,8 +641,8 @@ function processcondtest(files,param;uuid="",log::Dict{Any,AbstractLogger}=Dict{
     bcondoff=condoff[bi]
     isblank = !isempty(bcondon)
 
-    ugs = map(i->i ? "Single-" : "Multi-",unitgood)
     # Unit Position
+    ugs = map(i->i ? "Single-" : "Multi-",unitgood)
     layer = haskey(param,:layer) ? param[:layer] : nothing
     if isplot
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)

@@ -1,3 +1,12 @@
 [deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+Dierckx = "39dd38d3-220a-591b-8e3c-4c3a8c710a94"
+Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+MetaGraphs = "626554b9-1ddb-594c-aa3c-2596fe9399a5"
 NeuroAnalysis = "088af2c0-9cce-11e8-35da-81725c7f79e6"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Query = "1a8c2f83-1ff3-5112-b086-8aa67b057ba1"

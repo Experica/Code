@@ -1,21 +1,22 @@
-## Prepare Env and Metadata
+## Prepare Metadata and Batch Param
 includet("batch.jl")
-env = Dict{Any,Any}(
+param = Dict{Any,Any}(
     :dataroot => "../Data",
     :dataexportroot => "../DataExport",
     :resultroot => "../Result",
     :imageroot => "../NaturalStimuli")
-meta = readmeta("$(env[:dataexportroot])/metadata.mat")
+meta = readmeta("$(param[:dataexportroot])/metadata.mat")
+
+param[:layer] = layer
 
 
 
-env[:layer] = layer
-## Query Test
+## Query Tests
 tests = @from i in meta begin
-        @where startswith(get(i.Subject_ID),"AF5")
-        @where i.RecordSite=="ODL3"
-        @where i.ID=="OriSF"
-        @where i.sourceformat=="SpikeGLX"
+        @where startswith(get(i.Subject_ID), "AF5")
+        @where i.RecordSite == "ODL3"
+        @where i.ID == "HartleySubspace"
+        @where i.sourceformat == "SpikeGLX"
         @select {i.ID,i.UUID,i.files}
         @collect DataFrame
         end
@@ -26,13 +27,13 @@ tests = @from i in meta begin
 param = copy(env)
 r,c = batchtests(tests,param,isplot=true)
 
-# Hartley Subspace Parametric and Image Response
-param = copy(env)
-param[:model]=[:ePPR]
+## Hartley Subspace Parametric and Image Response
+param[:model]=[:STA]
+
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100
-ur,uc = batchtests(tests[4:4,:],param,isplot=true);
+r,c = batchtests(tests,param,isplot=true)
 
 ## Drifting Grating with Ori and SpatialFreq
 param = copy(env)
