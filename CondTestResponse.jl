@@ -7,7 +7,7 @@ dataexportroot = "../DataExport"
 resultroot = "../Result"
 imageroot = "../NaturalStimuli"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test = "HartleySubspace_1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test = "Color_1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 datadir = joinpath(dataroot,subject,siteid)
 resultsitedir = joinpath(resultroot,subject,siteid)
@@ -49,14 +49,13 @@ ctc = condtestcond(ex["CondTestCond"])
 cond = condin(ctc)
 factors = finalfactor(ctc)
 # for color test
-# factors = [:HueAngle]
-# blank = (:Color,36)
+factors = [:HueAngle]
+blank = (:Color,36)
 
 # for orisf test
 # blank = (:SpatialFreq,0)
-
 # for hartley test
-blank = (:Ori_Final,NaN)
+# blank = (:Ori_Final,NaN)
 
 ci = ctc[!,blank[1]].!==blank[2]
 cctc = ctc[ci,factors]
@@ -64,6 +63,7 @@ ccond = condin(cctc)
 ccondon=condon[ci]
 ccondoff=condoff[ci]
 ccondidx = condidx[ci]
+
 
 bi = .!ci
 bctc = ctc[bi,factors]
@@ -107,25 +107,58 @@ fms,fses,fa=factorresponse(unitspike,cctc,ccondon,ccondoff,responsedelay=respons
     plotcondresponse(dropmissing(mseuc),colors=[:black],responseline=ubr[u:u])
 end
 
-ufs = Dict(k=>[] for k in keys(fa))
-for u in 1:length(fms), f in collect(keys(fa))
-    p = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...]
-    fd = findfirst(f.==keys(fa))
-    fdn = length(fa[f])
-    p[fd]=1:fdn
-    mseuc=DataFrame(m=fms[u][p...],se=fses[u][p...],u=fill(unitid[u],fdn))
-    mseuc[!,f]=fa[f]
-
-    push!(ufs[f],factorresponsestats(mseuc[!,f],mseuc[!,:m],factor=f))
-
-    # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=f==:Ori_Final ? :polar : :cartesian,responseline=isblank ? ubr[u:u] : [])
-    # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png",".svg"])
+ufs = Dict(k=>[] for k in keys(fa));optconds=[]
+for u in 1:length(fms)
+    oi = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...]
+    push!(optconds, Dict(map((f,i)->f=>fa[f][i],keys(fa),oi)))
+    for f in keys(fa)
+        fd = findfirst(f.==keys(fa))
+        fdn = length(fa[f])
+        fi = copy(oi)
+        fi[fd]=1:fdn
+        mseuc=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn),ug=fill("$(ugs[u][1])U",fdn))
+        mseuc[!,f]=fa[f]
+        push!(ufs[f],factorresponsestats(mseuc[!,f],mseuc[!,:m],factor=f))
+        if false
+            proj = f in [:Ori,:Ori_Final,:HueAngle] ? :polar : :cartesian
+            blmseuc=DataFrame(m=blfms[u][fi...],se=blfses[u][fi...],u=fill(-unitid[u],fdn),ug=fill("$(ugs[u][1])UBaseline",fdn))
+            blmseuc[!,f]=fa[f]
+            mseuc = [mseuc;blmseuc]
+            plotcondresponse(dropmissing(mseuc),colors=[:gray40,:navyblue],projection=proj,responseline=isblank ? ubr[u:u] : [])
+            foreach(i->savefig(joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_$(f)_Tuning$i")),[".png",".svg"])
+        end
+    end
 end
+
 save(joinpath(resultdir,"factorresponse.jld2"),"factorstats",ufs,"fms",fms,"fses",fses,"fa",fa,"responsive",uresponsive,"modulative",umodulative)
 
 ## Tuning map
 vi = uresponsive.&umodulative.&unitgood
+colorspace = ex["Param"]["ColorSpace"]
+hues = ex["Param"]["Color"]
 # for orisf test
+title = "UnitPosition_OptimalOriDirSF"
+p=plotunitpositionproperty(unitposition[vi,:],title=title,ori=map(i->i.oo,ufs[:Ori_Final][vi]),os=map(i->1-i.ocv,ufs[:Ori_Final][vi]),
+dir = map(i->i.od,ufs[:Ori_Final][vi]),ds=map(i->1-i.dcv,ufs[:Ori_Final][vi]),sf=map(i->i.osf,ufs[:SpatialFreq][vi]),layer=layer)
+
+save("testup.svg",p)
+pfactor=intersect([:Ori,:Ori_Final],keys(ufs))
+
+oos = map(i->i.oo,ufs[:Ori_Final][vi])
+oos = [oos;oos.+180]
+ys,ns,ws,is = histrv(oos,0,360,nbins=20)
+oa = deg2rad.(mean.([ws;ws[1]]))
+oh = [ns;ns[1]]./2
+
+ys,ns,ws,is = histrv(map(i->i.od,ufs[:Ori_Final][vi]),0,360,nbins=20)
+da = deg2rad.(mean.([ws;ws[1]]))
+dh = [ns;ns[1]]
+
+title = "$(colorspace)_$(hues)_OptOriDir_Distribution"
+plot([oa da],[oh dh],title=title,projection=:polar,linewidth=2,label=["Ori" "Dir"])
+
+
+
 title = "UnitPosition_OptimalOri"
 plotunitposition(unitposition,color=map((i,j)->j ? HSV(i.oo,1-i.ocv/2,1) : RGBA(0.5,0.5,0.5,0.1),ufs[:Ori_Final],vi),title=title)
 foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
@@ -141,7 +174,13 @@ foreach(i->savefig(joinpath(resultdir,"UnitPosition_HueTuning$i")),[".png",".svg
 colorspace = ex["Param"]["ColorSpace"]
 hues = ex["Param"]["Color"]
 title = "UnitPosition_$(colorspace)_$(hues)_OptimalHue"
-plotunitposition(unitposition,color=map((i,j)->j ? RGBA(clamp.(cond[findclosestangle(deg2rad(i.oh),deg2rad.(cond[!,:HueAngle])),:Color],0,1)...) : RGBA(0.5,0.5,0.5,0.1),ufs[:HueAngle],vi),layer=layer,title=title)
+
+ha = ccond[!,:HueAngle]
+hac = map(i->cond[findfirst(cond[!,:HueAngle].==i),:Color],ha)
+
+plotunitposition(unitposition[vi,:],color=map(i->RGBA(clamp.(cond[findclosestangle(deg2rad(i.oh),deg2rad.(cond[!,:HueAngle])),:Color],0,1)...),ufs[:HueAngle][vi]),
+markersize=map(i->(1-i.hcv)*5+2,ufs[:HueAngle][vi]),layer=layer,title=title)
+
 foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
 
 ys,ns,ws,is = histrv(map(i->i.oh,ufs[:HueAngle][vi]),0,360,nbins=10)
@@ -151,43 +190,44 @@ foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
 
 
 
+
+
+
+
 ## Prepare Images
-imagesetname = splitext(splitdir(ex["CondPath"])[2])[1]
-imageset = map(i->GrayA.(i),prepare(joinpath(imageroot,"$(imagesetname).mat"))["imgs"])
-@manipulate for i in 1:length(imageset)
-    imageset[i]
-end
-
-ppd = size(imageset[1],1)/5
-
-
-getparam(envparam,"Diameter")
-
-
-
-
-
-bgcolor = oftype(imageset[1][1],RGBA(getparam(envparam,"BGColor")...))
+nscale =  2
+downsample =2
+sigma =1.5
+bgcolor = RGBA(getparam(envparam,"BGColor")...)
 masktype = getparam(envparam,"MaskType")
 maskradius = getparam(envparam,"MaskRadius")
 masksigma = getparam(envparam,"Sigma")
+diameter = 5 #getparam(envparam,"Diameter")
+imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_diameter[$diameter]"
 
-nscale = 2;downsample = 2;sigma = 1.5
-imagestimuli = map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset)
-imagesize = map(i->size(i),imagestimuli[1])
-unmaskindex = map(i->alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[2],imagestimuli[1])
-imagestimuli = map(s->map(i->alphablend.(alphamask(i[s],radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imagestimuli),1:nscale)
-@manipulate for i in 1:length(imageset),s in 1:length(imagestimuli)
+imageset = map(i->GrayA.(grating(ori=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=diameter)),eachrow(DataFrame(ex["Cond"])))
+imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
+imageset[:size] = map(i->size(i),imageset[:pyramid][1])
+
+
+bgcolor = oftype(imageset[:pyramid][1][1][1],bgcolor)
+unmaskindex = map(i->alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[2],imageset[:pyramid][1])
+imagestimuli = map(s->map(i->alphablend.(alphamask(i[s],radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imageset[:pyramid]),1:nscale)
+
+
+@manipulate for i in 1:length(imageset[:pyramid]),s in 1:length(imagestimuli)
     imagestimuli[s][i]
 end
 
-
 scaleindex=1
-uii = unique(ccondidx)
-uci = map(i->findall(ccondidx.==i),uii)
+ucci = unique(ccondidx)
+uccii = map(i->findall(ccondidx.==i),ucci)
+imagesize = imageset[:size][scaleindex]
+xi = unmaskindex[scaleindex]
+x = Array{Float64}(undef,length(ucci),length(xi))
+foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][ucci[i]][xi]),1:size(x,1))
 
-x = Array{Float64}(undef,length(uii),prod(imagesize[scaleindex]))
-foreach(i->x[i,:]=vec(gray.(imagestimuli[scaleindex][uii[i]])),1:size(x,1))
+
 
 @manipulate for u in 1:length(unitspike), d in 0:20:40
     y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d,israte=false)
@@ -196,10 +236,18 @@ foreach(i->x[i,:]=vec(gray.(imagestimuli[scaleindex][uii[i]])),1:size(x,1))
 end
 
 u=155
-d=60
+d=30
 y = subrvr(unitspike[u],ccondon.+d,ccondoff.+d,israte=false)
-y = map(i->sum(y[i]),uci)
-plotsta(sta(x,y),imagesize[scaleindex],delay=d,title="$(ugs[u])Unit_$(unitid[u])_STA_$(d)")
+y = map(i->sum(y[i]),uccii)
+r = sta(x,y)
+
+
+p=plotsta(r,imagesize=imagesize,size=diameter,index=xi,title = "$(ugs[u])Unit_$(unitid[u])_STA_$(d)")
+
+
+save("statest.png",p)
+save("statest.svg",p)
+
 
 
 for u in 1:length(unitspike), d in 0.04:0.01:0.12

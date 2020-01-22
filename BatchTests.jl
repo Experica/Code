@@ -1,12 +1,11 @@
-## Prepare Metadata and Batch Param
+## Prepare Param and Metadata
 includet("batch.jl")
 param = Dict{Any,Any}(
     :dataroot => "../Data",
     :dataexportroot => "../DataExport",
     :resultroot => "../Result",
-    :imageroot => "../NaturalStimuli")
-meta = readmeta("$(param[:dataexportroot])/metadata.mat")
-
+    :stimuliroot => "../NaturalStimuli")
+meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 param[:layer] = layer
 
 
@@ -15,7 +14,7 @@ param[:layer] = layer
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
         @where i.RecordSite == "ODL3"
-        @where i.ID == "HartleySubspace"
+        @where i.ID == "Flash2Color"
         @where i.sourceformat == "SpikeGLX"
         @select {i.ID,i.UUID,i.files}
         @collect DataFrame
@@ -23,32 +22,21 @@ tests = @from i in meta begin
 
 
 
-## Flash of Two Colors
-param = copy(env)
-r,c = batchtests(tests,param,isplot=true)
+## Condition Tests
+batchtests(tests,param,plot=true)
 
-## Hartley Subspace Parametric and Image Response
+## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
 
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100
-r,c = batchtests(tests,param,isplot=true)
+batchtests(tests,param,plot=true)
 
-## Drifting Grating with Ori and SpatialFreq
-param = copy(env)
-r,c = batchtests(tests,param,isplot=true)
 
-# Drifting Grating with Ori, SpatialFreq and Color
-param = copy(env)
-param[:responsedelay] = 0.015
-param[:blank] = (:ColorID, 36)
-param[:corrcond] = :allcond
-r,c = batchtests(tests,param,isplot=true)
 
-## Color Test
-param = copy(env)
-r,c = batchtests(tests,param,isplot=true)
+
+
 
 
 

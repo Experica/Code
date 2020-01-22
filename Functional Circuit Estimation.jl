@@ -161,25 +161,25 @@ end
 
 
 
-
-
 # Single Unit Binary Spike Trian of Conditions
-bepochext = -0.3
+bepochext = timetounit(-300)
 bepoch = [-bepochext minconddur]
-bepochs = condon.+bepoch
-spikebins = bepoch[1]:0.001:bepoch[2]
+bepochs = ccondon.+bepoch
+spikebins = bepoch[1]:timetounit(1):bepoch[2]
 subst = map(ust->float.(histmatrix(subrv(ust,bepochs,isminzero=true,shift=bepochext)[1],spikebins)[1])',unitspike[unitgood])
 # Single Unit Correlogram and Circuit
-lag=50;suid = unitid[unitgood]
-ccgs,x,ccgis,projs,eunits,iunits = circuitestimate(subst,lag=lag)
+lag=50
+ccgs,x,ccgis,projs,eunits,iunits,projweights = circuitestimate(subst,lag=lag,unitid=unitid[unitgood],condis=ccond.i,minepoch=5,minspike=5)
+
+
 
 @manipulate for i in 1:length(ccgs)
-    title = "Correlogram between Unit $(suid[ccgis[i][1]]) and $(suid[ccgis[i][2]])"
+    title = "Correlogram between Single Unit $(ccgis[i][1]) and $(ccgis[i][2])"
     bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=(:x,0.4),xtick=[-lag,0,lag])
 end
 
 for i in 1:length(ccgs)
-    title = "Correlogram between Unit $(suid[ccgis[i][1]]) and $(suid[ccgis[i][2]])"
+    title = "Correlogram between Single Unit $(ccgis[i][1]) and $(ccgis[i][2])"
     bar(x,ccgs[i],bar_width=1,legend=false,color=:gray15,linecolor=:match,title=title,xlabel="Time (ms)",ylabel="Coincidence/Spike",grid=(:x,0.4),xtick=[-lag,0,lag])
     foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
 end
