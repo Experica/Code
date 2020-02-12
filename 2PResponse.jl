@@ -14,8 +14,9 @@ testId = "008"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
-# responseDelay = 0.1
+responseOffset = 0.05  # in sec
 α = 0.05   # p value
+sampnum = 100   # random sampling 100 times
 isplot = false
 
 ## Prepare data & result path
@@ -66,7 +67,7 @@ preStim = ex["PreICI"]; stim = ex["CondDur"]; postStim = ex["SufICI"]
 trialOnTime = fill(0, trialNum)
 condOfftime = preStim + stim
 preEpoch = [0 preStim-preOffset]
-condEpoch = [preStim condOfftime]
+condEpoch = [preStim+responseOffset condOfftime-responseOffset]
 preFrame=epoch2samplerange(preEpoch, sbxfs)
 condFrame=epoch2samplerange(condEpoch, sbxfs)
 # preOn = fill(preFrame.start, trialNum)
@@ -184,60 +185,87 @@ for pn in 1:planeNum
     result.modulative = umodulative
 
     ## Check which cell is significantly tuning by orientation or direction
-    oripvalue=[];orivec=[];dirpvalue=[];dirvec=[];
+    oriAUC=[]; dirAUC=[];
     for cell in 1:cellNum
         # cell=1  # for test
             # Get all trial Id of under maximal sf
             # mcti = @where(condition, :SpatialFreq .== ufm[:SpatialFreq][cell])
         mcti = condition[condition.SpatialFreq.==ufm[:SpatialFreq][cell], :]
-        resp=[cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-        pori=[];pdir=[];
-        for j = 1:100
-            for i=1:size(resp,1)
-                shuffle!(@view resp[i,:])
+        blankResp = cellMeanTrial[cell,condition[end,:i]]
+
+        oridist=[];dirdist=[];blkoridist=[];blkdirdist=[];
+        for k =1:2
+            if k ==1
+                resp=[cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
+            elseif k ==2
+                resp = Array{Float64}(undef, nrow(mcti), mcti[1,:n])
+                sample!(blankResp, resp; replace=true, ordered=false)
             end
-            resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir) for t in 1:mcti.n[1]]
-            orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
-            orip = hotellingt2test([real(orivec) imag(orivec)],[0 0],0.05)
-            # push!(orivec, orivectemp)
-            # check significance of direction selective
-           oriang = angle(mean(-orivec, dims=1)[1])  # angel orthogonal to mean ori vector
-           orivecdir = exp(im*oriang/2)   # dir axis vector (orthogonal to ori vector) in direction space
-           dirvec = reduce(vcat,[resu[t].dm for t in 1:mcti.n[1]])
-           dirp = dirsigtest(orivecdir, dirvec)
-           push!(pori, orip);push!(pdir, dirp);
+
+            for j = 1:sampnum    # Random sampling sampnum times
+                for i=1:size(resp,1)
+                    shuffle!(@view resp[i,:])
+                end
+                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir) for t in 1:mcti.n[1]]
+                orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
+                orivecmean = mean(orivec, dims=1)[1]  # final mean vec
+                oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
+
+                # check significance of direction selective
+               oriorth = angle(mean(-orivec, dims=1)[1])  # angel orthogonal to mean ori vector
+               orivecdir = exp(im*oriorth/2)   # dir axis vector (orthogonal to ori vector) in direction space
+               dirvec = reduce(vcat,[resu[t].dm for t in 1:mcti.n[1]])
+               dirdistr = [real(dirvec) imag(dirvec)] * [real(orivecdir) imag(orivecdir)]'
+
+               if k ==1
+                   push!(oridist, oridistr);push!(dirdist, dirdistr);
+               elseif k==2
+                   push!(blkoridist, oridistr); push!(blkdirdist, dirdistr);
+               end
+            end
         end
-        yso,nso,wso,iso=histrv(float.(pori),0,1,nbins=20)
-        ysd,nsd,wsd,isd=histrv(float.(pdir),0,1,nbins=20)
-        # orivec = reduce(vcat,[orivec[t] for t in 1:size(orivec,1)])
-        # orip = hotellingt2test([real(orivec) imag(orivec)],[0 0],0.05)
-        # push!(oripvalue,orip);push!(dirpvalue,dirp);
-        push!(oripvalue,mean(yso[findmax(nso)[2]])); push!(dirpvalue,mean(ysd[findmax(nsd)[2]]));
+
+        blkoridist = reduce(vcat, blkoridist)
+        blkdirdist = reduce(vcat, blkdirdist)
+        oridist = reduce(vcat, oridist)
+        dirdist = reduce(vcat, dirdist)
+
+        oriauc=roccurve(blkoridist, oridist)
+        dirauc=roccurve(blkdirdist, dirdist)
+
+        push!(oriAUC,oriauc);push!(dirAUC,dirauc);
+
     end
-    result.orip = oripvalue
-    result.dirp = dirpvalue
+    result.oriauc = oriAUC
+    result.dirauc = dirAUC
 
     ## Get the optimal factor level using Circular Variance for each cell
     ufs = Dict(k=>[] for k in keys(fa))
-    for u in 1:length(fms), f in collect(keys(fa))
-        p = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...] # Replace missing with -Inf, then find the x-y coordinates of max value.
+    for cell in 1:length(fms), f in collect(keys(fa))
+        p = Any[Tuple(argmax(coalesce.(fms[cell],-Inf)))...] # Replace missing with -Inf, then find the x-y coordinates of max value.
         fd = findfirst(f.==keys(fa))   # facotr dimention
         fdn = length(fa[f])  # dimention length/number of factor level
         p[fd]=1:fdn   # pick up a slice for plotting tuning curve
-        mseuc=DataFrame(m=fms[u][p...],se=fses[u][p...],u=fill(cellId[u],fdn),ug=fill(parse(Int, recordPlane), fdn))  # make DataFrame for plotting
+        mseuc=DataFrame(m=fms[cell][p...],se=fses[cell][p...],u=fill(cellId[cell],fdn),ug=fill(parse(Int, recordPlane), fdn))  # make DataFrame for plotting
         mseuc[f]=fa[f]
-        # The optimal dir, ori (based on circular variance) and sf (based on log10 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f))
 
-        plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
+        # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
+        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, thres=oriAUC[cell]))
+        # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
-    result.optsf = ufs[:SpatialFreq]
+
+    tempDF=DataFrame(ufs[:SpatialFreq])
+    result.optsf = tempDF.osf
     tempDF=DataFrame(ufs[:Dir])
-    result.optdir = tempDF.od
+    result.optdir = tempDF.od   # cv
+    result.pd =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
     result.dircv = tempDF.dcv
-    result.optori = tempDF.oo
+    result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.optori = tempDF.oo  # cv
+    result.po =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
     result.oricv = tempDF.ocv
+    result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
 
     # Plot tuning curve of each factor of each cell
     if isplot
