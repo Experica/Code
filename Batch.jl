@@ -367,7 +367,7 @@ function process_flash(files,param;uuid="",log=nothing,plot=true)
     epochdur = timetounit(150)
     epoch = [0 epochdur]
     epochs = condon.+epoch
-    # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered, in the same shape of probe, where bad channels are replaced with local averaging
+    # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered, in the same shape of probe, where bad channels are replaced with local average
     ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),badchmask)
 
     if plot
@@ -402,25 +402,25 @@ function process_flash(files,param;uuid="",log=nothing,plot=true)
     epochs = condon.+epoch
     ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),badchmask)
     pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-    ps,freq = powerspectrum(pys,fs,freqrange=1:100,nw=5*epochdur*SecondPerUnit)
+    ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=4*epochdur*SecondPerUnit)
 
     epoch = [-epochdur 0]
     epochs = condon.+epoch
     ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),badchmask)
     pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-    bps,freq = powerspectrum(pys,fs,freqrange=1:100,nw=5*epochdur*SecondPerUnit)
+    bps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=4*epochdur*SecondPerUnit)
 
     rcps = ps./bps.-1
     mrcps = dropdims(mean(rcps,dims=3),dims=3)
     if plot
         mps = dropdims(mean(ps,dims=3),dims=3)
-        plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:fire)
+        plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
         foreach(i->savefig(joinpath(resultdir,"DepthPowerSpectrum$i")),[".png",".svg"])
         mbps =dropdims(mean(bps,dims=3),dims=3)
-        plotanalog(imfilter(mbps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:fire)
+        plotanalog(imfilter(mbps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
         foreach(i->savefig(joinpath(resultdir,"DepthPowerSpectrum_Baseline$i")),[".png",".svg"])
 
-        plotanalog(imfilter(mrcps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:fire)
+        plotanalog(imfilter(mrcps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
         foreach(i->savefig(joinpath(resultdir,"DepthPowerSpectrum_RelativeChange$i")),[".png",".svg"])
     end
     save(joinpath(resultdir,"powerspectrum.jld2"),"rcps",mrcps,"depth",depths,"freq",freq)
@@ -524,7 +524,7 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
     layer = haskey(param,:layer) ? param[:layer] : nothing
     if plot
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
-        foreach(i->savefig(joinpath(resultdir,"Unit_Position$i")),[".png",".svg"])
+        foreach(i->savefig(joinpath(resultdir,"UnitPosition$i")),[".png",".svg"])
     end
     save(joinpath(resultdir,"spike.jld2"),"spike",spike)
 
@@ -535,15 +535,18 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
     downsample = haskey(param,:downsample) ? param[:downsample] : 2
     sigma = haskey(param,:sigma) ? param[:sigma] : 1.5
     bgcolor = RGBA(getparam(envparam,"BGColor")...)
+    maxcolor = RGBA(getparam(envparam,"MaxColor")...)
+    mincolor = RGBA(getparam(envparam,"MinColor")...)
     masktype = getparam(envparam,"MaskType")
     maskradius = getparam(envparam,"MaskRadius")
     masksigma = getparam(envparam,"Sigma")
     diameter = 5#getparam(envparam,"Diameter")
-    imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_diameter[$diameter]"
+    stisize = (diameter,diameter)
+    imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_stisize$stisize"
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(grating(ori=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=diameter)),eachrow(DataFrame(ex["Cond"])))
+        imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,stisize=stisize,ppd=45)),eachrow(DataFrame(ex["Cond"])))
         imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
-        imageset[:size] = map(i->size(i),imageset[:pyramid][1])
+        imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
         param[imagesetname] = imageset
     end
 
@@ -570,21 +573,21 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
 
     if :STA in param[:model]
         scaleindex=1
-        ucci = unique(ccondidx)
-        uccii = map(i->findall(ccondidx.==i),ucci)
-        imagesize = imageset[:size][scaleindex]
+        imagesize = imageset[:imagesize][scaleindex]
         xi = unmaskindex[scaleindex]
-        x = Array{Float64}(undef,length(ucci),length(xi))
-        foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][ucci[i]][xi]),1:size(x,1))
+        uci = unique(condidx)
+        ucii = map(i->findall(condidx.==i),uci)
+        x = Array{Float64}(undef,length(uci),length(xi))
+        foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
 
         usta = Dict()
-        delays = 0:10:200
+        delays = -10:5:200
         for u in eachindex(unitspike)
             !unitgood[u] && continue
             stas = Array{Float64}(undef,length(delays),length(xi))
             for d in eachindex(delays)
-                y = subrvr(unitspike[u],ccondon.+delays[d],ccondoff.+delays[d],israte=false)
-                y = map(i->sum(y[i]),uccii)
+                y = subrvr_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=false)
+                y = map(i->sum(y[i]),ucii)
                 stas[d,:]=sta(x,y)
             end
             usta[unitid[u]]=stas
@@ -593,12 +596,13 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
                 r = [extrema(stas)...]
                 for d in eachindex(delays)
                     title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-                    p = plotsta(stas[d,:],imagesize=imagesize,size=diameter,index=xi,title=title,r=r)
+                    p = plotsta(stas[d,:],imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
                     foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
                 end
             end
         end
-        save(joinpath(resultdir,"sta.jld2"),"imagesize",imagesize,"xi",xi,"usta",usta,"delays",delays,"size",diameter)
+        save(joinpath(resultdir,"sta.jld2"),"imagesize",imagesize,"xi",xi,"usta",usta,"delays",delays,"stisize",stisize,
+        "log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
     end
 
     if :ePPR in param[:model]
@@ -680,11 +684,12 @@ function process_condtest(files,param;uuid="",log=nothing,plot=true)
 
     # Condition Response
     responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : timetounit(15)
+    minresponse = haskey(param,:minresponse) ? param[:minresponse] : 5
     ubr=[];uresponsive=[];umodulative=[]
     for u in eachindex(unitspike)
         rs = subrvr(unitspike[u],ccondon.+responsedelay,ccondoff.+responsedelay,israte=true)
-        basers = subrvr(unitspike[u],ccondon.+(responsedelay-preicidur),ccondon.+responsedelay,israte=true)
-        push!(uresponsive,isresponsive(basers,rs,ccond.i))
+        prs = subrvr(unitspike[u],ccondon.+(responsedelay-preicidur),ccondon.+responsedelay,israte=true)
+        push!(uresponsive,isresponsive(prs,rs,ccond.i))
         push!(umodulative,ismodulative([DataFrame(Y=rs) cctc]))
         if isblank
             br = subrvr(unitspike[u],bcondon.+responsedelay,bcondoff.+responsedelay)
@@ -700,32 +705,35 @@ function process_condtest(files,param;uuid="",log=nothing,plot=true)
     # Condition Response in Factor Space
     fms,fses,fa=factorresponse(unitspike,cctc,ccondon,ccondoff,responsedelay=responsedelay)
     pfms,pfses,fa=factorresponse(unitspike,cctc,ccondon.-preicidur,ccondon,responsedelay=responsedelay)
-    sfms,sfses,fa=factorresponse(unitspike,cctc,ccondoff,ccondoff.-suficidur,responsedelay=responsedelay)
+    sfms,sfses,fa=factorresponse(unitspike,cctc,ccondoff,ccondoff.+suficidur,responsedelay=responsedelay)
 
-    ufs = Dict(k=>[] for k in keys(fa));optconds=[]
+    ufs = Dict(k=>[] for k in keys(fa));optconds=[];uenoughresponse=[]
     for u in eachindex(fms)
         oi = Any[Tuple(argmax(coalesce.(fms[u],-Inf)))...]
+        push!(uenoughresponse,fms[u][oi...]>=minresponse)
         push!(optconds, Dict(map((f,i)->f=>fa[f][i],keys(fa),oi)))
         for f in keys(fa)
             fd = findfirst(f.==keys(fa))
             fdn = length(fa[f])
             fi = copy(oi)
             fi[fd]=1:fdn
-            mseuc=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn),ug=fill("$(ugs[u][1])U",fdn))
-            mseuc[!,f]=fa[f]
-            push!(ufs[f],factorresponsestats(mseuc[!,f],mseuc[!,:m],factor=f))
+            rdf=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn),ug=fill("$(ugs[u][1])U",fdn))
+            rdf[!,f]=fa[f]
+            push!(ufs[f],factorresponsestats(rdf[!,f],rdf[!,:m],factor=f))
             if plot
                 proj = f in [:Ori,:Ori_Final,:HueAngle] ? :polar : :cartesian
-                blmseuc=DataFrame(m=pfms[u][fi...],se=pfses[u][fi...],u=fill(-unitid[u],fdn),ug=fill("$(ugs[u][1])UBaseline",fdn))
-                blmseuc[!,f]=fa[f]
-                mseuc = [mseuc;blmseuc]
-                plotcondresponse(dropmissing(mseuc),colors=[:gray40,:navyblue],projection=proj,responseline=isblank ? ubr[u:u] : [])
+                prdf=DataFrame(m=pfms[u][fi...],se=pfses[u][fi...],u=fill(unitid[u],fdn),ug=fill("Pre_$(ugs[u][1])U",fdn))
+                prdf[!,f]=fa[f]
+                srdf=DataFrame(m=sfms[u][fi...],se=sfses[u][fi...],u=fill(unitid[u],fdn),ug=fill("Suf_$(ugs[u][1])U",fdn))
+                srdf[!,f]=fa[f]
+                mseugc = [rdf;prdf;srdf]
+                plotcondresponse(dropmissing(mseugc),colors=[:gray40,:crimson,:navyblue],projection=proj,responseline=isblank ? ubr[u:u] : [])
                 foreach(i->savefig(joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_$(f)Tuning$i")),[".png",".svg"])
             end
         end
     end
     if plot
-        vi = uresponsive.&umodulative.&unitgood
+        vi = uresponsive.&umodulative.&unitgood.&uenoughresponse
         pfactor=intersect([:Ori,:Ori_Final],keys(ufs))
         if length(pfactor)>0
             pfactor=pfactor[1]
@@ -772,8 +780,8 @@ function process_condtest(files,param;uuid="",log=nothing,plot=true)
             foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
         end
     end
-    save(joinpath(resultdir,"factorresponse.jld2"),"factorstats",ufs,"fms",fms,"fses",fses,"pfms",pfms,"pfses",pfses,"fa",fa,
-    "responsive",uresponsive,"modulative",umodulative,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])")
+    save(joinpath(resultdir,"factorresponse.jld2"),"factorstats",ufs,"fms",fms,"fses",fses,"pfms",pfms,"pfses",pfses,"sfms",sfms,"sfses",sfses,"fa",fa,
+    "responsive",uresponsive,"modulative",umodulative,"enoughresponse",uenoughresponse,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])")
 
     # Single Unit Binary Spike Trian of Condition Tests
     bepochext = timetounit(-300)

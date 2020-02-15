@@ -6,7 +6,7 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test="Flash2Color_5"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test="Flash2Color_3"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 datadir = joinpath(dataroot,subject,siteid)
 resultsitedir = joinpath(resultroot,subject,siteid)
@@ -65,14 +65,17 @@ foreach(i->savefig(joinpath(resultdir,"Columns_Mean_dCSD$i")),[".png",".svg"])
 save(joinpath(resultdir,"csd.jld2"),"csd",mdcsd,"depth",depths,"fs",fs,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])")
 
 # Depth Power Spectrum
-epochdur = 200
+epochdur = 500
 epoch = [0 epochdur]
 epochs = condon.+epoch
-ys=reshape2mask(subrm(mmlfp,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"]),badchmask)
+ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),badchmask)
 pys = cat((ys[:,i,:,:] for i in 1:2)...,dims=3)
-ps,freq = powerspectrum(pys,fs)
+ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=5*epochdur*SecondPerUnit)
 mps = dropdims(mean(ps,dims=3),dims=3)
 plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:db,color=:fire)
+
+
+
 
 epoch = [-epochdur 0]
 epochs = condon.+epoch
