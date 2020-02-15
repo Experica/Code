@@ -14,7 +14,7 @@ param[:layer] = layer
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
         @where i.RecordSite == "ODL3"
-        @where i.ID == "Flash2Color"
+        @where i.ID == "HartleySubspace"
         @where i.sourceformat == "SpikeGLX"
         @select {i.ID,i.UUID,i.files}
         @collect DataFrame
@@ -25,13 +25,17 @@ tests = @from i in meta begin
 ## Condition Tests
 batchtests(tests,param,plot=true)
 
+
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
 
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100
-batchtests(tests,param,plot=true)
+
+batchtests(tests,param,plot=false)
+
+
 
 
 
