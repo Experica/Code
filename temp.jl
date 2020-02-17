@@ -115,27 +115,6 @@ plot(ggt[:,200])
 
 
 
-(a= true ? 0 : 4, b=3)
-
-a=[true,false,true]
-
-b = any(a)
-a
-
-
-
-dogf(x,βₑ=1,βᵢ=1,μₑ=0,μᵢ=0,σₑ=1,σᵢ=1) = βₑ*exp(-(x-μₑ)^2 / (2σₑ*σₑ)) - βᵢ*exp(-(x-μᵢ)^2 / (2σᵢ*σᵢ))
-
-plot(x->dogf(x),-10,10)
-
-
-
-
-
-
-
-
-
 
 
 using Makie,Colors
