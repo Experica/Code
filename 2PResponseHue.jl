@@ -16,6 +16,8 @@ interpolatedData = true   # If you have multiplanes. True: use interpolated data
 preOffset = 0.1  # in sec
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
+diraucThres = 0.8   # if passed, calculate hue direction, otherwise calculate hue axis
+oriaucThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
 blankId = 36  # Blank Id
@@ -284,9 +286,9 @@ for pn in 1:planeNum
         push!(oriAUC,oriauc);push!(dirAUC,dirauc);
 
 
-        if dirauc >= 0.8 #dirpvalue[cell] < α  # direction selective
+        if dirauc >= diraucThres #dirpvalue[cell] < α  # direction selective
             mcti = conditionCond[(conditionCond.Dir.==ufm[:Dir][cell]).&(conditionCond.SpatialFreq.==ufm[:SpatialFreq][cell]), :]
-        elseif (dirauc < 0.8) .& (oriauc > 0.5) #(dirpvalue[cell] > α) .& (oripvalue[cell] < α)   # no direction selective, but has orientation selective
+        elseif (dirauc < diraucThres) .& (oriauc > oriaucThres) #(dirpvalue[cell] > α) .& (oripvalue[cell] < α)   # no direction selective, but has orientation selective
             mcti = conditionCond[((conditionCond.Dir.==ufm[:Dir][cell]) .| (conditionCond.Dir.==mod.(ufm[:Dir][cell]+180,360))).&(conditionCond.SpatialFreq.==ufm[:SpatialFreq][cell]), :]
             mcti = by(mcti, :HueAngle, n=:n=>sum, i=:i=>d->[reduce(hcat,d')])
         else  # neither direction nor orientation selective
@@ -297,9 +299,9 @@ for pn in 1:planeNum
         # phueax=[];phuedir=[];pbdir=[];
         hueaxdist=[];huedirdist=[];blkhueaxdist=[];blkhuedirdist=[];
         for k =1:2
-            if k ==1
+            if k ==1  # hue condition
                 resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti[1,:n]]
-            elseif k==2
+            elseif k==2  # blank condition
                 resp = Array{Float64}(undef, nrow(mcti), mcti[1,:n])
                 sample!(blankResp, resp; replace=true, ordered=false)
             end
@@ -348,10 +350,10 @@ for pn in 1:planeNum
     # result.dpratio=dpratioc
     # result.hueaxp = hueaxpvalue
     # result.huedirp = huedirpvalue
-    result.oriauc = oriAUC
-    result.dirauc = dirAUC
+    result.hueoriauc = oriAUC
+    result.huedirauc = dirAUC
     result.hueaxauc = hueaxAUC
-    result.huedirauc = huedirAUC
+    result.huediauc = huedirAUC
 
     ## Get the optimal factor level using Circular Variance for each cell
     ufs = Dict(k=>[] for k in keys(fa))
@@ -370,27 +372,27 @@ for pn in 1:planeNum
     end
 
     tempDF=DataFrame(ufs[:SpatialFreq])
-    result.optsf = tempDF.osf
+    result.fithuesf = tempDF.osf
     tempDF=DataFrame(ufs[:Dir])
-    result.optdir = tempDF.od   # cv
-    result.pd =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
-    result.dircv = tempDF.dcv
-    result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
-    result.optori = tempDF.oo  # cv
-    result.po =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
-    result.oricv = tempDF.ocv
-    result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.cvhuedir = tempDF.od   # cv
+    result.huedircv = tempDF.dcv
+    result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
+    result.huedsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.cvhueori = tempDF.oo  # cv
+    result.hueoricv = tempDF.ocv
+    result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
+    result.hueosi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
     tempDF=DataFrame(ufs[:HueAngle])
-    result.opthueax = tempDF.oha
-    result.phueax =map(i->isempty(i) ? NaN : :pha in keys(i) ? i.pha : NaN,tempDF.fit)  # fitting
+    result.cvhueax = tempDF.oha # cv
     result.hueaxcv = tempDF.hacv
+    result.fithueax =map(i->isempty(i) ? NaN : :pha in keys(i) ? i.pha : NaN,tempDF.fit)  # fitting
     result.hueaxsi =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
-    result.opthuedir = tempDF.oh
-    result.ph =map(i->isempty(i) ? NaN : :ph in keys(i) ? i.ph : NaN,tempDF.fit)  # fitting
-    result.huedircv = tempDF.hcv
-    result.huedirsi =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
-    result.maxh = tempDF.maxh
-    result.maxhr = tempDF.maxr
+    result.cvhuedi = tempDF.oh # cv
+    result.huedicv = tempDF.hcv
+    result.fithuedi =map(i->isempty(i) ? NaN : :ph in keys(i) ? i.ph : NaN,tempDF.fit)  # fitting
+    result.huedisi =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+    result.maxhue = tempDF.maxh
+    result.maxhueresp = tempDF.maxr
 
     # Plot tuning curve of each factor of each cell
     # isplot = true
@@ -406,12 +408,9 @@ for pn in 1:planeNum
         end
     end
 
-    # Fitting direction and orientation tuning (need to finish)
-
-
     #Save results
     CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
-
+    save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
 end
 planeStart = 1  # no clear function like Matab, reset it mannually
