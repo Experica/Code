@@ -10,7 +10,7 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 disk = "O:"
 subject = "AF4"  # Animal
 recordSession = "005" # Unit
-testId = "013"  # Stimulus test
+testId = "010"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
@@ -256,15 +256,15 @@ for pn in 1:planeNum
     end
 
     tempDF=DataFrame(ufs[:SpatialFreq])
-    result.optsf = tempDF.osf
+    result.fitsf = tempDF.osf
     tempDF=DataFrame(ufs[:Dir])
-    result.optdir = tempDF.od   # cv
-    result.pd =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
+    result.cvdir = tempDF.od   # preferred direction from cv
     result.dircv = tempDF.dcv
+    result.fitdir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
     result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
-    result.optori = tempDF.oo  # cv
-    result.po =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
+    result.cvori = tempDF.oo  # preferred orientation from cv
     result.oricv = tempDF.ocv
+    result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from cv
     result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
 
     # Plot tuning curve of each factor of each cell
