@@ -487,7 +487,9 @@ end
 
 function process_hartley(files,param;uuid="",log=nothing,plot=true)
     dataset = prepare(joinpath(param[:dataexportroot],files))
-
+    process_hartley(dataset,param;uuid=uuid,log=log,plot=plot)
+end
+function process_hartley(dataset::Dict,param;uuid="",log=nothing,plot=true)
     ex = dataset["ex"];subject = ex["Subject_ID"];recordsession = ex["RecordSession"];recordsite = ex["RecordSite"]
     siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
     resultsitedir = joinpath(param[:resultroot],subject,siteid)
@@ -504,7 +506,9 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
     condidx = ex["CondTest"]["CondIndex"]
 
     # Prepare Conditions
+    condtable = DataFrame(ex["Cond"])
     ctc = condtestcond(ex["CondTestCond"])
+    cond = condin(ctc)
     factors = finalfactor(ctc)
     blank = haskey(param,:blank) ? param[:blank] : (:Ori_Final,NaN)
     ci = ctc[!,blank[1]].!==blank[2]
@@ -544,7 +548,7 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
     stisize = (diameter,diameter)
     imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_stisize$stisize"
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,stisize=stisize,ppd=45)),eachrow(DataFrame(ex["Cond"])))
+        imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,stisize=stisize,ppd=45)),eachrow(condtable))
         imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
         imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
         param[imagesetname] = imageset
@@ -580,16 +584,19 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
         x = Array{Float64}(undef,length(uci),length(xi))
         foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
 
-        usta = Dict()
+        uy=Dict();usta = Dict()
         delays = -10:5:200
         for u in eachindex(unitspike)
             !unitgood[u] && continue
+            ys = Array{Float64}(undef,length(delays),length(ucii))
             stas = Array{Float64}(undef,length(delays),length(xi))
             for d in eachindex(delays)
-                y = subrvr_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=false)
-                y = map(i->sum(y[i]),ucii)
+                y = subrvr_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
+                y = map(i->mean(y[i]),ucii)
+                ys[d,:] = y
                 stas[d,:]=sta(x,y)
             end
+            uy[unitid[u]]=ys
             usta[unitid[u]]=stas
 
             if plot
@@ -601,8 +608,8 @@ function process_hartley(files,param;uuid="",log=nothing,plot=true)
                 end
             end
         end
-        save(joinpath(resultdir,"sta.jld2"),"imagesize",imagesize,"xi",xi,"usta",usta,"delays",delays,"stisize",stisize,
-        "log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
+        save(joinpath(resultdir,"sta.jld2"),"imagesize",imagesize,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
+        "stisize",stisize,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
     end
 
     if :ePPR in param[:model]

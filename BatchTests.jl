@@ -8,8 +8,6 @@ param = Dict{Any,Any}(
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 param[:layer] = layer
 
-
-
 ## Query Tests
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
@@ -20,31 +18,13 @@ tests = @from i in meta begin
         @collect DataFrame
         end
 
-
-
 ## Condition Tests
 batchtests(tests,param,plot=true)
 
-
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
-
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100
 
 batchtests(tests,param,plot=false)
-
-
-
-
-
-
-
-
-
-
-## Save Result
-resultdir = joinpath(rroot,testtype)
-!isdir(resultdir) && mkpath(resultdir)
-save(joinpath(resultdir,"batchresult.jld2"),"ur",ur,"uc",uc)

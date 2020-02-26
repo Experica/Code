@@ -1,4 +1,4 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,Interact,ImageSegmentation,LsqFit,Makie,FFTW,ProgressMeter
+using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,Interact,ImageSegmentation,LsqFit,FFTW,ProgressMeter
 
 dataroot = "../Data"
 dataexportroot = "../DataExport"
@@ -33,7 +33,7 @@ function joinsta(stas)
     dataset["color"]=[i["color"] for i in stas]
     dataset["minmaxcolor"] = [(i["mincolor"],i["maxcolor"]) for i in stas]
     dataset["minmaxcg"] = map(i->minmaxcolorgradient(i...,n=256),dataset["minmaxcolor"])
-    usta = Dict();ucex=Dict()
+    usta = Dict();ucex=Dict();uresponsive=Dict()
 
     uids = mapreduce(c->keys(stas[c]["usta"]),intersect,1:cn)
     for u in uids
@@ -51,10 +51,12 @@ function joinsta(stas)
         end
         usta[u] = csta
         ucex[u] = cex
+        uresponsive[u] = false
     end
 
     dataset["usta"] = usta
     dataset["ucex"] = ucex
+    dataset["uresponsive"] = uresponsive
     return dataset
 end
 "Local RMS Contrast of each image"
@@ -71,7 +73,7 @@ end
 function peakroi(clc)
     pi = [Tuple(argmax(clc))...]
     plc = clc[:,:,pi[3:end]...]
-    segs = seeded_region_growing(plc,[(CartesianIndex(pi[1:2]...),2),(CartesianIndex(1,1),1)])
+    segs = seeded_region_growing(plc,[(CartesianIndex(1,1),1),(CartesianIndex(pi[1:2]...),2)])
     idx = findall(labels_map(segs).==2)
     idxlim = dropdims(extrema(mapreduce(i->[Tuple(i)...],hcat,idx),dims=2),dims=2)
     hw = map(i->i[2]-i[1],idxlim)
@@ -96,7 +98,7 @@ function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2
     usta = dataset["usta"]
     ucex = dataset["ucex"]
 
-    uresponsive=Dict();ulsta=Dict();ulroi=Dict()
+    ulsta=Dict();ulroi=Dict();uresponsive=dataset["uresponsive"]
     p = ProgressMeter.Progress(length(usta),desc="Test STAs ... ")
     for u in keys(usta)
         clc = localcontrast(usta[u],ws=ws,ppd=ppd)
@@ -116,19 +118,23 @@ function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2
             ulroi[u] = (center=center,stisize=(2radius+1)/ppd,d=cpd[c],c=c)
 
             ucex[u]=map(i->exd(ulsta[u][:,:,:,i],sig=rs[i]),1:size(ulsta[u],4))
+        else
+            uresponsive[u] = false
         end
         next!(p)
     end
-    dataset["uresponsive"]=uresponsive
     dataset["ulsta"]=ulsta
     dataset["ulroi"]=ulroi
 
     return dataset
 end
 rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[3]*p[5],θ=p[6],f=p[7],phase=p[8])
-rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[8],σᵢ₁=p[9],μᵢ₂=p[10],σᵢ₂=p[9]*p[11],θᵢ=p[12])
+# rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[2]+p[8],σᵢ₁=p[3]*p[9],μᵢ₂=p[4]+p[10],σᵢ₂=p[3]*p[9]*p[5],θᵢ=p[6])
+rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[3]*p[6],μᵢ₂=p[4],σᵢ₂=p[3]*p[6],θᵢ=0)
+
 function modelfit(data,ppd;model=:gabor)
     dmin,dmax = abs.(extrema(data))
+    aei = dmax > dmin ? (dmax,dmin) : (dmin,dmax)
     dlim = maximum([dmin,dmax])
     pr = (size(data)[1]-1)/2
     sr = pr/ppd
@@ -136,42 +142,47 @@ function modelfit(data,ppd;model=:gabor)
     x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-pr pr])/ppd
     y = vec(data)
     if model == :dog
-        lb=[0.5dmax,   -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0.5dmin,     -0.4sr,     0.2sr,    -0.4sr,    0.5,    0]
-        ub=[1.5dmax,    0.4sr,    0.4sr,    0.4sr,    2,      π,     1.5dmin,      0.4sr,     0.5sr,     0.4sr,    2,      π]
-        p0=[dmax,       0,        0.2sr,    0,        1,      0,     dmin,         0,         0.3sr,     0,        1,      0]
+        # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
+        # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
+        # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
+        lb=[0,          -0.4sr,    0.1sr,   -0.4sr,         0,         0.1   ]
+        ub=[Inf,         0.4sr,    0.5sr,    0.4sr,          Inf,      10   ]
+        p0=[0,       0,        0.3sr,    0,               0,          1 ]
 
         mfit = curve_fit((x,p)->rfdog.(x[:,1],x[:,2],p...),x,y,
-        p0,lower=lb,upper=ub,maxIter=2000,x_tol=1e-10,g_tol=1e-14)
+        p0,lower=lb,upper=ub,maxIter=3000,x_tol=1e-8,g_tol=1e-12,min_step_quality=1e-4,good_step_quality=0.5,lambda_increase=5,lambda_decrease=0.5)
     else
-        lb=[0.5dlim,  -0.4sr,   0.1sr,   -0.4sr,   0.2,    0,    0.4/sr,   0]
-        ub=[1.5dlim,   0.4sr,   0.6sr,    0.4sr,   3,      π,    3/sr,     1]
-        p0=[dlim,      0,       0.2sr,    0,       1,      0,    1/sr,     0]
+        lb=[0.7dlim,  -0.4sr,   0.1sr,   -0.4sr,   0.2,    0,    0.1,   0]
+        ub=[1.3dlim,   0.4sr,   0.6sr,    0.4sr,   2.5,    π,    6.5,   1]
+        p0=[dlim,      0,       0.3sr,    0,       1,      0,    3,     0]
 
         mfit = curve_fit((x,p)->rfgabor.(x[:,1],x[:,2],p...),x,y,
         p0,lower=lb,upper=ub,maxIter=2000,x_tol=1e-10,g_tol=1e-14,min_step_quality=1e-4,good_step_quality=0.5,lambda_increase=5,lambda_decrease=0.5)
     end
 end
-function rffit!(dataset;model=[:gabor,:dog])
+function rffit!(dataset;model=[:dog])
     ulsta = dataset["ulsta"]
     ulroi = dataset["ulroi"]
     ppd = dataset["ppd"]
 
-    urf=Dict()
+    if !haskey(dataset,"urf")
+        dataset["urf"]=Dict()
+    end
+    urf = dataset["urf"]
     p = ProgressMeter.Progress(length(ulsta),desc="Fit RFs ... ")
     for u in keys(ulsta)
+        u!=102 && continue
         exs=map(i->i.ex,dataset["ucex"][u])
         ds=map(i->i.d,dataset["ucex"][u])
         urf[u] = Dict(m=>map(i->exs[i]==0 ? missing : modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m),1:length(exs)) for m in model)
         next!(p)
     end
 
-    dataset["urf"]=urf
     return dataset
 end
 
 
-
-# Load all stas
+## Load all stas
 testids = ["$(siteid)_HartleySubspace_$i" for i in 1:4]
 dataset = joinsta(load.(joinpath.(resultsitedir,testids,"sta.jld2")))
 dataset = responsivesta!(dataset)
@@ -246,6 +257,10 @@ end
     title="Unit_$(u)_STA_$(delays[ucd[c]])_FIT_$(m)"),1:4)
     p
 end
+
+
+dataset["urf"][102]
+
 
 
 urf = map(i->i[:gabor][2],values(dataset["urf"]))
