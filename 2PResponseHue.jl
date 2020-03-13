@@ -121,7 +121,7 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]   # ???? Note: this vert structure was saved for Python, col and row are reversed.
+    cellRoi = segment["seg_ot"]["vert"][pn] 
     cellNum = length(cellRoi)
     display(cellNum)
     cellId = collect(range(1, step=1, stop=cellNum))  # Currently, the cellID is the row index of signal
