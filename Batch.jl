@@ -544,7 +544,7 @@ function process_hartley(dataset::Dict,param;uuid="",log=nothing,plot=true)
     masktype = getparam(envparam,"MaskType")
     maskradius = getparam(envparam,"MaskRadius")
     masksigma = getparam(envparam,"Sigma")
-    diameter = 5#getparam(envparam,"Diameter")
+    diameter = 7#getparam(envparam,"Diameter")
     stisize = (diameter,diameter)
     imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_stisize$stisize"
     if !haskey(param,imagesetname)

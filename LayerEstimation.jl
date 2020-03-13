@@ -5,7 +5,7 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 
@@ -17,13 +17,13 @@ layer = Dict("WM"=>[0,0],"Out"=>[3500,3500])
 # csds = load.(joinpath.(sitedir,testids,"csd.jld2"),"csd","depth","fs")
 # depths=csds[1][2];fs=csds[1][3]
 
-testids = ["$(siteid)_Flash2Color_$i" for i in 1:4]
+testids = ["$(siteid)_Flash2Color_$i" for i in 1:6]
 testn=length(testids)
 ## Plot all CSD
 csds = load.(joinpath.(resultsitedir,testids,"csd.jld2"))
 testlogs = ["$(i["log"])_$(i["color"])" for i in csds]
 fs=csds[1]["fs"]
-depths=csds[1]["depth"]
+csddepths=csds[1]["depth"]
 
 csdb = [0 15]
 csdr = [15 100]
@@ -31,14 +31,14 @@ csdbi = epoch2samplerange(csdb,fs)
 csdri = epoch2samplerange(csdr,fs)
 csdx = csdri./fs .* 1000
 csdss = map(i->imfilter(stfilter(i["csd"],temporaltype=:sub,ti=csdbi),Kernel.gaussian((0.9,1)))[:,csdri],csds)
-clim=maximum(abs.(vcat(csdss...)))
+csdclim=maximum(abs.(vcat(csdss...)))
 
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false)
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
 for i in 1:testn
     yticks = i==1 ? true : false
     xlabel = i==1 ? "Time (ms)" : ""
     ylabel = i==1 ? "Depth (um)" : ""
-    heatmap!(p,subplot=i,csdx,depths,csdss[i],color=:RdBu,clims=(-clim,clim),title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+    heatmap!(p,subplot=i,csdx,csddepths,csdss[i],color=:RdBu,clims=(-csdclim,csdclim),title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
     if !isnothing(layer)
         hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray30,legend=false,
         annotations=[(csdx[1]+1,layer[k][1],text(k,4,:gray20,:bottom,:left)) for k in keys(layer)])
@@ -50,17 +50,17 @@ foreach(i->savefig(joinpath(resultsitedir,"Layer_dCSD$i")),[".png",".svg"])
 
 ## Plot all Power Spectrum
 pss = load.(joinpath.(resultsitedir,testids,"powerspectrum.jld2"))
-depths=pss[1]["depth"];freq=pss[1]["freq"]
+psdepths=pss[1]["depth"];freq=pss[1]["freq"]
 
 psss = map(i->i["rcps"],pss)
-clims=extrema(vcat(psss...))
+psclims=extrema(vcat(psss...))
 
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false)
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
 for i in 1:testn
     yticks = i==1 ? true : false
     xlabel = i==1 ? "Frequency (Hz)" : ""
     ylabel = i==1 ? "Depth (um)" : ""
-    heatmap!(p,subplot=i,freq,depths,psss[i],color=:PuRd,clims=clims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+    heatmap!(p,subplot=i,freq,psdepths,psss[i],color=:PuRd,clims=psclims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
     if !isnothing(layer)
         hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray30,legend=false,
         annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray20,:bottom,:left)) for k in keys(layer)])
@@ -72,7 +72,7 @@ foreach(i->savefig(joinpath(resultsitedir,"Layer_PowerSpectrum_RelativeChange$i"
 
 ## Plot all Depth PSTH
 depthpsths = load.(joinpath.(resultsitedir,testids,"depthpsth.jld2"))
-x=depthpsths[1]["x"];bw = x[2]-x[1];depths = depthpsths[1]["depth"]
+x=depthpsths[1]["x"];bw = x[2]-x[1];psthdepths = depthpsths[1]["depth"]
 
 psthb = [0 15]
 psthr = [15 100]
@@ -80,14 +80,14 @@ psthbi = epoch2samplerange(psthb,1/(bw*SecondPerUnit))
 psthri = epoch2samplerange(psthr,1/(bw*SecondPerUnit))
 psthx = psthri .* bw
 psthss = map(i->imfilter(stfilter(i["depthpsth"],temporaltype=:sub,ti=psthbi),Kernel.gaussian((0.9,1)))[:,psthri],depthpsths)
-clims=extrema(vcat(psthss...))
+psthclims=extrema(vcat(psthss...))
 
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false)
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
 for i in 1:testn
     yticks = i==1 ? true : false
     xlabel = i==1 ? "Time (ms)" : ""
     ylabel = i==1 ? "Depth (um)" : ""
-    heatmap!(p,subplot=i,psthx,depths,psthss[i],color=:Reds,clims=clims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel,ylims=extrema(depths),xlims=extrema(psthx))
+    heatmap!(p,subplot=i,psthx,psthdepths,psthss[i],color=:Reds,clims=psthclims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel,ylims=extrema(depths),xlims=extrema(psthx))
     if i==testn
         n = depthpsths[i]["n"]
         pn = maximum(psthx) .- n./maximum(n) .* maximum(psthx) .* 0.2
@@ -105,7 +105,7 @@ foreach(i->savefig(joinpath(resultsitedir,"Layer_dPSTH$i")),[".png",".svg"])
 ## Plot all unit position
 spikes = load.(joinpath.(resultsitedir,testids,"spike.jld2"),"spike")
 
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60))
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60),size=(testn*200,700))
 for i in 1:testn
     yticks = i==1 ? true : false
     xlabel = i==1 ? "Position_X (um)" : ""
@@ -180,18 +180,18 @@ hline!(bases[:,2],label="PSTH High Border")
 
 
 
-layer["Out"]=[2800,3900]
+layer["Out"]=[3170,3900]
 layer["1"]=[2160,1800]
-layer["2/3"]=[2250,1800]
+layer["2/3"]=[2670,1800]
 layer["2"]=[2550,1800]
 layer["3"]=[2550,1800]
-layer["4A/B"]=[2100,1800]
-layer["4A"]=[2550,1800]
-layer["4B"]=[2000,1800]
+layer["4A/B"]=[2575,1800]
+layer["4A"]=[2575,1800]
+layer["4B"]=[2430,1800]
 layer["4C"]=[1800,1800]
-layer["4Ca"]=[1850,1800]
-layer["4Cb"]=[1580,1300]
-layer["5/6"]=[1130,1800]
+layer["4Ca"]=[2170,1800]
+layer["4Cb"]=[1870,1300]
+layer["5/6"]=[1510,1800]
 layer["5"]=[1300,1800]
 layer["6"]=[1500,1800]
 layer["WM"]=[0,0]

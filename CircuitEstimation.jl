@@ -57,7 +57,11 @@ save(joinpath(resultsitedir,"site_circuit.jld2"),"projs",projs,"eunits",eunits,"
 G = SimpleDiGraphFromIterator(Edge(i) for i in projs)
 
 
+t=Dict(p[1]=>p[2] for p in projs)
 
+st = filter((k,v)->k in keys(ct),t)
+
+YAML.write_file("projs_staunit.yaml",st)
 
 neighbors(G,102)
 

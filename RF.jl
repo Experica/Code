@@ -4,7 +4,7 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
@@ -113,7 +113,7 @@ function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2
             uresponsive[u] = true
             radius = ceil(Int,radius*(1+roimargin))
             vr = map(i->intersect(i.+(-radius:radius),1:imagesize[1]),center)
-            radius = floor(Int,minimum(map(r->(r[end]-r[1])/2,vr)))
+            radius = (minimum ∘ mapreduce)((r,c)->abs.([r[1],r[end]].-c),append!,vr,center)
             ulsta[u] = usta[u][map(i->i.+(-radius:radius),center)...,:,:]
             ulroi[u] = (center=center,stisize=(2radius+1)/ppd,d=cpd[c],c=c)
 
@@ -131,36 +131,53 @@ end
 rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[3]*p[5],θ=p[6],f=p[7],phase=p[8])
 # rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[2]+p[8],σᵢ₁=p[3]*p[9],μᵢ₂=p[4]+p[10],σᵢ₂=p[3]*p[9]*p[5],θᵢ=p[6])
 rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[3]*p[6],μᵢ₂=p[4],σᵢ₂=p[3]*p[6],θᵢ=0)
-
 function modelfit(data,ppd;model=:gabor)
-    dmin,dmax = abs.(extrema(data))
-    aei = dmax > dmin ? (dmax,dmin) : (dmin,dmax)
-    dlim = maximum([dmin,dmax])
+    alb,aub = abs.(extrema(data))
+    ab = max(alb,aub)
     pr = (size(data)[1]-1)/2
     sr = pr/ppd
 
-    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-pr pr])/ppd
+    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(pr+1) pr+1])/ppd
     y = vec(data)
-    if model == :dog
-        # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
-        # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
-        # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
-        lb=[0,          -0.4sr,    0.1sr,   -0.4sr,         0,         0.1   ]
-        ub=[Inf,         0.4sr,    0.5sr,    0.4sr,          Inf,      10   ]
-        p0=[0,       0,        0.3sr,    0,               0,          1 ]
-
-        mfit = curve_fit((x,p)->rfdog.(x[:,1],x[:,2],p...),x,y,
-        p0,lower=lb,upper=ub,maxIter=3000,x_tol=1e-8,g_tol=1e-12,min_step_quality=1e-4,good_step_quality=0.5,lambda_increase=5,lambda_decrease=0.5)
-    else
-        lb=[0.7dlim,  -0.4sr,   0.1sr,   -0.4sr,   0.2,    0,    0.1,   0]
-        ub=[1.3dlim,   0.4sr,   0.6sr,    0.4sr,   2.5,    π,    6.5,   1]
-        p0=[dlim,      0,       0.3sr,    0,       1,      0,    3,     0]
-
-        mfit = curve_fit((x,p)->rfgabor.(x[:,1],x[:,2],p...),x,y,
-        p0,lower=lb,upper=ub,maxIter=2000,x_tol=1e-10,g_tol=1e-14,min_step_quality=1e-4,good_step_quality=0.5,lambda_increase=5,lambda_decrease=0.5)
+    rlt = mfun = nothing
+    try
+        if model == :dog
+            if aub >= alb
+                ae = aub + 3.5alb
+                ai = 3.5alb
+                ew = 0.2sr;ewl=0.15sr;ewu=0.3sr
+                ir=2;irl = 1.1;iru = 3
+            else
+                ai = alb + 3.5aub
+                ae = 3.5aub
+                ew = 0.4sr;ewl=0.16sr;ewu=0.6sr
+                ir=0.5;irl = 0.3;iru = 0.9
+            end
+            # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
+            # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
+            # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
+            lb=[0.5ae,   -0.35sr,    ewl,   -0.35sr,     0.5ai,    irl]
+            ub=[1.5ae,    0.35sr,    ewu,    0.35sr,     1.5ai,    iru]
+            p0=[ae,       0,         ew,     0,          ai,       ir]
+            mfun = (x,p) -> rfdog.(x[:,1],x[:,2],p...)
+        elseif model == :gabor
+            ori,sf = freqimagestats(powerspectrum(data,ppd)...)
+            fub = min(1.5sf,8);flb=max(0.5sf,0.2)
+            lb=[0.7ab,  -0.36sr,   0.1sr,   -0.36sr,   0.3,    0,    flb,   0]
+            ub=[1.3ab,   0.36sr,   0.36sr,   0.36sr,   2.3,    π,    fub,   1]
+            p0=[ab,      0,        0.2sr,    0,        1,      ori,  sf,    0]
+            mfun = (x,p) -> rfgabor.(x[:,1],x[:,2],p...)
+        end
+        if !isnothing(mfun)
+            mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
+            maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
+            rlt = (param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
+        end
+    catch
     end
+    return rlt
 end
-function rffit!(dataset;model=[:dog])
+function rffit!(dataset;model=[:gabor])
     ulsta = dataset["ulsta"]
     ulroi = dataset["ulroi"]
     ppd = dataset["ppd"]
@@ -171,15 +188,24 @@ function rffit!(dataset;model=[:dog])
     urf = dataset["urf"]
     p = ProgressMeter.Progress(length(ulsta),desc="Fit RFs ... ")
     for u in keys(ulsta)
-        u!=102 && continue
+        if !haskey(urf,u)
+            urf[u] = Dict()
+        end
+        # u!=96 && continue
         exs=map(i->i.ex,dataset["ucex"][u])
         ds=map(i->i.d,dataset["ucex"][u])
-        urf[u] = Dict(m=>map(i->exs[i]==0 ? missing : modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m),1:length(exs)) for m in model)
+        for m in model
+            urf[u][m] = map(i->exs[i]==0 ? nothing : modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m),1:length(exs))
+        end
         next!(p)
     end
 
     return dataset
 end
+
+t=dataset["ulsta"][92][:,:,12,2]
+
+
 
 
 ## Load all stas
@@ -191,6 +217,7 @@ dataset = rffit!(dataset)
 save(joinpath(resultsitedir,"stadataset.jld2"),"dataset",dataset)
 dataset = load(joinpath(resultsitedir,"stadataset.jld2"),"dataset")
 
+## stas
 @manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
     usta=dataset["usta"][u]
     delays = dataset["delays"]
@@ -208,8 +235,8 @@ dataset = load(joinpath(resultsitedir,"stadataset.jld2"),"dataset")
     xlims=xlim,ylims=ylim,xticks=xlim,yticks=ylim,yflip=true,xlabel=dataset["color"][c]),1:4)
     p
 end
-
-@manipulate for u in sort(collect(keys(dataset["ulsta"])))
+## best roi stas
+ for u in sort(collect(keys(dataset["ulsta"])))
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
     imagesize = size(ulsta)
@@ -225,12 +252,15 @@ end
     foreach(c->Plots.heatmap!(p,subplot=c+1,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
     xlims=xylim,ylims=xylim,xticks=xylim,yticks=[],yflip=true,xlabel=dataset["color"][c],title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:4)
     p
+    savefig("./temp/Unit_$u.png")
 end
-
+## rf fit
 @manipulate for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
+    nc = length(dataset["color"])
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
     imagesize = size(ulsta)
+    ppd = dataset["ppd"]
     stisize = dataset["ulroi"][u].stisize
     ucex = map(i->i.ex,dataset["ucex"][u])
     ucd = map(i->i.d,dataset["ucex"][u])
@@ -238,29 +268,82 @@ end
     xylim = [0,round(stisize,digits=1)]
     xy = range(xylim...,length=imagesize[2])
 
-    p = Plots.plot(layout=(2,4),legend=false,size=(1500,650))
+    p = Plots.plot(layout=(4,nc),legend=false,size=(1500,750))
     foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylim,ylims=xylim,xticks=xylim,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:4)
+    xlims=xylim,ylims=xylim,xticks=xylim,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:nc)
 
     fit=dataset["urf"][u]
-    sr = round(stisize/2,digits=1)
-    x=y=-sr:0.01:sr
+    pr = (imagesize[1]-1)/2
+    x=y=(-pr:pr)./ppd
+    sr = round(x[end],digits=1)
     xylim=[-sr,sr]
     if m == :dog
-        rfs = map(f->ismissing(f) ? missing : [rfdog(i,j,f.param...) for j in reverse(y), i in x],fit[m])
+        rfs = map(f->isnothing(f) ? nothing : [rfdog(i,j,f.param...) for j in reverse(y), i in x],fit[m])
     else
-        rfs = map(f->ismissing(f) ? missing : [rfgabor(i,j,f.param...) for j in reverse(y), i in x],fit[m])
+        rfs = map(f->isnothing(f) ? nothing : [rfgabor(i,j,f.param...) for j in reverse(y), i in x],fit[m])
     end
-    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+4,frame=:none) :
-    Plots.heatmap!(p,subplot=c+4,x,y,rfs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+nc,frame=:none) :
+    Plots.heatmap!(p,subplot=c+nc,x,y,rfs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
     xlims=xylim,ylims=xylim,xticks=xylim,yticks=xylim,yformatter=i->-i,yflip=true,xlabel=dataset["color"][c],
-    title="Unit_$(u)_STA_$(delays[ucd[c]])_FIT_$(m)"),1:4)
+    title="Fit_$(m)"),1:nc)
+
+    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+2nc,frame=:none) :
+    Plots.histogram!(p,subplot=c+2nc,fit[m][c].resid,frame=:semi,color=:coolwarm,linecolor=:match,bar_width=1,xlims=[-abs(maximum(fit[m][c].resid)),abs(maximum(fit[m][c].resid))],
+    xlabel="Residual",title="",grid=false),1:nc)
+
+    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+3nc,frame=:none) :
+    Plots.scatter!(p,subplot=c+3nc,vec(ulsta[:,:,ucd[c],c]),vec(rfs[c]),frame=:semi,color=:coolwarm,grid=false,
+    xlabel="y",ylabel="predict y",title="r = $(round(fit[m][c].r,digits=3))",markerstrokewidth=0,markersize=1),1:nc)
     p
 end
 
 
-dataset["urf"][102]
 
+
+
+function getbestrf(dataset;rt=0.65)
+    urf = dataset["urf"]
+    nc = length(dataset["color"])
+    ubrf=Dict()
+    for u in keys(urf)
+        # u!=96 && continue
+        mfs=[]
+        for m in keys(urf[u])
+            push!(mfs, map(f->begin
+             if isnothing(f)
+                 nothing
+             else
+                 (param=f.param,r=f.r,m=m)
+             end
+         end,urf[u][m]))
+         end
+         # display(mfs)
+         crf = []
+         for i in 1:nc
+             push!(crf,mapreduce(mf->mf[i],(m1,m2)->begin
+             if isnothing(m1)
+                 if isnothing(m2)
+                     nothing
+                 else
+                     m2.r > rt ? m2 : nothing
+                 end
+             else
+                 if isnothing(m2)
+                     m1.r > rt ? m1 : nothing
+                 else
+                     t = m1.r > m2.r ? m1 : m2
+                     t.r > rt ? t : nothing
+                 end
+             end
+         end,mfs))
+         end
+         ubrf[u]=crf
+    end
+    return ubrf
+end
+
+
+usrf = getbestrf(dataset)
 
 
 urf = map(i->i[:gabor][2],values(dataset["urf"]))
@@ -293,8 +376,11 @@ Plots.scatter(vups[3,:],vups[7,:],group=ci)
 
 
 
+
+
+
 spike = load(joinpath(resultsitedir,testids[1],"spike.jld2"),"spike")
-unitid = spike["unitid"];unitposition = spike["unitposition"];unitlayer = assignlayer(unitposition[:,2],layer)
+unitid = spike["unitid"];unitgood = spike["unitgood"];unitposition = spike["unitposition"];unitlayer = assignlayer(unitposition[:,2],layer)
 
 us = collect(keys(dataset["ulsta"]))
 up = unitposition[indexin(us,unitid),:]
@@ -399,19 +485,15 @@ tcd = [rftype(uexs[:,i],uds[:,i]) for i in 1:size(uexs,2)]
 uc = map(i->i.c,tcd)
 ud = map(i->i.d,tcd)
 
+_,nsg,_,_=histrv(unitposition[unitgood,2],0,3500,binwidth=60)
+_,ns,_,_=histrv(up[:,2],0,3500,binwidth=60)
 
+bar(0:60:3500,[nsg ns],orientation=:h,bar_position=:stack,xlims=[-0.3,10])
 
+plot([nsg ns],range(0,step=40,length=length(ns)),fillalpha=0.4,fill=true,labels=["SU" "SU with STA"],linealpha=0,xlims=[-0.3,7])
+hline!([layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(-0.3,layer[k][1],text(k,5,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
 
-
-
-
-
-
-
-
-
-
-
+savefig("unit_layer_dist.svg")
 
 
 
