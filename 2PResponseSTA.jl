@@ -1,6 +1,6 @@
 
 # Peichao's Notes:
-# 1. Code was written for 2P data (Direction-Spatial Frequency test) from Scanbox. Will export results (dataframe and csv) for plotting.
+# 1. Code was written for 2P data (Hartley) from Scanbox. Will export results (dataframe and csv) for plotting.
 # 2. If you have multiple planes, it works with splited & interpolated dat. Note results are slightly different.
 # 3. If you have single plane, need to change the code (signal and segmentation) a little bit to make it work.
 
@@ -100,7 +100,7 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    cellRoi = segment["seg_ot"]["vert"][pn]   # ???? Note: this vert structure was saved for Python, col and row are reversed.
     cellNum = length(cellRoi)
     display(cellNum)
     cellId = collect(range(1, step=1, stop=cellNum))  # Currently, the cellID is the row index of signal
@@ -279,6 +279,9 @@ for pn in 1:planeNum
             plotcondresponse(dropmissing(mseuc),colors=[:black],projection=:polar,responseline=[], responsetype=:ResponseF)
         end
     end
+
+    # Fitting direction and orientation tuning (need to finish)
+
 
     #Save results
     CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
