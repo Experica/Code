@@ -6,10 +6,10 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 # Expt info
 disk = "O:"
 subject = "AF4"  # Animal
-recordSession = ["004", "005"] # Unit
+recordSession = ["002","003","004", "005", "006","007"] # Unit
 recordPlane = ["000", "001"]
-oriExptId = ["004_005", "005_010"]
-hueExptId = ["004_008", "005_007"]  # Stimulus test
+oriExptId = ["002_000","003_008", "004_005", "005_010","006_007","007_009"]
+hueExptId = ["002_006","003_012", "004_008", "005_007","006_005","007_006"]  # Stimulus test
 
 oriaucThres = 0.7
 diraucThres = 0.7
@@ -62,7 +62,9 @@ for i = 1:exptOriNum
              dirResp=sum((result.dirauc.>diraucThres).&result.visResp), dirRespfit=sum((result.dirauc.>diraucThres).&result.visResp.&(.~isnan.(result.fitdir))), dirSelcv=sum((result.dircv.<dircvThres).&(result.dirauc.>diraucThres).&result.visResp), dirSeldsi=sum((result.dsi.>dsiThres).&(result.dirauc.>diraucThres).&result.visResp))
         append!(oriSum, summ)
         dataExportFolder2 = joinpath(mainpath, join(["U", oriExptId[i][1:3]]), "_Summary", "DataExport")
-        save(joinpath(dataExportFolder2,join([subject,"_",siteId,"_roibkg.jld2"])), Dict("roi"=>cellRoi, "bkg"=>bkgImg))   # only need save one for each plane in each unit
+        isdir(dataExportFolder2) || mkpath(dataExportFolder2)
+        # save(joinpath(dataExportFolder2,join([subject,"_",siteId,"_roibkg.jld2"])), Dict("roi"=>cellRoi, "bkg"=>bkgImg))   # only need save one for each plane in each unit
+        save(joinpath(dataExportFolder2,join([subject,"_",siteId,"_roibkg.jld2"])), "roi",cellRoi, "bkg",bkgImg)
     end
 end
 
@@ -94,17 +96,23 @@ end
 
 ## Save results
 siteId = join(["U",join(recordSession)])
-save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_roibkg.jld2"])), Dict("roi"=>rois, "bkg"=>bkgs))
-save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_hue.jld2"])), Dict("hueData"=>hueData,"hueSum"=>hueSum))
-save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_ori.jld2"])), Dict("oriData"=>oriData, "oriSum"=>oriSum))
+save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_roibkg.jld2"])), "roi",rois, "bkg",bkgs)
+save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_hue.jld2"])), "hueData",hueData,"hueSum",hueSum)
+CSV.write(joinpath(dataExportFolder1,join([subject,"_",siteId,"_hueData.csv"])), hueData)
+CSV.write(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_hueSum.csv"])), hueSum)
+save(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_ori.jld2"])), "oriData",oriData, "oriSum",oriSum)
+CSV.write(joinpath(dataExportFolder1,join([subject,"_",siteId,"_oriData.csv"])), oriData)
+CSV.write(joinpath(dataExportFolder1,join([subject,"_",siteId,"_",paraName,"_oriSum.csv"])), oriSum)
 
 ## Data is organized accoording plane
 ct=0
 for i = 1:exptOriNum
+    # display("i: $i")
     planeSum = DataFrame()
     dataExportFolder2 = joinpath(mainpath, join(["U", oriExptId[i][1:3]]), "_Summary", "DataExport")
     isdir(dataExportFolder2) || mkpath(dataExportFolder2)
     for j = 1:planeNum
+        # display("j:$j")
         global ct
         ct = ct+1
         locId = join([oriExptId[i][1:4], recordPlane[j]])
@@ -132,10 +140,11 @@ for i = 1:exptOriNum
             huedirResp=sum((pldata.huedirauc.>diraucThres).&pldata.visResp), huedirRespfit=sum((pldata.huedirauc.>diraucThres).&pldata.visResp.&(.~isnan.(pldata.fithuedir))),huedirSelcv=sum((pldata.huedircv.<dircvThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp), huedirSeldsi=sum((pldata.huedsi.>dsiThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp),
             hueaucResp=sum(((pldata.hueaxauc.>hueaucThres).|(pldata.huediauc.>hueaucThres)).&pldata.visResp), hueSelcpi=sum(((pldata.hueaxauc.>hueaucThres).|(pldata.huediauc.>hueaucThres)).&pldata.visResp.&(pldata.huecpi.>cpiThres)))
         append!(planeSum, planesum)
-        save(joinpath(dataExportFolder2,join([subject,"_",locId,"_",paraName,"_sum.jld2"])), Dict(locId=>pldata,string(locId,"_sum")=>planesum))
-        CSV.write(joinpath(dataExportFolder2,join([subject,"_",locId,"_",paraName,"_sum.csv"])), pldata)
+        save(joinpath(dataExportFolder2,join([subject,"_",locId,"_",paraName,"_sum.jld2"])), locId,pldata,string(locId,"_sum"),planesum)
+        CSV.write(joinpath(dataExportFolder2,join([subject,"_",locId,"_sum.csv"])), pldata)
     end
     CSV.write(joinpath(dataExportFolder2,join([subject,"_",recordSession[i],"_",paraName,"_sum.csv"])), planeSum)
 end
 
 exptNum = exptOriNum + exptHueNum
+# CSV.write(joinpath(dataExportFolder1,join([subject,"_hue.csv"])), hueData)
