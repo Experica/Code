@@ -9,16 +9,17 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 # Expt info
 disk = "O:"
 subject = "AF4"  # Animal
-recordSession = "005" # Unit
-testId = "010"  # Stimulus test
+recordSession = "003" # Unit
+testId = "006"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
 sampnum = 100   # random sampling 100 times
+fitThres = 0.5
 isplot = false
-
+# ismodulative([DataFrame(Y=condResp) ctc[cti,:]], alpha=α, interact=false)
 ## Prepare data & result path
 exptId = join(filter(!isempty,[recordSession, testId]),"_")
 dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId)
@@ -81,16 +82,14 @@ segment = prepare(segmentFile)
 signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+# spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = 1
+planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
 
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=1  # for test
-    global planeStart
-    display(planeStart)
     # Initialize DataFrame for saving results
     recordPlane = string("00",pn-1)  # plane/depth, this notation only works for expt has less than 10 planes
     siteId = join(filter(!isempty,[recordSession, testId, recordPlane]),"_")
@@ -102,18 +101,17 @@ for pn in 1:planeNum
 
     cellRoi = segment["seg_ot"]["vert"][pn]
     cellNum = length(cellRoi)
-    display(cellNum)
+    display("plane: $pn")
+    display("Cell Number: $cellNum")
     cellId = collect(range(1, step=1, stop=cellNum))  # Currently, the cellID is the row index of signal
 
     if interpolatedData
-        rawF = sig[planeStart:planeStart+cellNum-1,:]
-        # spike = spks[planeStart:planeStart+cellNum-1,:]
+        rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+        # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
         rawF = transpose(signal["sig_ot"]["sig"][pn])
         # spike = transpose(signal["sig_ot"]["spks"][pn])
     end
-
-    planeStart = planeStart+cellNum   # update, only works when planeStart is globalized
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
     result.dataId = fill(siteId, cellNum)
@@ -162,6 +160,7 @@ for pn in 1:planeNum
     cti = reduce(append!,condition[1:end-1, :i],init=Int[])   # Drop blank, only choose stim conditions
     for cell in 1:cellNum
         # cell = 1
+        display(cell)
         condResp = cellMeanTrial[cell,cti]
         push!(umodulative,ismodulative([DataFrame(Y=condResp) ctc[cti,:]], alpha=α, interact=true))  # Check molulativeness within stim conditions
         blankResp = cellMeanTrial[cell,condition[end,:i]]  # Choose blank conditions
@@ -206,7 +205,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir) for t in 1:mcti.n[1]]
+                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -250,7 +249,7 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, thres=oriAUC[cell]))
+        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
@@ -285,7 +284,7 @@ for pn in 1:planeNum
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
 
 end
-planeStart = 1  # no clear function like Matab, reset it mannually
+planeStart  #
 
 # Plot Spike Train for all trials of all cells
 # epochext = preicidur

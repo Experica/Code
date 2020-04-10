@@ -60,13 +60,11 @@ spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike trai
 
 ## Load data
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = 1
+planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
 
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=2  # for test
-    global planeStart
-    display(planeStart)
     # Initialize DataFrame for saving results
     recordPlane = string("00",pn-1)  # plane/depth, this notation only works for expt has less than 10 planes
     siteId = join(filter(!isempty,[recordSession, testId, recordPlane]),"_")
@@ -78,17 +76,16 @@ for pn in 1:planeNum
 
     cellRoi = segment["seg_ot"]["vert"][pn]
     cellNum = length(cellRoi)
-    display(cellNum)
+    display("plane: $pn")
+    display("Cell Number: $cellNum")
 
     if interpolatedData
-        # rawF = sig[planeStart:planeStart+cellNum-1,:]
-        spike = spks[planeStart:planeStart+cellNum-1,:]
+        # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+        spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
         # rawF = transpose(signal["sig_ot"]["sig"][pn])
         spike = transpose(signal["sig_ot"]["spks"][pn])
     end
-
-    planeStart = planeStart+cellNum   # update, only works when planeStart is globalized
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
     result.dataId = fill(siteId, cellNum)
