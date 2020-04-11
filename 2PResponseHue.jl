@@ -9,8 +9,8 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 # User input and Expt info
 disk = "O:"
 subject = "AF4"  # Animal
-recordSession = "005" # Unit
-testId = "007"  # Stimulus test
+recordSession = "007" # Unit
+testId = "009"  # Stimulus test
 hueSpace = "DKL"   # Color space used? DKL or HSL
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
@@ -18,6 +18,7 @@ responseOffset = 0.05  # in sec
 α = 0.05   # p value
 diraucThres = 0.8   # if passed, calculate hue direction, otherwise calculate hue axis
 oriaucThres = 0.5
+fitThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
 blankId = 36  # Blank Id
@@ -105,13 +106,11 @@ spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike trai
 
 planeNum = size(segment["mask"],3)  # how many planes
 # planeNum = 1
-planeStart = 1
+planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
 
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=1  # for test
-    global planeStart
-    display(planeStart)
     # Initialize DataFrame for saving results
     recordPlane = string("00",pn-1)  # plane/depth, this notation only works for expt has less than 10 planes
     siteId = join(filter(!isempty,[recordSession, testId, recordPlane]),"_")
@@ -121,20 +120,19 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn] 
+    cellRoi = segment["seg_ot"]["vert"][pn]
     cellNum = length(cellRoi)
-    display(cellNum)
+    display("plane: $pn")
+    display("Cell Number: $cellNum")
     cellId = collect(range(1, step=1, stop=cellNum))  # Currently, the cellID is the row index of signal
 
     if interpolatedData
-        rawF = sig[planeStart:planeStart+cellNum-1,:]
-        # spike = spks[planeStart:planeStart+cellNum-1,:]
+        rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+        # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
         rawF = transpose(signal["sig_ot"]["sig"][pn])
         # spike = transpose(signal["sig_ot"]["spks"][pn])
     end
-
-    planeStart = planeStart+cellNum   # update, only works when planeStart is globalized
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
     result.dataId = fill(siteId, cellNum)
@@ -226,7 +224,7 @@ for pn in 1:planeNum
         mbti = conditionBlank[conditionBlank.SpatialFreq.==ufm[:SpatialFreq][cell], :]
         blankResp = [cellMeanTrial[cell,conditionBlank.i[r][t]] for r in 1:nrow(conditionBlank), t in 1:conditionBlank.n[1]]
         # resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-        # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir) for t in 1:mcti.n[1]]
+        # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
         # orivec = reduce(vcat,[resu[t].oov for t in 1:mcti.n[1]])
         # pori=[];pdir=[];pbori=[];pbdir=[];
 
@@ -243,7 +241,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir) for t in 1:mcti[1,:n]]
+                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti[1,:n]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -311,7 +309,7 @@ for pn in 1:planeNum
                     shuffle!(@view resp[i,:])
                 end
 
-                resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle) for t in 1:mcti[1,:n]]
+                resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
                 huevec = reduce(vcat,[resu[t].ham for t in 1:mcti.n[1]])  # hue axis
                 # hueaxp = hotellingt2test([real(huevec) imag(huevec)],[0 0],0.05)
                 huevecmean = mean(huevec, dims=1)[1]  # final mean vec
@@ -366,7 +364,7 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, thres=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])))
+        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
