@@ -118,7 +118,7 @@ plot(ggt[:,200])
 
 
 using Makie,Colors
-Makie.scatter(1:2,1:2,marker=[rand(RGB,10,10) rand(RGB,10,10)],markersize=0.2)
+Makie.scatter(1:2,1:2,marker=[rand(Gray,10,10) rand(RGB,10,10)],markersize=0.2)
 
 
 
@@ -129,13 +129,24 @@ Plots.plot(gaussianf,-3,3)
 Plots.plot(gaborf,-3,3)
 Plots.plot(dogf,-3,3)
 
-x=y=-3:0.01:3
+
 z = [gaussianf(i,j,σ₁=0.8,σ₂=0.5,θ=0.5) for j in reverse(y),i in x]
 z = [gratingf(i,j,θ=0.5,f=0.5) for j in reverse(y),i in x]
 z = [gaborf(i,j,σ₁=0.3,σ₂=0.3,θ=0.5,f=0.5) for j in reverse(y),i in x]
 z = [dogf(i,j,σₑ₁=0.8,σₑ₂=0.5,σᵢ₁=1,σᵢ₂=0.7,θₑ=0.5,θᵢ=0.5) for j in reverse(y),i in x]
 
 Plots.heatmap(z,aspect_ratio=:equal,frame=:none,yflip=true,leg=false,color=:plasma)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -179,7 +190,7 @@ plotunitposition(up.*jit,unitid=us,layer=layer,unitgood=trues(58),markersize=0,u
 savefig("unitposition.svg")
 
 
-using NeuroAnalysis
+
 
 
 ct = YAML.load_file("cell type.yaml")
@@ -206,7 +217,37 @@ propertynames(t)
 rt = YAML.load_file("ttt.yaml")
 
 
-using MAT
+using NeuroAnalysis,Plots,Interact,Statistics, BenchmarkTools,StatsPlots,DataFrames
+
+t = prepare("Y:\\AF5\\AF5_HLV1_ODL3_Color_1.mat")
+
+
+twf = t["spike_kilosort"]["templateswaveformfeature"]
+twff = t["spike_kilosort"]["clusterwaveformfeature"]
+
+twff = t["spike"]["unitfeature"]
+
+sui = t["spike"]["unitgood"]
+
+fns = collect(keys(twff))
+
+@manipulate for x in fns, y in fns
+    scatter(twff[x][sui],twff[y][sui],markersize=3,leg=false)
+end
+
+
+
+@manipulate for i = 1:size(twf, 1)
+    ps, freq = powerspectrum(twf[i:i, :], 30000, freqrange = [3000, 12000])
+    p = plot(layout=(4,1),size=(800,200*4))
+    w = twf[i, :]
+    plot!(subplot=1,w)
+    plot!(subplot=2,freq, ps[1,:],ylims=[0,1e-5])
+    fw = hlpass(twf[i:i,:],30000,high=150,low=12000)[1,:]
+    plot!(subplot=3,fw)
+    plot!(subplot=4,w.-fw,ylims=[-1e0,1e0])
+end
+
 
 rt = matread("ttt.mat")
 
@@ -215,21 +256,96 @@ save("ttt.jld2",t)
 
 load("ttt.jld2","cg")
 
+a=[1,2,3]
 
-cas(x) = 1/sqrt(2)*sum(sincos(x))
+a[begin:begin]
+a=rand(3,4)
 
 
-using Plots,Interact,NeuroAnalysis
+a[begin:begin,:]
 
-plot([sin,cos,cas],-2pi,2pi)
+b = a[:,argmax(a,dims=2)]
 
-@manipulate for f in 0:0.2:1, t in 0:0.01:10, p in 0:0.01:1
-plot(x->gratingf(x,f=f,phase=p),-2,2)
+[i[1]*i[2] for i in CartesianIndices(a)]
+
+
+
+
+
+f(x) = x # fallback default
+f(x::Array) = all(size(x) .== 1) ? f(x[1]) : dropdims(f.(x), dims=Tuple(findall(size(x) .== 1)))
+f(x::Dict) = Dict((k,f(v)) for (k,v) in pairs(x))
+
+
+f2(x) = x # fallback default
+function f2(x::Array)
+    if all(size(x) .== 1)
+        f2(x[1])
+    elseif any(size(x) .== 1)
+        dropdims(f2.(x), dims=Tuple(findall(size(x) .== 1)))
+    else
+        x
+    end
+end
+function f2(x::Dict)
+    for (k,v) in pairs(x)
+        x[k] = f2(v)
+    end
+    return x
 end
 
+f3(x) = x # fallback default
+f3(x::Array) = all(size(x) .== 1) ? f3(x[1]) : any(size(x) .== 1) ? dropdims(f3.(x), dims=Tuple(findall(size(x) .== 1))) : x
+f3(x::Dict) = (for (k,v) in pairs(x); x[k] = f3(v) end; x)
+
+# Variables for testing
+x0 = "foo"
+x1 = rand(3000)
+x2 = rand(3000,1)
+x3 = rand(1,3000)
+x4 = rand(1,1)
+x5 = rand(3000,1,30,1,3)
+x6 = [x0, x1, x2, x3, x4, x5]
+x7 = fill(x4,200,20,30)
+x8 = Dict(:a=>x4,:b=>x4)
+x9 = Any[x4,x4]
+x = Dict(:x0=>x0, :x1=>x1, :x2=>x2, :x3=>x3, :x4=>x4, :x5=>x5) # Dict of arrays and strings
+y = reshape([x, x0, x1, x6], (1,4))                            # Array of dicts and arrays and strings
+z = Dict(:y=>y, :x=>x, :x6=>x6, :x7=>x7, :x8=>x8, :x9=>x9)                                # Dict of dicts and arrays and strings
+
+# Some tests to check that all the arrays are squeezed recursively
+["$k: size conversion: $(size(v)) → $(size(f(v))))" for (k,v) in x if v isa Array]
+f(z)     # is a vector
+f(z)[:y][1][:x5] # is a (3,3,3) array
 
 
-function cas(x;f=1, phase=0, isnorm=true)
-    r = sum(sincos(2π*(f*x + phase)))
-    isnorm && r/sqrt(2)
-end
+@btime f($(z))
+@btime f2($(z))
+@btime f3($(z))
+@btime dropmatdim!($(z))
+
+f2(x7)
+
+
+any((<:).(eltype(x7),[Any,Array,Dict]))
+
+x7[1] :: Array
+
+x7 isa Array
+
+dropmatdim!(z)
+
+
+
+
+
+
+using MAT
+d=matread("c:\\users\\fff00\\mattest.mat")
+
+
+
+
+
+
+d=readmat("c:\\users\\fff00\\mattest.mat")
