@@ -6,6 +6,7 @@ param = Dict{Any,Any}(
     :resultroot => "../Result",
     :stimuliroot => "../NaturalStimuli")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
+param[:layer] = layer
 
 ## Query Tests
 tests = @from i in meta begin
