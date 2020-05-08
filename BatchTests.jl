@@ -1,24 +1,27 @@
+includet("Batch.jl")
+
 ## Prepare Param and Metadata
-includet("batch.jl")
+cd(@__DIR__)
 param = Dict{Any,Any}(
     :dataroot => "../Data",
     :dataexportroot => "../DataExport",
     :resultroot => "../Result",
     :stimuliroot => "../NaturalStimuli")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
+
 param[:layer] = layer
 
 ## Query Tests
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
-        @where i.RecordSite == "ODL1"
-        @where i.ID == "OriSF"
+        @where i.RecordSite == "ODL3"
+        @where i.ID == "Flash2Color"
         @where i.sourceformat == "SpikeGLX"
-        @select {i.ID,i.UUID,i.files}
+        @select {i.ID,i.UUID,i.files,i.sourceformat}
         @collect DataFrame
         end
 
-## Condition Tests
+## Batch Condition Tests
 batchtests(tests,param,plot=true)
 
 ## HartleySubspace Parametric and Image Response

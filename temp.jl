@@ -235,7 +235,12 @@ fns = collect(keys(twff))
     scatter(twff[x][sui],twff[y][sui],markersize=3,leg=false)
 end
 
+tt=t["lf"]["meta"]
+tt["from"]
 
+tt["roapgain"]
+tt["savedchans"]
+tt["snsSaveChanSubset"]
 
 @manipulate for i = 1:size(twf, 1)
     ps, freq = powerspectrum(twf[i:i, :], 30000, freqrange = [3000, 12000])
@@ -349,3 +354,35 @@ d=matread("c:\\users\\fff00\\mattest.mat")
 
 
 d=readmat("c:\\users\\fff00\\mattest.mat")
+
+
+
+using Unitful
+
+a=3.6u"ms"
+
+ustrip(datatimeunit,edur)
+
+a=[2,4.5,7,9.3]
+
+b=a*u"s"
+
+
+edur = 150u"ms"
+
+datatimeunit = u"ms"
+
+uconvert.(u"ms",b)
+
+
+a=rand(10)
+
+e=[0u"ms" 150u"ms"]
+
+a=[[1.0,2.0],[3.0,4.0]]
+
+typeof(a) <: Vector{Vector}
+
+b=[1.0,2.0]
+
+typeof(b) <: Vector
