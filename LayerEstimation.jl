@@ -1,11 +1,11 @@
-using NeuroAnalysis,Statistics,FileIO,Plots,Interact,Dierckx,PyCall
+using NeuroAnalysis,Statistics,FileIO,Plots,Interact#,Dierckx,PyCall
 
 # Combine all layer tests of one recording site
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 
@@ -17,20 +17,21 @@ layer = Dict("WM"=>[0,0],"Out"=>[3500,3500])
 # csds = load.(joinpath.(sitedir,testids,"csd.jld2"),"csd","depth","fs")
 # depths=csds[1][2];fs=csds[1][3]
 
-testids = ["$(siteid)_Flash2Color_$i" for i in 1:6]
+testids = ["$(siteid)_Flash2Color_$i" for i in 1:4]
 testn=length(testids)
-## Plot all CSD
+## All CSD
 csds = load.(joinpath.(resultsitedir,testids,"csd.jld2"))
 testlogs = ["$(i["log"])_$(i["color"])" for i in csds]
 fs=csds[1]["fs"]
 csddepths=csds[1]["depth"]
+csdtimes = csds[1]["time"]
 
 csdb = [0 15]
 csdr = [15 100]
-csdbi = epoch2samplerange(csdb,fs)
-csdri = epoch2samplerange(csdr,fs)
-csdx = csdri./fs .* 1000
-csdss = map(i->imfilter(stfilter(i["csd"],temporaltype=:sub,ti=csdbi),Kernel.gaussian((0.9,1)))[:,csdri],csds)
+csdbi = epoch2sample(csdb,fs)
+csdri = epoch2sample(csdr,fs)
+csdx = csdtimes[csdri]
+csdss = map(i->imfilter(stfilter(i["csd"],temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((0.9,1)))[:,csdri],csds)
 csdclim=maximum(abs.(vcat(csdss...)))
 
 p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
@@ -47,38 +48,15 @@ end
 p
 foreach(i->savefig(joinpath(resultsitedir,"Layer_dCSD$i")),[".png",".svg"])
 
-
-## Plot all Power Spectrum
-pss = load.(joinpath.(resultsitedir,testids,"powerspectrum.jld2"))
-psdepths=pss[1]["depth"];freq=pss[1]["freq"]
-
-psss = map(i->i["rcps"],pss)
-psclims=extrema(vcat(psss...))
-
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
-for i in 1:testn
-    yticks = i==1 ? true : false
-    xlabel = i==1 ? "Frequency (Hz)" : ""
-    ylabel = i==1 ? "Depth (um)" : ""
-    heatmap!(p,subplot=i,freq,psdepths,psss[i],color=:PuRd,clims=psclims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-    if !isnothing(layer)
-        hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray30,legend=false,
-        annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray20,:bottom,:left)) for k in keys(layer)])
-    end
-end
-p
-foreach(i->savefig(joinpath(resultsitedir,"Layer_PowerSpectrum_RelativeChange$i")),[".png",".svg"])
-
-
-## Plot all Depth PSTH
+## All Depth PSTH
 depthpsths = load.(joinpath.(resultsitedir,testids,"depthpsth.jld2"))
-x=depthpsths[1]["x"];bw = x[2]-x[1];psthdepths = depthpsths[1]["depth"]
+psthtimes=depthpsths[1]["time"];bw = psthtimes[2]-psthtimes[1];psthdepths = depthpsths[1]["depth"]
 
 psthb = [0 15]
 psthr = [15 100]
-psthbi = epoch2samplerange(psthb,1/(bw*SecondPerUnit))
-psthri = epoch2samplerange(psthr,1/(bw*SecondPerUnit))
-psthx = psthri .* bw
+psthbi = epoch2sample(psthb,1/(bw*SecondPerUnit))
+psthri = epoch2sample(psthr,1/(bw*SecondPerUnit))
+psthx = psthtimes[psthri]
 psthss = map(i->imfilter(stfilter(i["depthpsth"],temporaltype=:sub,ti=psthbi),Kernel.gaussian((0.9,1)))[:,psthri],depthpsths)
 psthclims=extrema(vcat(psthss...))
 
@@ -101,6 +79,27 @@ end
 p
 foreach(i->savefig(joinpath(resultsitedir,"Layer_dPSTH$i")),[".png",".svg"])
 
+
+## All Power Spectrum
+pss = load.(joinpath.(resultsitedir,testids,"powerspectrum.jld2"))
+psdepths=pss[1]["depth"];freq=pss[1]["freq"]
+
+psss = map(i->i["rcps"],pss)
+psclims=extrema(vcat(psss...))
+
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,size=(testn*200,700))
+for i in 1:testn
+    yticks = i==1 ? true : false
+    xlabel = i==1 ? "Frequency (Hz)" : ""
+    ylabel = i==1 ? "Depth (um)" : ""
+    heatmap!(p,subplot=i,freq,psdepths,psss[i],color=:PuRd,clims=psclims,title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+    if !isnothing(layer)
+        hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray30,legend=false,
+        annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray20,:bottom,:left)) for k in keys(layer)])
+    end
+end
+p
+foreach(i->savefig(joinpath(resultsitedir,"Layer_PowerSpectrum_RelativeChange$i")),[".png",".svg"])
 
 ## Plot all unit position
 spikes = load.(joinpath.(resultsitedir,testids,"spike.jld2"),"spike")
