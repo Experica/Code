@@ -7,12 +7,12 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random, Plots
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "003" # Unit
-testId = "002"  # Stimulus test
+disk = "H:"
+subject = "AE7"  # Animal
+recordSession = "001" # Unit
+testId = "006"  # Stimulus test
 
-interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 
 delays = -0.1:0.05:0.5
 print(collect(delays))
@@ -24,7 +24,7 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -40,12 +40,17 @@ condidx = ex["CondTest"]["CondIndex"]
 condtable =  DataFrame(ex["raw"]["log"]["randlog_T1"]["domains"]["Cond"])
 rename!(condtable, [:oridom, :kx, :ky,:bwdom,:colordom])
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+
 
 ##
 # Prepare Imageset
@@ -63,7 +68,7 @@ ysize = getparam(envparam,"y_size")
 stisize = xsize
 ppd = 46
 imagesetname = "Hartley_stisize$stisize"
-maskradius = 0.16 #maskradius/stisize
+maskradius = 0.16 #maskradius/stisize=0.13
 # if coneType == "L"
 #     maxcolor = RGBA()
 #     mincolor = RGBA()
@@ -90,8 +95,9 @@ imagestimuli = map(s->map(i->alphablend.(alphamask(i[s],radius=maskradius,sigma=
 
 ## Load data
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=1  # for test
@@ -104,16 +110,21 @@ for pn in 1:planeNum
     isdir(dataExportFolder) || mkpath(dataExportFolder)
     isdir(resultFolder) || mkpath(resultFolder)
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
     cellNum = length(cellRoi)
     display("Cell Number: $cellNum")
 
     if interpolatedData
         # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+        spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
         spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        # rawF = transpose(signal["sig_ot"]["sig"][pn])
-        spike = transpose(signal["sig_ot"]["spks"][pn])
+        # rawF = transpose(signal["sig"])
+        spike = transpose(signal["spks"])
     end
 
     ## Calculate STA

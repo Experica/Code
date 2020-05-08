@@ -1,4 +1,4 @@
-using FileIO
+using FileIO,MAT,BenchmarkTools
 d=load("ucondidx.jld2")
 
 cond = d["cond"]
@@ -6,6 +6,13 @@ cond = d["cond"]
 cidx = d["cidx"]
 uidx2= uidx[:,1]
 
+d=load("C:/Users/lyr19/Dropbox/Github/2P/9_ColorProject/DKL_rgb.jld2")
+
+dkllut=d["dkllut"]'
+
+file = matopen("C:/Users/lyr19/Dropbox/Github/2P/9_ColorProject/dkllut.mat", "w")
+write(file, "dkllut", dkllut)
+close(file)
 
 
 cc=hcat(map(i->unique(i),cidx)...)'
@@ -16,13 +23,18 @@ cond[1482,:]ys
 
 
 
-
+p=rand(100)
 
 ys,ns,ws,is=histrv(float.(p),0,1,nbins=20)
 
 plot(ns)
-
-findmax(ns)
+ws2=[i for i in ws]
+ws2[1]
+size(ws,1)
+ws2=map(i-> mean(ws[i])<0.05, range(1,size(ws,1)))
+findmin(ns)
+ns[1]
+sum(ns[ws2])
 mean(ys[3])
 mean(ys[findmax(ns)[2]])
 

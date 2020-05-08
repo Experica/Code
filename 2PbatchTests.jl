@@ -2,8 +2,8 @@
 includet("batch.jl")
 
 param = Dict{Any,Any}(
-    :dataexportroot => "O:\\AF4\\2P_analysis\\Summary\\DataExport",
-    :interpolatedData => true,   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+    :dataexportroot => "K:\\AE6\\2P_analysis\\Summary\\DataExport",
+    :interpolatedData => false,   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
     :preOffset => 0.1,
     :responseOffset => 0.05,  # in sec
     :α => 0.05,   # p value
@@ -14,7 +14,7 @@ param = Dict{Any,Any}(
     :oriaucThres => 0.5,
     :Respthres => 0.1,  # Set a response threshold to filter out low response cells?
     :blankId => 36,  # Blank Id
-    :excId => [27,28,blankId])  # Exclude some condition?
+    :excId => [27,28])  # Exclude some condition?
 
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 for t in 1:nrow(meta)
@@ -24,9 +24,9 @@ end
 ## Query Tests
 tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
-        @where i.Subject_ID == "AF4"
-        # @where i.RecordSite == "u002"
-        @where i.ID == "DirSF"
+        @where i.Subject_ID == "ae6"
+        @where i.RecordSite == "u002"
+        @where i.ID == "Hartley"
         @where i.sourceformat == "Scanbox"
         @select {i.sourceformat,i.ID,i.files,i.UUID}
         @collect DataFrame
@@ -37,6 +37,7 @@ batchtests(tests,param,plot=false)
 
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
+param[:maskradius] =0.18 #0.24 0.16  # mask_radius/size + 0.3
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100

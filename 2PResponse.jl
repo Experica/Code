@@ -7,12 +7,12 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "003" # Unit
-testId = "006"  # Stimulus test
+disk = "H:"
+subject = "AE7"  # Animal
+recordSession = "001" # Unit
+testId = "001"  # Stimulus test
 
-interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
@@ -26,7 +26,7 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -71,22 +71,24 @@ preEpoch = [0 preStim-preOffset]
 condEpoch = [preStim+responseOffset condOfftime-responseOffset]
 preFrame=epoch2samplerange(preEpoch, sbxfs)
 condFrame=epoch2samplerange(condEpoch, sbxfs)
-# preOn = fill(preFrame.start, trialNum)
-# preOff = fill(preFrame.stop, trialNum)
-# condOn = fill(condFrame.start, trialNum)
-# condOff = fill(condFrame.stop, trialNum)
 
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
 # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=1  # for test
@@ -99,7 +101,12 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
+
     cellNum = length(cellRoi)
     display("plane: $pn")
     display("Cell Number: $cellNum")
@@ -109,8 +116,8 @@ for pn in 1:planeNum
         rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        rawF = transpose(signal["sig_ot"]["sig"][pn])
-        # spike = transpose(signal["sig_ot"]["spks"][pn])
+        rawF = transpose(signal["sig"])
+        # spike = transpose(signal["spks"])
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
@@ -160,7 +167,7 @@ for pn in 1:planeNum
     cti = reduce(append!,condition[1:end-1, :i],init=Int[])   # Drop blank, only choose stim conditions
     for cell in 1:cellNum
         # cell = 1
-        display(cell)
+        # display(cell)
         condResp = cellMeanTrial[cell,cti]
         push!(umodulative,ismodulative([DataFrame(Y=condResp) ctc[cti,:]], alpha=α, interact=true))  # Check molulativeness within stim conditions
         blankResp = cellMeanTrial[cell,condition[end,:i]]  # Choose blank conditions

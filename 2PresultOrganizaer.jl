@@ -4,12 +4,17 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = ["002","003","004", "005", "006","007"] # Unit
-recordPlane = ["000", "001"]
-oriExptId = ["002_000","003_008", "004_005", "005_010","006_007","007_009"]
-hueExptId = ["002_006","003_012", "004_008", "005_007","006_005","007_006"]  # Stimulus test
+disk = "H:"
+subject = "AE7"  # Animal
+# recordSession = ["002","003","004", "005", "006","007"] # Unit
+# recordPlane = ["000", "001"]
+# oriExptId = ["002_000","003_008", "004_005", "005_010","006_007","007_009"]
+# hueExptId = ["002_006","003_012", "004_008", "005_007","006_005","007_006"]  # Stimulus test
+
+recordSession = ["001"]#,"003","004", "005", "006","007"] # Unit
+recordPlane = ["000"]
+oriExptId = ["001_001"]
+hueExptId = []  #
 
 oriaucThres = 0.7
 diraucThres = 0.7
@@ -45,8 +50,12 @@ for i = 1:exptOriNum
         siteId = join([oriExptId[i][1:3], "_",recordPlane[j]])
         dataFolder = joinpath(mainpath, join(["U", oriExptId[i][1:3]]), join([oriExptId[i], "_", recordPlane[j]]), "DataExport")
         dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
-        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-        alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+        # segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        # alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+
         result = load(dataFile)["result"]
         segment = prepare(segmentFile)
         align = prepare(alignFile)
