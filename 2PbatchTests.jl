@@ -24,7 +24,7 @@ end
 ## Query Tests
 tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
-        @where i.Subject_ID == "ae6"
+        @where i.Subject_ID == "AE6"
         @where i.RecordSite == "u002"
         @where i.ID == "Hartley"
         @where i.sourceformat == "Scanbox"
@@ -37,6 +37,8 @@ batchtests(tests,param,plot=false)
 
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
+# param[:delays] = -0.066:0.033:0.4  # Bidirectional scanning
+param[:delays] = -0.066:0.066:0.4  # Unidirectional scanning
 param[:maskradius] =0.18 #0.24 0.16  # mask_radius/size + 0.3
 param[:epprndelay]=1
 param[:epprnft]=[3]

@@ -67,16 +67,23 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
     # condOff = fill(condFrame.stop, trialNum)
 
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    end
+
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
     # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
         # pn=1  # for test
@@ -89,7 +96,11 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
@@ -99,8 +110,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig_ot"]["sig"][pn])
-            # spike = transpose(signal["sig_ot"]["spks"][pn])
+            rawF = transpose(signal["sig"])
+            # spike = transpose(signal["spks"])
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -363,17 +374,24 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     # condOff = fill(condFrame.stop, trialNum)
 
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    end
+
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
     spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     planeNum = size(segment["mask"],3)  # how many planes
     # planeNum = 1
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
         # pn=1  # for test
@@ -386,7 +404,11 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
@@ -396,8 +418,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig_ot"]["sig"][pn])
-            # spike = transpose(signal["sig_ot"]["spks"][pn])
+            rawF = transpose(signal["sig"])
+            # spike = transpose(signal["spks"])
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -677,12 +699,13 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
         save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
     end
+
 end
 
 function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
-    delays = -0.1:0.05:0.5
+    delays = param[:delays]
     print(collect(delays))
 
     # Expt info
@@ -708,12 +731,17 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     condtable =  DataFrame(ex["raw"]["log"]["randlog_T1"]["domains"]["Cond"])
     rename!(condtable, [:oridom, :kx, :ky,:bwdom,:colordom])
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    end
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+
 
     ##
     # Prepare Imageset
@@ -731,7 +759,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     stisize = xsize
     ppd = haskey(param,:ppd) ? param[:ppd] : 46
     imagesetname = "Hartley_stisize$stisize"
-    maskradius = 0.16 #maskradius/stisize
+    maskradius = haskey(param,:maskradius) ? param[:maskradius] : 0.16 #maskradius/stisize
     # if coneType == "L"
     #     maxcolor = RGBA()
     #     mincolor = RGBA()
@@ -758,7 +786,9 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
 
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
@@ -772,16 +802,21 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
         isdir(dataExportFolder) || mkpath(dataExportFolder)
         isdir(resultFolder) || mkpath(resultFolder)
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("Cell Number: $cellNum")
 
         if interpolatedData
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+            spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig_ot"]["sig"][pn])
-            spike = transpose(signal["sig_ot"]["spks"][pn])
+            # rawF = transpose(signal["sig"])
+            spike = transpose(signal["spks"])
         end
 
         ## Calculate STA
@@ -815,7 +850,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                     usta[cell,d,:]=stas
                     # uy[d,:]=y
                     # usta[d,:]=stas
-                    if isplot
+                    if plot
                         r = [extrema(stas)...]
                         title = "$(ugs[cell])Unit_$(unitid[cell])_STA_$(delays[d])"
                         p = plotsta(stas,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
@@ -828,12 +863,14 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
             "uy",uy,"usta",usta,"delays",delays,"stisize",stisize,"color",coneType)
         end
     end
+
 end
+
 
 function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
-    delays = 0:0.05:0.5
+    delays = param[:delays]
     ntau = length(collect(delays))
     print(collect(delays))
 
@@ -870,16 +907,23 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     condidx2 = condidx.*cidx + blkidx.* 5641
     conduniq = unique(condidx2)
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    end
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
 
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
@@ -893,17 +937,22 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
 
         if interpolatedData
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
+            spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig_ot"]["sig"][pn])
-            spike = transpose(signal["sig_ot"]["spks"][pn])
+            # rawF = transpose(signal["sig"])
+            spike = transpose(signal["spks"])
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -995,6 +1044,5 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result)
         save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result)
-
     end
 end

@@ -7,14 +7,14 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random, Plots
 
 # Expt info
-disk = "H:"
-subject = "AE7"  # Animal
-recordSession = "001" # Unit
+disk = "K:"
+subject = "AE6"  # Animal
+recordSession = "002" # Unit
 testId = "006"  # Stimulus test
 
 interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 
-delays = -0.1:0.05:0.5
+delays = -0.066:0.066:0.4
 print(collect(delays))
 isplot = false
 
@@ -24,7 +24,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -68,7 +69,7 @@ ysize = getparam(envparam,"y_size")
 stisize = xsize
 ppd = 46
 imagesetname = "Hartley_stisize$stisize"
-maskradius = 0.16 #maskradius/stisize=0.13
+maskradius = 0.18 #maskradius/stisize=0.13
 # if coneType == "L"
 #     maxcolor = RGBA()
 #     mincolor = RGBA()
@@ -133,7 +134,9 @@ for pn in 1:planeNum
         imagesize = imageset[:imagesize][scaleindex]
         xi = unmaskindex[scaleindex]
         uci = unique(condidx)
-        ucii = map(i->findall(condidx.==i),uci)  # find the repeats of each unique condition
+        # ucii = map(i->findall(condidx.==i),uci)  # find the repeats of each unique condition
+        ucii = map(i->findall(condidx.==i),uci)
+
         x = Array{Float64}(undef,length(uci),length(xi))
         foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
 
@@ -143,6 +146,7 @@ for pn in 1:planeNum
         # usta = Array{Float64}(undef,length(delays),length(xi))
 
         for d in eachindex(delays)
+            # d=1
             display("Processing delay: $d")
             y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
             spk=zeros(size(spike,1),length(idx))
