@@ -1,9 +1,9 @@
 using NeuroAnalysis,Query,FileIO,ProgressMeter,Logging,Statistics,DataFrames,StatsPlots,Mmap,Images,StatsBase#,ePPR
 import Base: close
 
-includet("Batch_Ripple.jl")
+# includet("Batch_Ripple.jl")
 includet("Batch_SpikeGLX.jl")
-includet("Batch_Scanbox.jl")
+# includet("Batch_Scanbox.jl")
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),plot::Bool=true)
     p = ProgressMeter.Progress(size(tests,1),desc="Batch Tests ... ")

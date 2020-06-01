@@ -39,7 +39,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     epoch = [0 epochdur]
     epochs = condon.+epoch
     # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered, in the same shape of probe, where excluded channels are replaced with local average
-    ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
+    ys=reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
 
     if plot
         for c in 1:pncol
@@ -57,7 +57,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
     pcsd = csd(pys,h=hy)
     basedur = timetounit(15)
-    baseindex = epoch2sample([0 basedur],fs)
+    baseindex = epoch2sampleindex([0 basedur],fs)
     dcsd=stfilter(pcsd,temporaltype=:sub,ti=baseindex)
     mdcsd = dropdims(mean(dcsd,dims=3),dims=3)
     depths = hy*(0:(pnrow-1))
@@ -72,13 +72,13 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     epochdur = timetounit(300)
     epoch = [0 epochdur]
     epochs = condon.+epoch
-    ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
+    ys=reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
     pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
     ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=4*epochdur*SecondPerUnit)
 
     epoch = [-epochdur 0]
     epochs = condon.+epoch
-    ys=reshape2mask(subrm(mmlf,fs,epochs,chs=1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
+    ys=reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=dataset["lf"]["meta"],bandpass=[1,100]),exchmask)
     pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
     bps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=4*epochdur*SecondPerUnit)
 
@@ -110,7 +110,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     if plot
         epochext = preicidur
         for u in eachindex(unitspike)
-            ys,ns,ws,is = subst(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
+            ys,ns,ws,is = epochspiketrain(unitspike[u],condon.-epochext,condoff.+epochext,isminzero=true,shift=epochext)
             plotspiketrain(ys,timeline=[0,conddur],title="$(ugs[u])Unit_$(unitid[u])")
             foreach(i->savefig(joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_SpikeTrain$i")),[".png",".svg"])
         end
@@ -123,12 +123,12 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     bw = timetounit(2)
     psthbins = epoch[1]:bw:epoch[2]
 
-    baseindex = epoch2sample([0 basedur],1/(bw*SecondPerUnit))
+    baseindex = epoch2sampleindex([0 basedur],1/(bw*SecondPerUnit))
     normfun = x->x.-mean(x[baseindex])
-    unitpsth = map(st->psthsts(subst(st,epochs,isminzero=true).y,psthbins,israte=true,normfun=normfun),unitspike[unitgood])
+    unitpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,normfun=normfun),unitspike[unitgood])
     depthpsth,x,depths,depthnunit = spacepsth(unitpsth,unitposition[unitgood,:],hy*(0:pnrow).-(hy/2))
     if plot
-        plotpsth(imfilter(depthpsth,Kernel.gaussian((1,1))),x,depths,color=:minmax,n=depthnunit)
+        plotpsth(imfilter(depthpsth,Kernel.gaussian((1,1))),x,depths,n=depthnunit)
         foreach(i->savefig(joinpath(resultdir,"DepthPSTH$i")),[".png",".svg"])
     end
     save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"depth",depths,"time",x,"n",depthnunit)
@@ -138,7 +138,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     bepoch = [-bepochext minconddur]
     bepochs = condon.+bepoch
     spikebins = bepoch[1]:timetounit(1):bepoch[2] # 1ms bin histogram will convert spike times to binary spike train
-    bst = map(st->permutedims(psthsts(subst(st,bepochs,isminzero=true,shift=bepochext).y,spikebins,israte=false,ismean=false).mat),unitspike[unitgood]) # nSpikeBin x nEpoch for each unit
+    bst = map(st->permutedims(psthspiketrains(epochspiketrain(st,bepochs,isminzero=true,shift=bepochext).y,spikebins,israte=false,ismean=false).mat),unitspike[unitgood]) # nSpikeBin x nEpoch for each unit
     # Single Unit Correlogram and Circuit
     lag=50
     ccgs,x,ccgis,projs,eunits,iunits,projweights = circuitestimate(bst,lag=lag,unitid=unitid[unitgood],condis=cond.i)
@@ -169,7 +169,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     isdir(resultdir) || mkpath(resultdir)
 
     # Condition Tests
-    envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+    envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood=spike["unitgood"];unitposition=spike["unitposition"]
     condon = ex["CondTest"]["CondOn"]
     condoff = ex["CondTest"]["CondOff"]
@@ -208,19 +208,20 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     nscale = haskey(param,:nscale) ? param[:nscale] : 2
     downsample = haskey(param,:downsample) ? param[:downsample] : 2
     sigma = haskey(param,:sigma) ? param[:sigma] : 1.5
+    ppd = haskey(param,:ppd) ? param[:ppd] : 45
     bgcolor = RGBA(getparam(envparam,"BGColor")...)
     maxcolor = RGBA(getparam(envparam,"MaxColor")...)
     mincolor = RGBA(getparam(envparam,"MinColor")...)
     masktype = getparam(envparam,"MaskType")
     maskradius = getparam(envparam,"MaskRadius")
     masksigma = getparam(envparam,"Sigma")
-    diameter = 7#getparam(envparam,"Diameter")
-    stisize = (diameter,diameter)
-    imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_stisize$stisize"
+    diameter = 5#getparam(envparam,"Diameter")
+    sizedeg = (diameter,diameter)
+    imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_size$sizedeg"
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,stisize=stisize,ppd=45)),eachrow(condtable))
+        imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)),eachrow(condtable))
         imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
-        imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
+        imageset[:sizepx] = map(i->size(i),imageset[:pyramid][1])
         param[imagesetname] = imageset
     end
 
@@ -247,7 +248,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
     if :STA in param[:model]
         scaleindex=1
-        imagesize = imageset[:imagesize][scaleindex]
+        sizepx = imageset[:sizepx][scaleindex]
         xi = unmaskindex[scaleindex]
         uci = unique(condidx)
         ucii = map(i->findall(condidx.==i),uci)
@@ -258,10 +259,10 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         delays = -10:5:200
         for u in eachindex(unitspike)
             !unitgood[u] && continue
-            ys = Array{Float64}(undef,length(delays),length(ucii))
+            ys = Array{Float64}(undef,length(delays),length(uci))
             stas = Array{Float64}(undef,length(delays),length(xi))
             for d in eachindex(delays)
-                y = subrvr_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
+                y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
                 y = map(i->mean(y[i]),ucii)
                 ys[d,:] = y
                 stas[d,:]=sta(x,y)
@@ -273,13 +274,13 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                 r = [extrema(stas)...]
                 for d in eachindex(delays)
                     title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-                    p = plotsta(stas[d,:],imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
+                    p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
                     foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
                 end
             end
         end
-        save(joinpath(resultdir,"sta.jld2"),"imagesize",imagesize,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
-        "stisize",stisize,"log",ex["Log"],"color","$(ex["Param"]["ColorSpace"])_$(ex["Param"]["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
+        save(joinpath(resultdir,"sta.jld2"),"sizepx",sizepx,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
+        "sizedeg",sizedeg,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
     end
 
     if :ePPR in param[:model]

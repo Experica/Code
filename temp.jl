@@ -115,38 +115,20 @@ plot(ggt[:,200])
 
 
 
-
-
-using Makie,Colors
-Makie.scatter(1:2,1:2,marker=[rand(Gray,10,10) rand(RGB,10,10)],markersize=0.2)
-
+using Interact,Plots,VegaLite,DataFrames,Distances,LinearAlgebra
+@vlplot(:point,rand(10),rand(10))
 
 
 
-## functions plot
-Plots.plot(gratingf,-3,3)
-Plots.plot(gaussianf,-3,3)
-Plots.plot(gaborf,-3,3)
-Plots.plot(dogf,-3,3)
+@manipulate for i in 1:10
+    DataFrame(x=rand(10),y=rand(10)) |> @vlplot(:line,:x,:y)
+end
 
 
-z = [gaussianf(i,j,σ₁=0.8,σ₂=0.5,θ=0.5) for j in reverse(y),i in x]
-z = [gratingf(i,j,θ=0.5,f=0.5) for j in reverse(y),i in x]
-z = [gaborf(i,j,σ₁=0.3,σ₂=0.3,θ=0.5,f=0.5) for j in reverse(y),i in x]
-z = [dogf(i,j,σₑ₁=0.8,σₑ₂=0.5,σᵢ₁=1,σᵢ₂=0.7,θₑ=0.5,θᵢ=0.5) for j in reverse(y),i in x]
-
-Plots.heatmap(z,aspect_ratio=:equal,frame=:none,yflip=true,leg=false,color=:plasma)
-
-
-
-
-
-
-
-
-
-
-
+using Interact,Plots
+@manipulate for i in 1:10
+    plot(rand(10))
+end
 
 
 
@@ -277,32 +259,6 @@ b = a[:,argmax(a,dims=2)]
 
 
 
-f(x) = x # fallback default
-f(x::Array) = all(size(x) .== 1) ? f(x[1]) : dropdims(f.(x), dims=Tuple(findall(size(x) .== 1)))
-f(x::Dict) = Dict((k,f(v)) for (k,v) in pairs(x))
-
-
-f2(x) = x # fallback default
-function f2(x::Array)
-    if all(size(x) .== 1)
-        f2(x[1])
-    elseif any(size(x) .== 1)
-        dropdims(f2.(x), dims=Tuple(findall(size(x) .== 1)))
-    else
-        x
-    end
-end
-function f2(x::Dict)
-    for (k,v) in pairs(x)
-        x[k] = f2(v)
-    end
-    return x
-end
-
-f3(x) = x # fallback default
-f3(x::Array) = all(size(x) .== 1) ? f3(x[1]) : any(size(x) .== 1) ? dropdims(f3.(x), dims=Tuple(findall(size(x) .== 1))) : x
-f3(x::Dict) = (for (k,v) in pairs(x); x[k] = f3(v) end; x)
-
 # Variables for testing
 x0 = "foo"
 x1 = rand(3000)
@@ -386,3 +342,7 @@ typeof(a) <: Vector{Vector}
 b=[1.0,2.0]
 
 typeof(b) <: Vector
+
+
+## test
+scatter(rand(10),group=rand(1:2,10),color=[:coolwarm :reds])

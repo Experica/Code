@@ -1,13 +1,12 @@
 using NeuroAnalysis,Statistics,DataFrames,StatsPlots,Mmap,Images,StatsBase,Interact
 
-
-# Prepare Dataset
+## Prepare Dataset
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
-imageroot = "../NaturalStimuli"
+stimuliroot = "../NaturalStimuli"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test = "Color_1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3";test = "HartleySubspace_3"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 datadir = joinpath(dataroot,subject,siteid)
 resultsitedir = joinpath(resultroot,subject,siteid)
@@ -16,8 +15,8 @@ resultdir = joinpath(resultsitedir,testid)
 isdir(resultdir) || mkpath(resultdir)
 dataset = prepare(joinpath(dataexportroot,subject,"$testid.mat"))
 
-# Condition Test
-ex = dataset["ex"];envparam = ex["EnvParam"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
+## Condition Test
+ex = dataset["ex"];envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
 spike = dataset["spike"]
 eval.([:($(Symbol(k))=spike[$k]) for k in keys(spike)])
 condon = ex["CondTest"]["CondOn"]
@@ -26,8 +25,8 @@ condidx = ex["CondTest"]["CondIndex"]
 minconddur=minimum(condoff-condon)
 histogram(condoff-condon,nbins=20,title="Condition Duration(Set to $conddur)")
 
+## Unit Position
 ugs = map(i->i ? "Single-" : "Multi-",unitgood)
-# Unit Position
 plotunitposition(spike,layer=layer)
 foreach(i->savefig(joinpath(resultdir,"Unit_Position$i")),[".png",".svg"])
 
