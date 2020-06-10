@@ -180,17 +180,17 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     ctc = condtestcond(ex["CondTestCond"])
     cond = condin(ctc)
     factors = finalfactor(ctc)
-    blank = haskey(param,:blank) ? param[:blank] : (:Ori_Final,NaN)
+    blank = haskey(param,:blank) ? param[:blank] : (:SpatialFreq,0)
     ci = ctc[!,blank[1]].!==blank[2]
     cctc = ctc[ci,factors]
-    ccondidx = condidx[ci]
     ccondon = condon[ci]
     ccondoff = condoff[ci]
+    ccondidx = condidx[ci]
     bi = .!ci
     bctc = ctc[bi,factors]
-    bcondidx = condidx[bi]
     bcondon = condon[bi]
     bcondoff = condoff[bi]
+    bcondidx = condidx[bi]
     isblank = !isempty(bcondon)
 
     # Unit Position
@@ -246,6 +246,47 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     # x = Array{Float64}(undef,length(ccondidx),prod(imagesize))
     # foreach(i->x[i,:]=vec(imageset[ccondidx[i]]),1:size(x,1))
 
+
+
+
+    # if :STA in param[:model]
+    #     scaleindex=1
+    #     sizepx = imageset[:sizepx][scaleindex]
+    #     xi = unmaskindex[scaleindex]
+    #     uci = unique(condidx)
+    #     ucii = map(i->findall(condidx.==i),uci)
+    #     x = Array{Float64}(undef,length(uci),length(xi))
+    #     foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+    #
+    #     uy=Dict();usta = Dict()
+    #     delays = -10:5:200
+    #     for u in eachindex(unitspike)
+    #         !unitgood[u] && continue
+    #         ys = Array{Float64}(undef,length(delays),length(uci))
+    #         stas = Array{Float64}(undef,length(delays),length(xi))
+    #         for d in eachindex(delays)
+    #             y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
+    #             y = map(i->mean(y[i]),ucii)
+    #             ys[d,:] = y
+    #             stas[d,:]=sta(x,y)
+    #         end
+    #         uy[unitid[u]]=ys
+    #         usta[unitid[u]]=stas
+    #
+    #         if plot
+    #             r = [extrema(stas)...]
+    #             for d in eachindex(delays)
+    #                 title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
+    #                 p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
+    #                 foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
+    #             end
+    #         end
+    #     end
+    #     save(joinpath(resultdir,"sta.jld2"),"sizepx",sizepx,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
+    #     "sizedeg",sizedeg,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
+    # end
+
+    # STA with blank response substracted
     if :STA in param[:model]
         scaleindex=1
         sizepx = imageset[:sizepx][scaleindex]
@@ -254,6 +295,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         ucii = map(i->findall(condidx.==i),uci)
         x = Array{Float64}(undef,length(uci),length(xi))
         foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+        occursin("Hartley",imagesetname) && (x = 2x.-1)
 
         uy=Dict();usta = Dict()
         delays = -10:5:200

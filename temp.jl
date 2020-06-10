@@ -173,8 +173,6 @@ savefig("unitposition.svg")
 
 
 
-
-
 ct = YAML.load_file("cell type.yaml")
 for u in keys(ct)
     tdir = "Z:\\AF5\\AF5_HLV1_ODL3\\AF5_HLV1_ODL3_Color_1"
@@ -199,7 +197,7 @@ propertynames(t)
 rt = YAML.load_file("ttt.yaml")
 
 
-using NeuroAnalysis,Plots,Interact,Statistics, BenchmarkTools,StatsPlots,DataFrames
+using NeuroAnalysis,Test,Plots,Interact,Statistics, BenchmarkTools,StatsPlots,DataFrames
 
 t = prepare("Y:\\AF5\\AF5_HLV1_ODL3_Color_1.mat")
 
@@ -344,5 +342,11 @@ b=[1.0,2.0]
 typeof(b) <: Vector
 
 
+
 ## test
 scatter(rand(10),group=rand(1:2,10),color=[:coolwarm :reds])
+
+
+heatmap(randn(30,30),color=:grays,frame=:none,leg=false,aspect_ratio=1)
+
+savefig("test.png")

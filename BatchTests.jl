@@ -26,6 +26,8 @@ batchtests(tests,param,plot=true)
 
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
+param[:blank] = (:Ori_Final,NaN)
+
 param[:epprndelay]=1
 param[:epprnft]=[3]
 param[:epprlambda]=100

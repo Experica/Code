@@ -668,81 +668,6 @@ save("UnitLayer_STA.svg",p)
 uexs = mapreduce(u->map(j->j.ex,dataset["ucex"][u]),hcat,us)
 uds = mapreduce(u->map(j->j.d,dataset["ucex"][u]),hcat,us)
 
-function rftype(cws,cpd)
-    a=cws[1];l=cws[2];m=cws[3];s=cws[4];c=1;d = cpd[argmax(abs.(exs))]
-    t = join(filter(k->!isnothing(k),map((i,j)->i==0 ? nothing : "$j$(i > 0 ? "+" : "-")",cws,["A","L","M","S"])),"_")
-    if l != 0
-        if m != 0 # both significent l,m
-            if l > 0 && m < 0
-                t = "L+M-"
-                c = 2
-                d = cpd[argmax(abs.(cws[2:3]))+1]
-            elseif l < 0 && m > 0
-                t = "M+L-"
-                c = 3
-                d = cpd[argmax(abs.(cws[2:3]))+1]
-            elseif l > 0 && m > 0
-                if s < 0 && abs(s) > maximum(abs.(cws[2:3]))
-                    t = "S-L+M+"
-                    c = 4
-                    d = cpd[4]
-                else
-                    t = "+-"
-                    c = 1
-                    d = cpd[1]
-                end
-            elseif l < 0 && m < 0
-                if s > 0 && abs(s) > maximum(abs.(cws[2:3]))
-                    t = "S+L-M-"
-                    c = 4
-                    d = cpd[4]
-                else
-                    t = "+-"
-                    c = 1
-                    d = cpd[1]
-                end
-            end
-        else
-            if a ==0
-                t = "L+"
-                c = 4
-                d = cpd[4]
-            else
-            end
-        end
-    end
-
-        if l>0 && m<0
-            t = "L+M-"
-            c = 2
-            d = ds[argmax(abs.(exs[2:3]))+1]
-        elseif l<0 && m>0
-            t="M+L-"
-            c=3
-            d = ds[argmax(abs.(exs[2:3]))+1]
-        elseif l>0 && m>0
-            if s<0
-                t="S-L+M+"
-                c=4
-                d = ds[argmax(abs.(exs[2:end]))+1]
-            else
-                t = "+-"
-                c=1
-                d = ds[argmax(abs.(exs))]
-            end
-        elseif l<0 && m<0
-            if s>0
-                t="S+L-M-"
-                c=4
-                d = ds[argmax(abs.(exs[2:end]))+1]
-            else
-                t = "-+"
-                c=1
-                d = ds[argmax(abs.(exs))]
-            end
-        end
-    return (t=t,c=c,d=d)
-end
 
 tcd = [rftype(uexs[:,i],uds[:,i]) for i in 1:size(uexs,2)]
 uc = map(i->i.c,tcd)
@@ -764,41 +689,6 @@ savefig("unit_layer_dist.svg")
 
 
 
-t = dataset["ulsta"][92][:,:,10,2]
-
-Plots.heatmap(t)
-
-ft=abs.(fft(t))
-Plots.heatmap(ft)
-
-freqs = fftfreq(25,30)
-
-
-
-
-
-lmpi = [Tuple(argmax(clc))...]
-
-lmi = clc[:,:,lmpi[3:end]...]
-
-heatmap(lmi,aspect_ratio=:equal,frame=:all,color=:coolwarm,yflip=true)
-scatter!([lmpi[2]],[lmpi[1]],markersize=10)
-seg = seeded_region_growing(lmi,[(CartesianIndex(lmpi[1:2]...),2),(CartesianIndex(1,1),1)])
-
-lr = labels_map(seg)
-heatmap(lr,aspect_ratio=:equal,frame=:all,color=:grays)
-
-ri = mapreduce(i->[i...],hcat, Tuple.(findall(lr.>1)))
-
-
-t = extrema(ri,dims=2)
-tr = map(i->i[2]-i[1],t)
-rsize = floor(Int,maximum(tr)/2)
-
-lp = floor.(Int,mean.(t))[:]
-
-hspan!([lp[1]-rsize,lp[1]+rsize],alpha=0.2)
-vspan!([lp[2]-rsize,lp[2]+rsize],alpha=0.2)
 
 
 
@@ -817,50 +707,8 @@ vspan!([lp[2]-rsize,lp[2]+rsize],alpha=0.2)
 
 
 
-@manipulate for u in uids
-t1 = stas[1]["usta"][u]
-t2=stas[2]["usta"][u]
-t3=stas[3]["usta"][u]
-t4=stas[4]["usta"][u]
-
-sds = Array{Float64}(undef,imagesize...,41)
-for d in 1:41
-t = t1[d,:]
-tt = fill(mean(t),imagesize)
-tt[xi]=t
-sds[:,:,d]= mapwindow(std,tt,(5,5))
-end
-
-mi = [Tuple(argmax(sds))...][1:2]
-display(mi)
-mir= map(i->filter(j->j>0,(-5:5) .+i),mi)
-display(mir)
-sds1 = [sum(sds[mir...,d]) for d in 1:41]
-# bm1 = mean(t1[1,:])
-# display(bm1)
-# bsd1 = std(t1[1,:])
-# display(bsd1)
-# bm2 = mean(t2[1,:])
-# bsd2 = std(t2[1,:])
-# bm3 = mean(t3[1,:])
-# bsd3 = std(t3[1,:])
-# bm4 = mean(t4[1,:])
-# bsd4 = std(t4[1,:])
-#
-#
-# sds1=sum((t1.-bm1)./bsd1.^2,dims=2)[:]
-# sds2=sum((t2.-bm2)./bsd2.^2,dims=2)[:]
-# sds3=sum((t3.-bm3)./bsd3.^2,dims=2)[:]
-# sds4=sum((t4.-bm4)./bsd4.^2,dims=2)[:]
-
-plot(sds1)
 
 
-# c = [:black :red :lightgreen :blue]
-# plot([sds1 sds2 sds3 sds4],color=c,lw=2,grid=false)
-# a=[sds1[[1,2,end,end-1]],sds2[[1,2,end,end-1]],sds3[[1,2,end,end-1]],sds4[[1,2,end,end-1]]]'
-# hline!(mean.(a).+5*std.(a),color=c)
-end
 
 
 
