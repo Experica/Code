@@ -5,7 +5,7 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 
@@ -32,7 +32,7 @@ layer["6"]=[1500,1800]
 # csds = load.(joinpath.(sitedir,testids,"csd.jld2"),"csd","depth","fs")
 # depths=csds[1][2];fs=csds[1][3]
 
-testids = ["$(siteid)_Flash2Color_$i" for i in 1:3]
+testids = ["$(siteid)_Flash2Color_$i" for i in 1:6]
 testn=length(testids)
 ## All CSD
 csds = load.(joinpath.(resultsitedir,testids,"csd.jld2"))
@@ -69,8 +69,8 @@ psss = map(i->imfilter(i["rcps"],Kernel.gaussian((1,1))),pss)
 psclims=extrema(vcat(psss...))
 
 ## Set Layers
-plotlayer=(o...)->begin
-    p=plot(layout=(1,3testn),link=:y,legend=false,grid=false,size=(3testn*200,700))
+plotlayer=(o...;w=150,h=700)->begin
+    p=plot(layout=(1,3testn),link=:y,legend=false,grid=false,size=(3testn*w,h))
     for i in 1:testn
         yticks = i==1 ? true : false
         xlabel = i==1 ? "Time (ms)" : ""

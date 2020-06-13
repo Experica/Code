@@ -248,76 +248,71 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
 
 
-
-    # if :STA in param[:model]
-    #     scaleindex=1
-    #     sizepx = imageset[:sizepx][scaleindex]
-    #     xi = unmaskindex[scaleindex]
-    #     uci = unique(condidx)
-    #     ucii = map(i->findall(condidx.==i),uci)
-    #     x = Array{Float64}(undef,length(uci),length(xi))
-    #     foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
-    #
-    #     uy=Dict();usta = Dict()
-    #     delays = -10:5:200
-    #     for u in eachindex(unitspike)
-    #         !unitgood[u] && continue
-    #         ys = Array{Float64}(undef,length(delays),length(uci))
-    #         stas = Array{Float64}(undef,length(delays),length(xi))
-    #         for d in eachindex(delays)
-    #             y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
-    #             y = map(i->mean(y[i]),ucii)
-    #             ys[d,:] = y
-    #             stas[d,:]=sta(x,y)
-    #         end
-    #         uy[unitid[u]]=ys
-    #         usta[unitid[u]]=stas
-    #
-    #         if plot
-    #             r = [extrema(stas)...]
-    #             for d in eachindex(delays)
-    #                 title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-    #                 p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
-    #                 foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
-    #             end
-    #         end
-    #     end
-    #     save(joinpath(resultdir,"sta.jld2"),"sizepx",sizepx,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
-    #     "sizedeg",sizedeg,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
-    # end
-
-    # STA with blank response substracted
     if :STA in param[:model]
         scaleindex=1
         sizepx = imageset[:sizepx][scaleindex]
         xi = unmaskindex[scaleindex]
-        uci = unique(condidx)
-        ucii = map(i->findall(condidx.==i),uci)
-        x = Array{Float64}(undef,length(uci),length(xi))
-        foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
-        occursin("Hartley",imagesetname) && (x = 2x.-1)
-
         uy=Dict();usta = Dict()
-        delays = -10:5:200
-        for u in eachindex(unitspike)
-            !unitgood[u] && continue
-            ys = Array{Float64}(undef,length(delays),length(uci))
-            stas = Array{Float64}(undef,length(delays),length(xi))
-            for d in eachindex(delays)
-                y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
-                y = map(i->mean(y[i]),ucii)
-                ys[d,:] = y
-                stas[d,:]=sta(x,y)
-            end
-            uy[unitid[u]]=ys
-            usta[unitid[u]]=stas
+        delays = -30:5:210
 
-            if plot
-                r = [extrema(stas)...]
+        if isblank
+            uci = unique(ccondidx)
+            ucii = map(i->findall(condidx.==i),uci)
+            buci = unique(bcondidx)
+            bucii = mapreduce(i->findall(condidx.==i),append!,buci)
+            bx = mean(mapreduce(i->gray.(imagestimuli[scaleindex][i][xi]),hcat,buci),dims=2)[:]
+            x = Array{Float64}(undef,length(uci),length(xi))
+            foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]).-bx,1:size(x,1))
+
+            for u in eachindex(unitspike)
+                !unitgood[u] && continue
+                ys = Array{Float64}(undef,length(delays),length(uci))
+                stas = Array{Float64}(undef,length(delays),length(xi))
                 for d in eachindex(delays)
-                    title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-                    p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
-                    foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
+                    y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
+                    by = mean(y[bucii])
+                    y = map(i->mean(y[i])-by,ucii)
+                    ys[d,:] = y
+                    stas[d,:]=sta(x,y)
+                end
+                uy[unitid[u]]=ys
+                usta[unitid[u]]=stas
+
+                if plot
+                    r = [extrema(stas)...]
+                    for d in eachindex(delays)
+                        title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
+                        p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
+                        foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
+                    end
+                end
+            end
+        else
+            uci = unique(condidx)
+            ucii = map(i->findall(condidx.==i),uci)
+            x = Array{Float64}(undef,length(uci),length(xi))
+            foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+
+            for u in eachindex(unitspike)
+                !unitgood[u] && continue
+                ys = Array{Float64}(undef,length(delays),length(uci))
+                stas = Array{Float64}(undef,length(delays),length(xi))
+                for d in eachindex(delays)
+                    y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
+                    y = map(i->mean(y[i]),ucii)
+                    ys[d,:] = y
+                    stas[d,:]=sta(x,y)
+                end
+                uy[unitid[u]]=ys
+                usta[unitid[u]]=stas
+
+                if plot
+                    r = [extrema(stas)...]
+                    for d in eachindex(delays)
+                        title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
+                        p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
+                        foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png"])
+                    end
                 end
             end
         end

@@ -1,7 +1,7 @@
+cd(@__DIR__)
 includet("Batch.jl")
 
 ## Prepare Param and Metadata
-cd(@__DIR__)
 param = Dict{Any,Any}(
     :dataroot => "../Data",
     :dataexportroot => "../DataExport",
@@ -14,7 +14,7 @@ param[:layer] = layer
 ## Query Tests
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
-        @where i.RecordSite == "ODL2"
+        @where i.RecordSite == "ODL1"
         @where i.ID == "HartleySubspace"
         @where i.sourceformat == "SpikeGLX"
         @select {i.ID,i.UUID,i.files,i.sourceformat}

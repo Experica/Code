@@ -22,7 +22,6 @@ Plots.scatter(x,y,marker=m,markersize=10)
 
 
 
-
 OriMarker = Shape([(0.5,0.2),(-0.5,0.2),(-0.5,-0.2),(0.5,-0.2)])
 
 
@@ -350,3 +349,13 @@ scatter(rand(10),group=rand(1:2,10),color=[:coolwarm :reds])
 heatmap(randn(30,30),color=:grays,frame=:none,leg=false,aspect_ratio=1)
 
 savefig("test.png")
+
+
+
+x=collect(-3:0.1:3)
+
+y=sin.(2x.+0.5π) .+ randn(length(x))
+
+mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,[0.0,0.0])
+
+mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,1 ./ mfit.resid,[0.0,0.0])

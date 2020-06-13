@@ -1,12 +1,11 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,StatsPlots,Interact,ImageSegmentation,LsqFit,ProgressMeter,Distances,
-Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats
+using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,StatsPlots,Interact,ImageSegmentation,LsqFit,ProgressMeter,Distances
 import NeuroAnalysis: isresponsive
 
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
@@ -21,7 +20,7 @@ function exd(csta)
     (ex=ex[absexi],d=exi[absexi][3])
 end
 "join channel stas"
-function joinsta(stas;μ=0.5)
+function joinsta(stas)
     cn = length(stas)
     sizepx = stas[1]["sizepx"]
     sizedeg = stas[1]["sizedeg"]
@@ -30,7 +29,7 @@ function joinsta(stas;μ=0.5)
     xi = stas[1]["xi"]
     notxi = setdiff(1:prod(sizepx),xi)
     cii=CartesianIndices(sizepx)
-    bdi = filter!(i->!isnothing(i),indexin([-30:0;200:230],delays))
+    bdi = filter!(i->!isnothing(i),indexin([-100:0;200:300],delays))
 
     dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
     dataset["log"] = [i["log"] for i in stas]
@@ -44,7 +43,7 @@ function joinsta(stas;μ=0.5)
         csta = Array{Float64}(undef,sizepx...,length(delays),cn)
         cexd = []
         for c in 1:cn
-            zsta = stas[c]["usta"][u].-μ
+            zsta = stas[c]["usta"][u]
             for d in eachindex(delays)
                 csta[cii[notxi],d,c].=mean(zsta[d,:])
                 csta[cii[xi],d,c] = zsta[d,:]
@@ -83,14 +82,19 @@ function peakroi(clc)
     radius = round(Int,maximum(hw)/2)
     return (i=idx,center=center,radius=radius,pd=pi[3])
 end
-"check local mean or contrast in a region at a delay significently higher than baseline"
-function isresponsive(sta,idx,d,bdi;mfactor=3,cfactor=3)
-    d in bdi && return false
-    blm = [mean(sta[idx,j]) for j in bdi]
-    bmm = mean(blm);bmsd=std(blm)
-    blc = [std(sta[idx,j]) for j in bdi]
-    bcm = mean(blc);bcsd=std(blc)
-    (std(sta[idx,d]) > bcm+cfactor*bcsd) || (mean(sta[idx,d]) > bmm+mfactor*bmsd)
+"check local mean and contrast in a region significently different than baseline"
+function isresponsive(sta,idx,bdi;mfactor=3,cfactor=3)
+    lc = [std(sta[idx,j]) for j in 1:size(sta,3)]
+    lm = [mean(sta[idx,j]) for j in 1:size(sta,3)]
+    lcmaxd = argmax(lc); lcmax = lc[lcmaxd]
+    lmmaxd = argmax(lm); lmmax = lm[lmmaxd]
+    lmmind = argmin(lm); lmmin = lm[lmmind]
+    bmm = mean(lm[bdi]);bmsd=std(lm[bdi])
+    bcm = mean(lc[bdi]);bcsd=std(lc[bdi])
+
+    (!(lcmaxd in bdi) && lcmax > bcm+cfactor*bcsd) ||
+    (!(lmmaxd in bdi) && lmmax > bmm+mfactor*bmsd) ||
+    (!(lmmind in bdi) && lmmin < bmm-mfactor*bmsd)
 end
 "check unit responsive and cut local sta"
 function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakroirlim=2)
@@ -106,7 +110,7 @@ function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakr
     for u in keys(usta)
         clc = localcontrast(usta[u],ws=ws,ppd=ppd)
         cproi = map(c->peakroi(clc[:,:,:,c]),1:size(clc,4))
-        ucresponsive[u] = map(c->cproi[c].radius < peakroirlim*ppd ? isresponsive(usta[u][:,:,:,c],cproi[c].i,cproi[c].pd,bdi,mfactor=mfactor,cfactor=cfactor) : false,1:size(clc,4))
+        ucresponsive[u] = map(c->cproi[c].radius < peakroirlim*ppd ? isresponsive(usta[u][:,:,:,c],cproi[c].i,bdi,mfactor=mfactor,cfactor=cfactor) : false,1:size(clc,4))
         if any(ucresponsive[u])
             uresponsive[u] = true
             vroi = cproi[ucresponsive[u]]
@@ -177,9 +181,13 @@ function modelfit(data,ppd;model=:gabor)
         if !ismissing(mfun)
             mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
             maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
+            # wt = 1 ./ mfit.resid
+            # mfit = curve_fit(mfun,x,y,wt,p0,lower=lb,upper=ub,
+            # maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
             rlt = (model=model,radius=r,param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
         end
-    catch
+    catch exc
+        display.(stacktrace(catch_backtrace()))
     end
     return rlt
 end
@@ -195,6 +203,7 @@ function rffit!(dataset;model=[:gabor,:dog])
     urf = dataset["urf"]
     p = ProgressMeter.Progress(length(ulsta),desc="Fit RFs ... ")
     for u in keys(ulsta)
+        # u!=167 && continue
         if !haskey(urf,u)
             urf[u] = Dict()
         end
@@ -323,8 +332,7 @@ plotrffit=(u,m;dir=nothing)->begin
     xlims=xylims,ylims=xylims,xticks=xylims,yticks=xylims,xlabel=dataset["color"][c],titlefontcolor=ucresponsive[c] ? :green : :match,title="Fit_$(m)"),1:testn)
 
     foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+2testn,frame=:none) :
-    Plots.histogram!(p,subplot=c+2testn,umfit[c].resid,frame=:semi,linecolor=:match,bar_width=0.8,nbins=20,
-    xlabel="Residual",grid=false),1:testn)
+    Plots.histogram!(p,subplot=c+2testn,umfit[c].resid,frame=:semi,xlabel="Residual",grid=false),1:testn)
 
     foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+3testn,frame=:none) :
     Plots.scatter!(p,subplot=c+3testn,vec(ulsta[:,:,ulcd[c],c]),vec(rfs[c]),frame=:semi,grid=false,
@@ -339,105 +347,8 @@ for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(data
     plotrffit(u,m,dir=rffitdir)
 end
 
-## t-SNE of responsive sta
-lsta = mapreduce(u->mapreduce((c,r,exd)->r ? [dataset["ulsta"][u][:,:,exd.d,c]] : [],
-append!,1:testn,dataset["ucresponsive"][u],dataset["ulcexd"][u]),
-append!,keys(dataset["ulsta"]))
-
-maxsizepx=mapreduce(i->maximum(size(i)),max,lsta)
-map!(i->imresize(i,maxsizepx,maxsizepx),lsta,lsta)
-
-@manipulate for i in eachindex(lsta)
-    heatmap(lsta[i],yflip=true,aspect_ratio=:equal,frame=:none,color=:coolwarm)
-end
-
-# PCA reduction
-X = mapreduce(vec,hcat,lsta)
-foreach(i->X[i,:]=zscore(X[i,:]),1:size(X,1))
-M = fit(PCA,X,maxoutdim=60,pratio=0.85,mean=0)
-Y = MultivariateStats.transform(M,X)
-
-@manipulate for i in 1000:6000, p in 2:60
-    Y2 = tsne(permutedims(Y), 2, 0, i, p)
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:auto,stroke(0)),frame=:none,leg=false)
-end
-
-# plot t-SNE sta
-mlsta = map(i->alphamask(get(cgrad(:coolwarm),i,:extrema),radius=0.5,sigma=0.35,masktype="Gaussian")[1],lsta)
-
-Y2 = tsne(permutedims(Y), 2, 0, 5000, 8)
-p = plotunitpositionimage(Y2,mlsta)
-save("tSNE_rlSTA.svg",p)
-
-## t-SNE of responsive rf
-m=:gabor
-rfs = mapreduce(u->mapreduce(f->f.r > 0.6 ? [(;(n=>f[n] for n in (:model,:radius,:param))...)] : [],
-append!,skipmissing(dataset["urf"][u][m])),
-append!,keys(dataset["urf"]))
-
-X = mapreduce(f->f.param,hcat,rfs)
-Y = X
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 1000:6000, p in 2:60
-    Y2 = tsne(permutedims(Y), 2, 0, i, p)
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:auto,stroke(0)),frame=:none,leg=false)
-end
-
-mrf = map(f->alphamask(get(cgrad(:coolwarm),rfimage(f,f.radius),:extrema),radius=0.5,sigma=0.35,masktype="Gaussian")[1],rfs)
-
-Y2 = tsne(permutedims(Y), 2, 0, 5000, 10)
-p = plotunitpositionimage(Y2,mrf)
-save("tSNE_rf_$m.svg",p)
-
-## type of responsiveness
-CTYPES = sort(join.(sort.(combinations(unique(values(ccode))))))
-CTCOLORS = cgrad(:rainbow,length(CTYPES),categorical = true).colors
-crtype = Dict(u=>join(sort(dataset["ccode"][dataset["ucresponsive"][u]])) for u in keys(dataset["ulsta"]))
-
-p = DataFrame(ResponseType=collect(values(crtype))) |> @vlplot(:bar,y=:ResponseType,x="count()",width=600,height=400)
-
-## type of model responsiveness
-m=:gabor
-cmrtype = filter!(p->!isempty(p.second),Dict(u=>join(sort(dataset["ccode"][map(f->!ismissing(f) && f.r > 0.6,dataset["urf"][u][m])])) for u in keys(dataset["urf"])))
-
-p = DataFrame(ModelResponseType=collect(values(cmrtype))) |> @vlplot(:bar,y=:ModelResponseType,x="count()",width=600,height=400)
-
-## rf space of unit
-modelnull=Dict(:gabor=>fill(missing,8),:dog=>[])
-function rf2unitspace(ps;model=:gabor)
-    if model == :gabor
-        as = ps[1:8:end]
-        maxamp = maximum(skipmissing(as))
-        foreach(i->ps[i]/=maxamp,1:8:length(ps))
-        ps=replace(ps,missing=>0)
-    elseif model == :dog
-    end
-    ps
-end
-"map RF models to unit feature space"
-function rfunitspace(dataset;model=:gabor)
-    corder = sortperm(dataset["ccode"])
-    ufs=Dict()
-    for u in keys(dataset["urf"])
-        ps = vcat(map(f->ismissing(f) || f.r < 0.6 ? modelnull[model] : f.param,dataset["urf"][u][model])[corder]...)
-        if !isempty(skipmissing(ps))
-            ufs[u] = rf2unitspace(ps,model=model)
-        end
-    end
-    ufs
-end
 
 
-rfspace = rfunitspace(dataset,model=:gabor)
-Xg = [cmrtype[u] for u in keys(rfspace)]
-X = hcat(values(rfspace)...)
-Y = X
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 1000:6000, p in 2:60
-    Y2 = tsne(permutedims(Y), 2, 0, i, p)
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:circle,stroke(0)),group=Xg,frame=:none,leg=:inline)
-    # savefig("test.svg")
-end
 
 
 
