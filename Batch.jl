@@ -1,4 +1,4 @@
-using NeuroAnalysis,Query,FileIO,ProgressMeter,Logging,Statistics,DataFrames,StatsPlots,Mmap,Images,StatsBase#,ePPR
+using NeuroAnalysis,FileIO,Query,DataFrames,ProgressMeter,Logging
 import Base: close
 
 # includet("Batch_Ripple.jl")
@@ -42,11 +42,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
     close(log)
 end
 
-function close(log::Dict{Any,AbstractLogger})
-    for l in values(log)
-        close(l.stream)
-    end
-end
+close(log::Dict{Any,AbstractLogger}) = foreach(l->close(l.stream),values(log))
 
 function (log::Dict{Any,AbstractLogger})(key,f,logfile)
     if !haskey(log,key)

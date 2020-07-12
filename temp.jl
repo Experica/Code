@@ -7,18 +7,6 @@ v = fill(0.5,10)
 arrows(x,y,u,v)
 
 
-m = rand(RGB,10,10)
-ms = [rand(RGBf0,10,10) for _ in 1:10]
-mms =fill(m,10)
-
-
-m=AbstractPlotting.logo()
-fill(AbstractPlotting.logo(),10)
-
-
-
-Makie.scatter(x,y,marker=ms,markersize=1)
-Plots.scatter(x,y,marker=m,markersize=10)
 
 
 
@@ -74,9 +62,6 @@ unitgood=rand(Bool,20)
 
 Vec2f0[(0.5,0.2),(-0.5,0.2),(-0.5,-0.2),(0.5,-0.2)]
 
-plotunitposition(unitposition,unitgood=unitgood)
-
-plotunitpositionold(unitposition,unitgood=unitgood,marker=OriMarker)
 
 
 m = Point2f0[(0,0), (0, 1), (0.5, 0.5), (1, 1), (1, 0)]
@@ -90,14 +75,7 @@ AbstractPlotting.set_theme!(
 )
 poly(HyperRectangle(Vec2f0(0), Vec2f0(1,100)))
 
-using NeuroAnalysis,DataFrames,YAML
 
-t=mat2julia!(matread("hartleycond.mat")["c"])
-
-YAML.write_file("Hartley_k[30,30].yaml",t)
-
-c= DataFrame(t)
-condin(c)
 
 
 
@@ -114,21 +92,19 @@ plot(ggt[:,200])
 
 
 
+
+
+
+
 using Interact,Plots,VegaLite,DataFrames,Distances,LinearAlgebra
 @vlplot(:point,rand(10),rand(10))
 
-
-
-@manipulate for i in 1:10
-    DataFrame(x=rand(10),y=rand(10)) |> @vlplot(:line,:x,:y)
-end
-
+Dict(Pair.(1:3,2:4))
 
 using Interact,Plots
 @manipulate for i in 1:10
-    plot(rand(10))
+    heatmap(rand(10,10),color=:temperaturemap)
 end
-
 
 
 
@@ -304,8 +280,6 @@ d=matread("c:\\users\\fff00\\mattest.mat")
 
 
 
-
-
 d=readmat("c:\\users\\fff00\\mattest.mat")
 
 
@@ -359,3 +333,38 @@ y=sin.(2x.+0.5π) .+ randn(length(x))
 mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,[0.0,0.0])
 
 mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,1 ./ mfit.resid,[0.0,0.0])
+
+
+
+## temp
+if plot
+    vi = uresponsive.&umodulative.&unitgood.&uenoughresponse
+    pfactor=intersect([:Ori,:Ori_Final],keys(ufs))
+    if length(pfactor)>0
+        pfactor=pfactor[1]
+        colorspace = ex["Param"]["ColorSpace"]
+        hues = ex["Param"]["Color"]
+        title = "UnitPosition_$(colorspace)_$(hues)_OptOriDirSF"
+        p=plotunitpositionproperty(unitposition[vi,:],title=title,ori=map(i->i.oo,ufs[pfactor][vi]),os=map(i->1-i.ocv,ufs[pfactor][vi]),
+        dir = map(i->i.od,ufs[pfactor][vi]),ds=map(i->1-i.dcv,ufs[pfactor][vi]),sf=map(i->i.osf,ufs[:SpatialFreq][vi]),layer=layer)
+        foreach(i->save(joinpath(resultdir,"$title$i"),p),[".png",".svg"])
+
+        oos = map(i->i.oo,ufs[pfactor][vi])
+        oos = [oos;oos.+180]
+        ys,ns,ws,is = histrv(oos,0,360,nbins=20)
+        oa = deg2rad.(mean.([ws;ws[1]]))
+        oh = [ns;ns[1]]./2
+
+        ys,ns,ws,is = histrv(map(i->i.od,ufs[pfactor][vi]),0,360,nbins=20)
+        da = deg2rad.(mean.([ws;ws[1]]))
+        dh = [ns;ns[1]]
+
+        title = "$(colorspace)_$(hues)_OptOriDirHist"
+        Plots.plot([oa da],[oh dh],title=title,projection=:polar,linewidth=2,label=["Ori" "Dir"])
+        foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
+    end
+    if haskey(ufs,:ColorID)
+        plotunitposition(unitposition,color=map((i,j)->j ? HSV(i.oh,1-i.hcv,1) : HSVA(0,0,0.5,0.2),ufs[:ColorID],umodulative))
+        foreach(i->savefig(joinpath(resultdir,"UnitPosition_Hue_Tuning$i")),[".png",".svg"])
+    end
+end

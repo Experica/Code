@@ -1,4 +1,4 @@
-using Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats,UMAP
+using Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats,UMAP,Makie
 
 ## t-SNE and UMAP of responsive sta
 lsta = mapreduce(u->mapreduce((c,r,exd)->r ? [dataset["ulsta"][u][:,:,exd.d,c]] : [],
@@ -45,84 +45,204 @@ Y2 = umap(Y, 2, n_neighbors=10, min_dist=0.01, n_epochs=500)'
 p = plotunitpositionimage(Y2,mlsta)
 save("UMAP_rlSTA.svg",p)
 
-## UMAP of responsive rf
-m=:gabor
-rfs = mapreduce(u->mapreduce(f->f.r > 0.6 ? [(;(n=>f[n] for n in (:model,:radius,:param))...)] : [],
-append!,skipmissing(dataset["urf"][u][m])),
-append!,keys(dataset["urf"]))
+## Collect Responsive RF
+dataroot = "../Data"
+dataexportroot = "../DataExport"
+resultroot = "../Result"
 
-mrf = map(f->begin
-                i = rfimage(f,f.radius)
-                m = maximum(abs.(extrema(i)))
-                alphamask(get(cgrad(:coolwarm),i,(-m,m)),radius=0.5,sigma=0.35,masktype="Gaussian")[1]
-             end,rfs)
-@manipulate for i in eachindex(mrf)
-    mrf[i]
-end
+resultdir = joinpath(resultroot,"RF")
+isdir(resultdir) || mkpath(resultdir)
 
-X = mapreduce(f->f.param,hcat,rfs)
-Y = X
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 200:2000, n in 5:60, d in 0.001:0.001:10
-    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:auto,stroke(0)),frame=:none,leg=false)
-end
+function collectrf(indir;model=:gabor,rffile="stadataset.jld2",ufile="units.jld2")
+    rfs=[];uids=[];crtype=[]
+    for (root,dirs,files) in walkdir(indir)
+        if rffile in files && ufile in files
+            dataset = load(joinpath(root,rffile),"dataset")
+            siteid = dataset["siteid"]
+            # units = load(joinpath(root,ufile),"units")
+            siterfs = map(i->map(f->ismissing(f) ? missing : (;(n=>f[n] for n in (:model,:radius,:param,:r))...),i[model]),values(dataset["urf"]))
 
-Y2 = umap(Y, 2, n_neighbors=15, min_dist=0.01, n_epochs=500)'
-p = plotunitpositionimage(Y2,mrf)
-save("UMAP_rf_$m.svg",p)
-
-## type of responsiveness
-CTYPES = sort(join.(sort.(combinations(unique(values(ccode))))))
-CTCOLORS = cgrad(:rainbow,length(CTYPES),categorical = true).colors
-crtype = Dict(u=>join(sort(dataset["ccode"][dataset["ucresponsive"][u]])) for u in keys(dataset["ulsta"]))
-
-p = DataFrame(ResponseType=collect(values(crtype))) |> @vlplot(:bar,y=:ResponseType,x="count()",width=600,height=400)
-
-## type of model responsiveness
-m=:gabor
-cmrtype = filter!(p->!isempty(p.second),Dict(u=>join(sort(dataset["ccode"][map(f->!ismissing(f) && f.r > 0.6,dataset["urf"][u][m])])) for u in keys(dataset["urf"])))
-
-p = DataFrame(ModelResponseType=collect(values(cmrtype))) |> @vlplot(:bar,y=:ModelResponseType,x="count()",width=600,height=400)
-
-## rf space of unit
-modelnull=Dict(:gabor=>fill(missing,8),:dog=>[])
-function rf2unitspace(ps;model=:gabor)
-    if model == :gabor
-        as = ps[1:8:end]
-        maxamp = maximum(skipmissing(as))
-        foreach(i->ps[i]/=maxamp,1:8:length(ps))
-        ps=replace(ps,missing=>0)
-    elseif model == :dog
-    end
-    ps
-end
-"map RF models to unit feature space"
-function rfunitspace(dataset;model=:gabor)
-    corder = sortperm(dataset["ccode"])
-    ufs=Dict()
-    for u in keys(dataset["urf"])
-        ps = vcat(map(f->ismissing(f) || f.r < 0.6 ? modelnull[model] : f.param,dataset["urf"][u][model])[corder]...)
-        if !isempty(skipmissing(ps))
-            ufs[u] = rf2unitspace(ps,model=model)
+            append!(uids,["$(siteid)_U$u" for u in keys(dataset["urf"])])
+            append!(rfs,siterfs)
+            append!(crtype,[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["urf"])])
         end
     end
-    ufs
+    return rfs,uids,crtype
+end
+
+function spatialrf(rfs,crtype;color=:coolwarm)
+    cg = cgrad(color)
+    srfs = mapreduce(fs->filter(f->f.r > 0.6,skipmissing(fs)), append!,rfs)
+    cmrtype = map((fs,ct)->map((f,t)->!ismissing(f) && f.r > 0.6 ? t : missing,fs,ct),rfs,crtype)
+    msrf = map(f->begin
+                    i = rfimage(f,f.radius)
+                    m = maximum(abs.(extrema(i)))
+                    alphamask(get(cg,i,(-m,m)),radius=0.5,sigma=0.35,masktype="Gaussian")[1]
+                end,srfs)
+    return srfs,msrf,cmrtype
 end
 
 
-rfspace = rfunitspace(dataset,model=:gabor)
-Xg = [cmrtype[u] for u in keys(rfspace)]
-X = hcat(values(rfspace)...)
-Y = X
+rfs,uids,crtype = collectrf(resultroot,model=:gabor)
+
+save(joinpath(resultdir,"starf.jld2"),"rfs",rfs,"uids",uids,"crtype",crtype)
+rfs,uids,crtype = load(joinpath(resultdir,"starf.jld2"),"rfs","uids","crtype")
+
+srfs,msrf,cmrtype = spatialrf(rfs,crtype)
+@manipulate for i in eachindex(msrf)
+    msrf[i]
+end
+
+S = mapreduce(f->f.param,hcat,srfs)
+
+Y = deepcopy(S)
 foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 1000:6000, p in 2:60
-    Y2 = tsne(permutedims(Y), 2, 0, i, p)
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:circle,stroke(0)),group=Xg,frame=:none,leg=:inline)
-    # savefig("test.svg")
+@manipulate for i in 200:1000, n in 5:60, d in 0.001:0.001:5
+    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
+    scatter(Y2[:,1], Y2[:,2], marker=(3,3,:auto,stroke(0)),frame=:none,leg=false)
 end
 
-@manipulate for i=200:2000,n in 5:60, d in 0.001:0.001:1000
-    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)
-    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:circle,stroke(0)),group=Xg,frame=:none,leg=:inline)
+Y2 = umap(Y, 2, n_neighbors=20, min_dist=0.015, n_epochs=500)'
+p = plotunitpositionimage(Y2,msrf)
+save("UMAP_rf.svg",p)
+
+## RF Spatial Pattern
+Ω(p::Missing)=missing
+Ω(p) = p < 0.5 ? abs(p-0.25) : abs(p-0.75)
+SP = mapreduce(i->begin
+                    σyoverσx = S[5,i]/S[3,i]
+                    f4σy = 4S[5,i]*S[7,i]
+                    w = Ω(S[8,i])
+                    # w = p<0.25 ? 0.5-p : p>0.75 ? 1.5-p : p
+                    # w = 0.5-w
+                    [σyoverσx, f4σy, w]
+                end,hcat,1:size(S,2))
+
+
+mmsrf = map(i->RGBAf0.(imresize(i,32,32)),msrf)
+Makie.scatter(SP[1,:],SP[2,:],SP[3,:],markersize=0.3,marker=mmsrf)
+
+Y = deepcopy(SP)
+foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
+Y2 = umap(Y, 2, n_neighbors=25, min_dist=0.02, n_epochs=500)'
+p = plotunitpositionimage(Y2,msrf)
+save("UMAP_rf.svg",p)
+
+## type of responsiveness
+CTYPES = sort(join.(sort.(combinations(['A','L','M','S']))))
+CTCOLORS = cgrad(:rainbow,length(CTYPES),categorical = true).colors.colors
+
+rdf = DataFrame(ResponseType=map(ct->join(skipmissing(ct)),crtype))
+p = rdf |> @vlplot(:bar,y=:ResponseType,x="count()",width=600,height=400)
+
+mrdf = DataFrame(ModelResponseType=filter!(i->!isempty(i),map(ct->join(skipmissing(ct)),cmrtype)))
+p = mrdf |> @vlplot(:bar,y=:ModelResponseType,x="count()",width=600,height=400)
+
+crdf = DataFrame(ConeResponseType=filter(i->!isempty(i),map(t->match(r"A?([L,M,S]*)",t).captures[1],mrdf.ModelResponseType)))
+p = crdf |> @vlplot(:bar,y=:ConeResponseType,x="count()",width=600,height=400)
+## ALMS space
+X = map(fs->vcat(map(f->ismissing(f) || f.r <= 0.6 ? fill(missing,8) : f.param,fs)...),rfs)
+
+Y = replace(hcat(filter(i->!isempty(skipmissing(i)),X)...),missing=>0)
+Yg = mrdf.ModelResponseType
+foreach(j->begin
+    ai = 1:8:size(Y,1)
+    maxamp = maximum(Y[ai,j])
+    foreach(i->Y[i,j]/=maxamp,ai)
+end,1:size(Y,2))
+
+foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
+@manipulate for i in 200:1000, n in 5:60, d in 0.001:0.001:5
+    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
+    Plots.scatter(Y2[:,1], Y2[:,2], marker=(3,3,:circle,stroke(0)),group=Yg,frame=:none,leg=:inline)
+end
+
+## LMS space
+LMSs = hcat(filter(i->!isempty(skipmissing(i)),map(fs->vcat(map(f->ismissing(f) || f.r <= 0.6 ? fill(missing,8) : f.param,fs[2:end])...),rfs))...)
+
+σx = LMSs[3:8:end,:]
+p = Makie.scatter(σx[1,:],σx[2,:],σx[3,:],markersize=0.01,axis=(names=(axisnames=("L","M","S"),),),color=:grey20)
+
+plotσx=(σx;title="4σₓ") -> begin
+    lmi = [!ismissing(σx[1,i]) && !ismissing(σx[2,i]) for i in 1:size(σx,2)]
+    lm = σx[[1,2],lmi]
+
+    lsi = [!ismissing(σx[1,i]) && !ismissing(σx[3,i]) for i in 1:size(σx,2)]
+    ls = σx[[1,3],lsi]
+
+    msi = [!ismissing(σx[2,i]) && !ismissing(σx[3,i]) for i in 1:size(σx,2)]
+    ms = σx[[2,3],msi]
+
+    lim = maximum(skipmissing(σx))
+    p = Plots.plot(layout=(1,3),leg=false,xlims=[0,lim],ylims=[0,lim],title=title)
+    Plots.plot!(p,subplot=1,x->x,0,lim)
+    Plots.scatter!(p,subplot=1,lm[1,:],lm[2,:],aspect_ratio=1,xlabel="L",ylabel="M")
+    Plots.plot!(p,subplot=2,x->x,0,lim)
+    Plots.scatter!(p,subplot=2,ls[1,:],ls[2,:],aspect_ratio=1,xlabel="L",ylabel="S")
+    Plots.plot!(p,subplot=3,x->x,0,lim)
+    Plots.scatter!(p,subplot=3,ms[1,:],ms[2,:],aspect_ratio=1,xlabel="M",ylabel="S")
+    p
+end
+
+plotσx(4σx)
+
+σyoverσx = mapreduce(i->map(j->LMSs[8j+5,i]/LMSs[8j+3,i],0:2),hcat,1:size(LMSs,2))
+p = Makie.scatter(σyoverσx[1,:],σyoverσx[2,:],σyoverσx[3,:],markersize=0.1,axis=(names=(axisnames=("L","M","S"),),),color=:grey20)
+
+plotσx(σyoverσx,title="σy/σx")
+
+f4σy = mapreduce(i->map(j->4LMSs[8j+5,i]*LMSs[8j+7,i],0:2),hcat,1:size(LMSs,2))
+p = Makie.scatter(f4σy[1,:],f4σy[2,:],f4σy[3,:],markersize=0.1,axis=(names=(axisnames=("L","M","S"),),),color=:grey20)
+
+plotσx(f4σy,title="f4σy")
+
+
+ω = mapreduce(i->map(j->Ω(LMSs[8j+8,i]),0:2),hcat,1:size(LMSs,2))
+
+
+plotσx(ω,title="ω")
+
+
+θ = LMSs[6:8:end,:]
+
+plotσx(180θ/π,title="θ")
+
+
+dlm = map(i->sqrt(sum((LMSs[[2,4],i] .- LMSs[[2,4].+8,i]).^2)),1:size(LMSs,2))
+Plots.histogram(collect(skipmissing(dlm)),nbins=30,xlabel="LM Distance",leg=false)
+
+dls = map(i->sqrt(sum((LMSs[[2,4],i] .- LMSs[[2,4].+16,i]).^2)),1:size(LMSs,2))
+Plots.histogram(collect(skipmissing(dls)),nbins=30,xlabel="LS Distance",leg=false)
+
+dms = map(i->sqrt(sum((LMSs[[2,4].+8,i] .- LMSs[[2,4].+16,i]).^2)),1:size(LMSs,2))
+Plots.histogram(collect(skipmissing(dms)),nbins=30,xlabel="MS Distance",leg=false)
+
+savefig("test.svg")
+
+
+
+
+
+
+
+
+Y = replace(hcat(filter(i->!isempty(skipmissing(i[9:end])),X)...)[9:end,:],missing=>0)
+Yg = crdf.ConeResponseType
+
+Z = Y[8:8:end,:]
+
+Plots.scatter(360(Zlm[1,:].-Zlm[2,:]),ones(20),nbins=30,projection=:polar)
+
+## Cone Weights
+W = Y[1:8:end,:]
+W ./= sum(W,dims=1)
+
+p = Makie.scatter(W[1,:],W[2,:],W[3,:],markersize=0.02,axis=(names=(axisnames=("L","M","S"),),),color=:crimson)
+Makie.save("test.png",p)
+
+
+foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
+@manipulate for i in 200:1000, n in 5:60, d in 0.001:0.001:5
+    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
+    Plots.scatter(Y2[:,1], Y2[:,2], marker=(3,3,:circle,stroke(0)),group=Yg,frame=:none,leg=:inline)
 end

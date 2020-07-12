@@ -14,8 +14,8 @@ param[:layer] = layer
 ## Query Tests
 tests = @from i in meta begin
         @where startswith(get(i.Subject_ID), "AF5")
-        @where i.RecordSite == "ODL1"
-        @where i.ID == "HartleySubspace"
+        @where i.RecordSite == "ODL5"
+        @where i.ID == "Color"
         @where i.sourceformat == "SpikeGLX"
         @select {i.ID,i.UUID,i.files,i.sourceformat}
         @collect DataFrame
@@ -26,6 +26,7 @@ batchtests(tests,param,plot=true)
 
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
+param[:ppd] = 45
 param[:blank] = (:Ori_Final,NaN)
 
 param[:epprndelay]=1

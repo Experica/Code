@@ -5,13 +5,12 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL5"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
 
 
-ccode=Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S')
 "extrema value of max amplitude and it's delay index"
 function exd(csta)
     exi = [argmin(csta),argmax(csta)]
@@ -20,8 +19,7 @@ function exd(csta)
     (ex=ex[absexi],d=exi[absexi][3])
 end
 "join channel stas"
-function joinsta(stas)
-    cn = length(stas)
+function joinsta(stas;siteid="",ccode = Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S'))
     sizepx = stas[1]["sizepx"]
     sizedeg = stas[1]["sizedeg"]
     delays = stas[1]["delays"]
@@ -31,18 +29,22 @@ function joinsta(stas)
     cii=CartesianIndices(sizepx)
     bdi = filter!(i->!isnothing(i),indexin([-100:0;200:300],delays))
 
-    dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
-    dataset["log"] = [i["log"] for i in stas]
-    dataset["color"] = [i["color"] for i in stas]
-    dataset["ccode"] = map(i->ccode[i],dataset["color"])
-    dataset["minmaxcolor"] = [(i["mincolor"],i["maxcolor"]) for i in stas]
+    dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi,"siteid"=>siteid)
+    colors = [i["color"] for i in stas]
+    colorcodes = map(i->ccode[i],colors)
+    corder = sortperm(colorcodes)
+
+    dataset["log"] = [stas[i]["log"] for i in corder]
+    dataset["color"] = colors[corder]
+    dataset["ccode"] = colorcodes[corder]
+    dataset["minmaxcolor"] = [(stas[i]["mincolor"],stas[i]["maxcolor"]) for i in corder]
     usta = Dict();ucexd=Dict();uresponsive=Dict()
 
-    uids = mapreduce(c->keys(stas[c]["usta"]),intersect,1:cn)
+    uids = mapreduce(c->keys(stas[c]["usta"]),intersect,corder)
     for u in uids
-        csta = Array{Float64}(undef,sizepx...,length(delays),cn)
+        csta = Array{Float64}(undef,sizepx...,length(delays),length(corder))
         cexd = []
-        for c in 1:cn
+        for c in corder
             zsta = stas[c]["usta"][u]
             for d in eachindex(delays)
                 csta[cii[notxi],d,c].=mean(zsta[d,:])
@@ -82,7 +84,7 @@ function peakroi(clc)
     radius = round(Int,maximum(hw)/2)
     return (i=idx,center=center,radius=radius,pd=pi[3])
 end
-"check local mean and contrast in a region significently different than baseline"
+"check local mean and contrast in a region significently different from baseline"
 function isresponsive(sta,idx,bdi;mfactor=3,cfactor=3)
     lc = [std(sta[idx,j]) for j in 1:size(sta,3)]
     lm = [mean(sta[idx,j]) for j in 1:size(sta,3)]
@@ -97,7 +99,7 @@ function isresponsive(sta,idx,bdi;mfactor=3,cfactor=3)
     (!(lmmind in bdi) && lmmin < bmm-mfactor*bmsd)
 end
 "check unit responsive and cut local sta"
-function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakroirlim=2)
+function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakroirlim=1.5)
     sizepx = dataset["sizepx"]
     ppd = dataset["ppd"]
     bdi = dataset["bdi"]
@@ -180,7 +182,7 @@ function modelfit(data,ppd;model=:gabor)
         end
         if !ismissing(mfun)
             mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
-            maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
+            maxIter=2000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
             # wt = 1 ./ mfit.resid
             # mfit = curve_fit(mfun,x,y,wt,p0,lower=lb,upper=ub,
             # maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
@@ -217,7 +219,19 @@ function rffit!(dataset;model=[:gabor,:dog])
 
     return dataset
 end
-
+function rfimage(rffit,x,y;yflip=false)
+    if rffit.model == :dog
+        rfi = [rfdog(i,j,rffit.param...) for j in y, i in x]
+    else
+        rfi = [rfgabor(i,j,rffit.param...) for j in y, i in x]
+    end
+    yflip && (rfi=reverse(rfi,dims=1))
+    rfi
+end
+function rfimage(rffit,radiusdeg;ppd=45,yflip=true)
+    x=y= -radiusdeg:1/ppd:radiusdeg
+    rfimage(rffit,x,y,yflip=yflip)
+end
 
 
 ## Load all stas
@@ -230,7 +244,13 @@ isdir(lstadir) || mkpath(lstadir)
 rffitdir = joinpath(resultsitedir,"rffit")
 isdir(rffitdir) || mkpath(rffitdir)
 
-dataset = joinsta(load.(joinpath.(resultsitedir,testids,"sta.jld2")))
+spike = load(joinpath(resultsitedir,testids[1],"spike.jld2"),"spike")
+spike["siteid"] = siteid
+delete!(spike,"unitspike")
+save(joinpath(resultsitedir,"units.jld2"),"units",spike)
+
+
+dataset = joinsta(load.(joinpath.(resultsitedir,testids,"sta.jld2")),siteid=siteid)
 dataset = responsivesta!(dataset)
 dataset = rffit!(dataset,model=[:gabor])
 
@@ -261,7 +281,7 @@ end
     plotstas(u,d)
 end
 for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
-    u != 167 && continue
+    u != 112 && continue
     plotstas(u,d,dir=stadir)
 end
 ## responsive local stas
@@ -291,20 +311,6 @@ for u in sort(collect(keys(dataset["ulsta"])))
     plotlstas(u,dir=lstadir)
 end
 ## rf fit
-function rfimage(rffit,x,y;yflip=false)
-    if rffit.model == :dog
-        rfi = [rfdog(i,j,rffit.param...) for j in y, i in x]
-    else
-        rfi = [rfgabor(i,j,rffit.param...) for j in y, i in x]
-    end
-    yflip && (rfi=reverse(rfi,dims=1))
-    rfi
-end
-function rfimage(rffit,radiusdeg;ppd=45,yflip=true)
-    x=y= -radiusdeg:1/ppd:radiusdeg
-    rfimage(rffit,x,y,yflip=yflip)
-end
-
 plotrffit=(u,m;dir=nothing)->begin
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
