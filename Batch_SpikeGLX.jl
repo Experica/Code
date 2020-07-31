@@ -39,6 +39,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     hx,hy,hz = lfmeta["probespacing"]
     exchmask = exchmasknp(dataset,type="lf")
     pnrow,pncol = size(exchmask)
+    depths = hy*(0:(pnrow-1))
     mmlf = Mmap.mmap(lfbin,Matrix{Int16},(nsavedch,nsample),0)
 
     # Depth LFP and CSD
@@ -50,37 +51,28 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
     if plot
         for c in 1:pncol
-            mcys=dropdims(mean(ys[:,c,:,:],dims=3),dims=3)
-            plotanalog(mcys,fs=fs,cunit=:uv)
-            foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_MeanLFP$ext")),figfmt)
+            cmcys = Dict(condstring(r)=>dropdims(mean(ys[:,c,:,r.i],dims=3),dims=3) for r in eachrow(cond))
+            cmccsd = Dict(condstring(r)=>dropdims(mean(csd(ys[:,c,:,r.i],h=hy),dims=3),dims=3) for r in eachrow(cond))
+            for k in keys(cmcys)
+                plotanalog(cmcys[k],fs=fs,cunit=:uv)
+                foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_$(k)_MeanLFP$ext")),figfmt)
 
-            mccsd = dropdims(mean(csd(ys[:,c,:,:],h=hy),dims=3),dims=3)
-            plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
-            foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_MeanCSD$ext")),figfmt)
-
-            for i in 1:2
-                mcys=dropdims(mean(ys[:,c,:,i:2:end],dims=3),dims=3)
-                plotanalog(mcys,fs=fs,cunit=:uv)
-                foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_Cond_$(condidx[i])_MeanLFP$ext")),figfmt)
-
-                mccsd = dropdims(mean(csd(ys[:,c,:,i:2:end],h=hy),dims=3),dims=3)
-                plotanalog(imfilter(mccsd,Kernel.gaussian((1,1))),fs=fs)
-                foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_Cond_$(condidx[i])_MeanCSD$ext")),figfmt)
+                plotanalog(imfilter(cmccsd[k],Kernel.gaussian((1,1))),fs=fs)
+                foreach(ext->savefig(joinpath(resultdir,"Column_$(c)_$(k)_MeanCSD$ext")),figfmt)
             end
         end
     end
 
     # Mean LFP and ΔCSD of combined columns
-    pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3) # only if the two conditions are balance tested
+    pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
     mys=dropdims(mean(pys,dims=3),dims=3)
-    cmys = Dict(condidx[i]=>dropdims(mean(pys[:,:,i:2:end],dims=3),dims=3) for i in 1:2)
+    cmys = Dict(condstring(r)=>dropdims(mean(pys[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
     pcsd = csd(pys,h=hy)
     basedur = timetounit(15)
     baseindex = epoch2sampleindex([0 basedur],fs)
     dcsd=stfilter(pcsd,temporaltype=:sub,ti=baseindex)
     mdcsd = dropdims(mean(dcsd,dims=3),dims=3)
-    cmdcsd = Dict(condidx[i]=>dropdims(mean(dcsd[:,:,i:2:end],dims=3),dims=3) for i in 1:2)
-    depths = hy*(0:(pnrow-1))
+    cmdcsd = Dict(condstring(r)=>dropdims(mean(dcsd[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
     x = (1/fs/SecondPerUnit)*(0:(size(mdcsd,2)-1))
     if plot
         plotanalog(mys,fs=fs,cunit=:uv)
@@ -91,10 +83,10 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
         for k in keys(cmys)
             plotanalog(cmys[k],fs=fs,cunit=:uv)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_MeanLFP$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_MeanLFP$ext")),figfmt)
 
             plotanalog(imfilter(cmdcsd[k],Kernel.gaussian((1,1))),fs=fs,y=depths,color=:RdBu)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_MeandCSD$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_MeandCSD$ext")),figfmt)
         end
     end
     save(joinpath(resultdir,"lfp.jld2"),"lfp",mys,"clfp",cmys,"time",x,"depth",depths,"fs",fs,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
@@ -117,7 +109,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
     pcs = ps./bps.-1
     mpcs = dropdims(mean(pcs,dims=3),dims=3)
-    cmpcs = Dict(condidx[i]=>dropdims(mean(pcs[:,:,i:2:end],dims=3),dims=3) for i in 1:2)
+    cmpcs = Dict(condstring(r)=>dropdims(mean(pcs[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
     if plot
         mps = dropdims(mean(ps,dims=3),dims=3)
         plotanalog(imfilter(mps,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
@@ -130,17 +122,17 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         plotanalog(imfilter(mpcs,Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
         foreach(ext->savefig(joinpath(resultdir,"PowerContrast$ext")),figfmt)
 
-        cmps = Dict(condidx[i]=>dropdims(mean(ps[:,:,i:2:end],dims=3),dims=3) for i in 1:2)
-        cmbps = Dict(condidx[i]=>dropdims(mean(bps[:,:,i:2:end],dims=3),dims=3) for i in 1:2)
+        cmps = Dict(condstring(r)=>dropdims(mean(ps[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
+        cmbps = Dict(condstring(r)=>dropdims(mean(bps[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
         for k in keys(cmpcs)
             plotanalog(imfilter(cmps[k],Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_PowerSpectrum$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_PowerSpectrum$ext")),figfmt)
 
             plotanalog(imfilter(cmbps[k],Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_PowerSpectrum_Baseline$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_PowerSpectrum_Baseline$ext")),figfmt)
 
             plotanalog(imfilter(cmpcs[k],Kernel.gaussian((1,1))),x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],cunit=:v2,color=:PuRd)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_PowerContrast$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_PowerContrast$ext")),figfmt)
         end
     end
     save(joinpath(resultdir,"powercontrast.jld2"),"pcs",mpcs,"cpcs",cmpcs,"depth",depths,"freq",freq)
@@ -150,6 +142,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
         foreach(ext->savefig(joinpath(resultdir,"UnitPosition$ext")),figfmt)
     end
+    spike["siteid"] = siteid
     save(joinpath(resultdir,"spike.jld2"),"spike",spike)
 
     # Unit Spike Train
@@ -175,14 +168,14 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,ismean=false),unitspike[unitgood])
     unitpsth = map(pm->(vmeanse(pm.mat,normfun=normfun)...,pm.x),unitepochpsth)
     depthpsth,x,depths,depthnunit = spacepsth(unitpsth,unitposition[unitgood,:],hy*(0:pnrow).-(hy/2))
-    cdepthpsth = Dict(condidx[i]=>spacepsth(map(pm->(vmeanse(pm.mat[i:2:end,:],normfun=normfun)...,pm.x),unitepochpsth),unitposition[unitgood,:],hy*(0:pnrow).-(hy/2))[1] for i in 1:2)
+    cdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(vmeanse(pm.mat[[r.i;r.i.+nrow(ctc)],:],normfun=normfun)...,pm.x),unitepochpsth),unitposition[unitgood,:],hy*(0:pnrow).-(hy/2))[1] for r in eachrow(cond))
     if plot
         plotpsth(imfilter(depthpsth,Kernel.gaussian((1,1))),x,depths,n=depthnunit)
         foreach(ext->savefig(joinpath(resultdir,"DepthPSTH$ext")),figfmt)
 
         for k in keys(cdepthpsth)
             plotpsth(imfilter(cdepthpsth[k],Kernel.gaussian((1,1))),x,depths,n=depthnunit)
-            foreach(ext->savefig(joinpath(resultdir,"Cond_$(k)_DepthPSTH$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_DepthPSTH$ext")),figfmt)
         end
     end
     save(joinpath(resultdir,"depthpsth.jld2"),"depthpsth",depthpsth,"cdepthpsth",cdepthpsth,"depth",depths,"time",x,"n",depthnunit)
@@ -257,8 +250,8 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
         foreach(ext->savefig(joinpath(resultdir,"UnitPosition$ext")),figfmt)
     end
+    spike["siteid"] = siteid
     save(joinpath(resultdir,"spike.jld2"),"spike",spike)
-
 
 
     # Prepare Imageset
@@ -443,11 +436,52 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     bcondoff=condoff[bi]
     isblank = !isempty(bcondon)
 
+    # Prepare LFP
+    lfbin = matchfile(Regex("^$(testid)[A-Za-z0-9_]*.imec.lf.bin"),dir = datadir,join=true)[1]
+    lfmeta = dataset["lf"]["meta"]
+    nsavedch=lfmeta["nSavedChans"]
+    nsample=lfmeta["nFileSamp"]
+    fs=lfmeta["fs"]
+    nch = lfmeta["snsApLfSy"][2]
+    hx,hy,hz = lfmeta["probespacing"]
+    exchmask = exchmasknp(dataset,type="lf")
+    pnrow,pncol = size(exchmask)
+    depths = hy*(0:(pnrow-1))
+    mmlf = Mmap.mmap(lfbin,Matrix{Int16},(nsavedch,nsample),0)
+
+    # Depth Power Spectrum
+    epochdur = timetounit(preicidur)
+    epoch = [0 epochdur]
+    epochs = ccondon.+epoch
+    nw = 2
+    ys=reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
+    pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+    ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
+
+    epoch = [-epochdur 0]
+    epochs = ccondon.+epoch
+    ys=reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
+    pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+    bps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
+
+    pcs = ps./bps.-1
+    cmpcs = Dict(condstring(r)=>dropdims(mean(pcs[:,:,[r.i;r.i.+nrow(cctc)]],dims=3),dims=3) for r in eachrow(ccond))
+    if plot
+        fcmpcs = Dict(k=>imfilter(cmpcs[k],Kernel.gaussian((1,1))) for k in keys(cmpcs))
+        lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcmpcs))
+        for k in keys(fcmpcs)
+            plotanalog(fcmpcs[k],x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],clims=(-lim,lim),color=:vik)
+            foreach(ext->savefig(joinpath(resultdir,"$(k)_PowerContrast$ext")),figfmt)
+        end
+    end
+    save(joinpath(resultdir,"powercontrast.jld2"),"cpcs",cmpcs,"depth",depths,"freq",freq)
+
     # Unit Position
     if plot
         plotunitposition(unitposition,unitgood=unitgood,chposition=spike["chposition"],unitid=unitid,layer=layer)
         foreach(ext->savefig(joinpath(resultdir,"UnitPosition$ext")),figfmt)
     end
+    spike["siteid"] = siteid
     save(joinpath(resultdir,"spike.jld2"),"spike",spike)
 
     # Unit Spike Trian

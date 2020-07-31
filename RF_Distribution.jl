@@ -1,6 +1,6 @@
-using Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats,UMAP,Makie
+using Combinatorics,Query,VegaLite,DataFrames,Clustering,MultivariateStats,UMAP,Makie
 
-## t-SNE and UMAP of responsive sta
+## UMAP of responsive sta
 lsta = mapreduce(u->mapreduce((c,r,exd)->r ? [dataset["ulsta"][u][:,:,exd.d,c]] : [],
 append!,1:testn,dataset["ucresponsive"][u],dataset["ulcexd"][u]),
 append!,keys(dataset["ulsta"]))
@@ -50,50 +50,47 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-resultdir = joinpath(resultroot,"RF")
-isdir(resultdir) || mkpath(resultdir)
+cells = load(joinpath(resultroot,"cells.jld2"),"cells")
 
-function collectrf(indir;model=:gabor,rffile="stadataset.jld2",ufile="units.jld2")
-    rfs=[];uids=[];crtype=[]
+function collectrf(indir;cells=DataFrame(id=[]),model=:gabor,rffile="stadataset.jld2")
+    df=DataFrame()
     for (root,dirs,files) in walkdir(indir)
-        if rffile in files && ufile in files
+        if rffile in files
             dataset = load(joinpath(root,rffile),"dataset")
             siteid = dataset["siteid"]
-            # units = load(joinpath(root,ufile),"units")
-            siterfs = map(i->map(f->ismissing(f) ? missing : (;(n=>f[n] for n in (:model,:radius,:param,:r))...),i[model]),values(dataset["urf"]))
-
-            append!(uids,["$(siteid)_U$u" for u in keys(dataset["urf"])])
-            append!(rfs,siterfs)
-            append!(crtype,[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["urf"])])
+            id = ["$(siteid)_SU$u" for u in keys(dataset["urf"])]
+            rc = Any[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["urf"])]
+            rf = Any[map(f->ismissing(f) ? missing : (;(n=>f[n] for n in (:model,:radius,:param,:r))...),dataset["urf"][u][model]) for u in keys(dataset["urf"])]
+            vui = map(i->!isempty(skipmissing(i)),rc)
+            append!(df,DataFrame(id=id[vui],rc=rc[vui],rf=rf[vui]))
         end
     end
-    return rfs,uids,crtype
+    return outerjoin(cells,unique!(df,:id),on=:id)
 end
 
-function spatialrf(rfs,crtype;color=:coolwarm)
-    cg = cgrad(color)
-    srfs = mapreduce(fs->filter(f->f.r > 0.6,skipmissing(fs)), append!,rfs)
-    cmrtype = map((fs,ct)->map((f,t)->!ismissing(f) && f.r > 0.6 ? t : missing,fs,ct),rfs,crtype)
-    msrf = map(f->begin
-                    i = rfimage(f,f.radius)
-                    m = maximum(abs.(extrema(i)))
-                    alphamask(get(cg,i,(-m,m)),radius=0.5,sigma=0.35,masktype="Gaussian")[1]
-                end,srfs)
-    return srfs,msrf,cmrtype
+cells = collectrf(resultroot,cells=cells,model=:gabor)
+save(joinpath(resultroot,"cells.jld2"),"cells",cells)
+
+
+rfcells = dropmissing(cells,:rf)
+
+srfcells = dropmissing!(flatten(rfcells,[:rf,:rc]),:rf)
+
+# rfcells = cells |> 
+#         @dropna(:rf) |> 
+#         @mutate(rc = map((f,c)->!ismissing(f) && f.r > 0.6 ? c : missing,_.rf,get(_.rc)),rf = map(f->!ismissing(f) && f.r > 0.6 ? f : missing,_.rf)) |> 
+#         @filter(!isempty(skipmissing(_.rf))) |> DataFrame
+
+# srfcells = [rfcells |> @mapmany(skipmissing(get(_.rf)),{id=_.id,rf=__}) |> DataFrame rfcells |> @mapmany(skipmissing(get(_.rc)),{rc=__}) |> DataFrame]
+# srfcells = leftjoin(srfcells,rfcells[!,Not([:rf,:rc])],on=:id)
+
+srfcells.rfi = rfcolorimage.(rfimage.(srfcells.rf,ppd=40))
+
+@manipulate for i in 1:nrow(srfcells)
+    srfcells.rfi[i]
 end
 
-
-rfs,uids,crtype = collectrf(resultroot,model=:gabor)
-
-save(joinpath(resultdir,"starf.jld2"),"rfs",rfs,"uids",uids,"crtype",crtype)
-rfs,uids,crtype = load(joinpath(resultdir,"starf.jld2"),"rfs","uids","crtype")
-
-srfs,msrf,cmrtype = spatialrf(rfs,crtype)
-@manipulate for i in eachindex(msrf)
-    msrf[i]
-end
-
-S = mapreduce(f->f.param,hcat,srfs)
+S = mapreduce(f->f.param,hcat,srfcells.rf)
 
 Y = deepcopy(S)
 foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
@@ -103,12 +100,12 @@ foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
 end
 
 Y2 = umap(Y, 2, n_neighbors=20, min_dist=0.015, n_epochs=500)'
-p = plotunitpositionimage(Y2,msrf)
+p = plotunitpositionimage(Y2,srfcells.rfi)
 save("UMAP_rf.svg",p)
 
 ## RF Spatial Pattern
 Ω(p::Missing)=missing
-Ω(p) = p < 0.5 ? abs(p-0.25) : abs(p-0.75)
+Ω(p) = p < 0.5 ? 4abs(p-0.25) : 4abs(p-0.75)
 SP = mapreduce(i->begin
                     σyoverσx = S[5,i]/S[3,i]
                     f4σy = 4S[5,i]*S[7,i]
@@ -122,10 +119,16 @@ SP = mapreduce(i->begin
 mmsrf = map(i->RGBAf0.(imresize(i,32,32)),msrf)
 Makie.scatter(SP[1,:],SP[2,:],SP[3,:],markersize=0.3,marker=mmsrf)
 
+p=Plots.plot(layout=(3,1),size=(400,3*250),legend=false)
+Plots.histogram!(p,subplot=1,SP[1,:],nbins=30,xlabel="σy/σx",ylabel="Number of Cells")
+Plots.histogram!(p,subplot=2,SP[2,:],nbins=28,xlabel="4σyf",ylabel="Number of Cells")
+Plots.histogram!(p,subplot=3,SP[3,:],nbins=45,xlabel="ω",ylabel="Number of Cells")
+p
+
 Y = deepcopy(SP)
 foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
 Y2 = umap(Y, 2, n_neighbors=25, min_dist=0.02, n_epochs=500)'
-p = plotunitpositionimage(Y2,msrf)
+p = plotunitpositionimage(Y2,srfcells.rfimage)
 save("UMAP_rf.svg",p)
 
 ## type of responsiveness

@@ -5,7 +5,7 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL5"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 figfmt = [".png",".svg"]
@@ -129,7 +129,7 @@ plotlayer(csd=csdss2,psth=psthss2,pc=pcss2)
 foreach(ext->savefig(joinpath(resultsitedir,"Cond_2_Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
 
 ## Finalize Layers
-save(joinpath(resultsitedir,"layer.jld2"),"layer",checklayer!(layer))
+save(joinpath(resultsitedir,"layer.jld2"),"layer",checklayer!(layer),"siteid",siteid)
 
 
 
@@ -225,3 +225,26 @@ for i in 1:testn
 end
 p
 foreach(i->savefig(joinpath(resultsitedir,"Layer_UnitPosition_$(f)_Tuning$i")),[".png",".svg"])
+
+## Collect layers into cells
+function collectlayer(indir,cells;lfile="layer.jld2")
+    ls = Dict()
+    for (root,dirs,files) in walkdir(indir)
+        if lfile in files
+            l = load(joinpath(root,lfile))
+            ls[l["siteid"]] = l["layer"]
+        end
+    end
+    todepth = (s,p) -> begin
+        haskey(ls,s) || return missing
+        return [p[1] -p[2] + ls[s]["Out"][1]]
+    end
+    tolayer = (s,p) -> begin
+        haskey(ls,s) || return missing
+        return assignlayer(p[2],ls[s])
+    end
+    return [cells select(cells,[[:site,:position] => ByRow(todepth) => :depth, [:site,:position] => ByRow(tolayer) => :layer])]
+end
+
+cells = collectlayer(joinpath(resultroot,"AF5"),cells)
+save(joinpath(resultroot,"cells.jld2"),"cells",cells)

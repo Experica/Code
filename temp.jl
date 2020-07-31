@@ -93,6 +93,7 @@ plot(ggt[:,200])
 
 
 
+using JLD2
 
 
 
@@ -107,6 +108,8 @@ using Interact,Plots
 end
 
 
+x = DataFrame(a=[missing,missing,['A','L',missing]])
+save("test.jld2","x",x)
 
 Makie.surface(x,y,z,colormap=:coolwarm,shading=false)
 
@@ -326,13 +329,20 @@ savefig("test.png")
 
 
 
-x=collect(-3:0.1:3)
+x=collect(-10:0.1:10)
+mfun(x,p) = p[1]*sin.(p[2]*x .+ p[3])
+y=mfun(x,[5,2,1]) .+ randn(length(x))
 
-y=sin.(2x.+0.5π) .+ randn(length(x))
+mfun(x,p) = vmf.(x,β=p[1],μ=p[2],κ=p[3],n=2)
+y=mfun(x,[5,0,1]) .+ randn(length(x))
 
-mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,[0.0,0.0])
+plot(x,[y mfun(x,mfit.param)])
 
-mfit = curve_fit((x,p)-> sin.(x*p[1].+p[2]),x,y,1 ./ mfit.resid,[0.0,0.0])
+mfit = curve_fit(mfun,x,y,[2,1.0,0],x_tol=1e-11)
+
+
+
+mfit = curve_fit(mfun,x,y,1 ./ mfit.resid.^2,[2,1.0,0])
 
 
 
@@ -368,3 +378,125 @@ if plot
         foreach(i->savefig(joinpath(resultdir,"UnitPosition_Hue_Tuning$i")),[".png",".svg"])
     end
 end
+
+
+## optim
+
+
+data = dataset["ulsta"][89][:,:,20,2]
+function dataxy(data,ppd)
+    rpx = (size(data)[1]-1)/2
+    r = rpx/ppd
+    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(rpx+1) rpx+1])/ppd
+    y = vec(data)
+    return x,y
+end
+
+x,y = dataxy(data,45)
+
+function objfun(p;x=x,y=y)
+    model = rfgabor.(x[:,1],x[:,2],p...)
+    sum((y.-model).^2)
+end
+lb = [1000.0, -0.4,  0.1,  -0.4,  0.1,  0,  0.1,    0]
+ub = [2000.0,  0.4,  0.4,   0.4,  0.4,  π,   8,  1]
+
+llb = [1.0,     -1,  0.1,  -1,  0.1,  0,  0.2,    0]
+uub = [10000.0,  1,  0.6,   1,  0.6,  π,   8,  1]
+
+
+res = optimize(objfun,llb,uub,[1500.0,0.0,0.2,0,0.2,1.4,1,0],SAMIN(),Optim.Options(iterations=10^5))
+
+pyfit = (model=:gabor,param=res.minimizer)
+heatmap(rfimage(pyfit,0.82),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+
+
+yp = rfgabor.(x[:,1],x[:,2],res.minimizer...)
+
+
+
+rcopy(R"cor.test($y,$yp,alternative='greater',method='pearson')")
+
+
+## rffit
+
+
+lc = localcontrast(data,ws=0.5,ppd=45)
+roi=peakroi(lc)
+rg = zeros(size(lc))
+rg[roi.i].=1
+heatmap(data,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+heatmap(lc,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+heatmap(rg,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+
+
+
+frlt = modelfit(data,45)
+heatmap(rfimage(frlt,frlt.radius),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+
+
+using PyCall
+lmfit = pyimport("lmfit")
+
+
+pyfit = (model=:gabor,param=py"fparams")
+heatmap(rfimage(pyfit,0.82),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
+
+
+py"""
+x = $(x[:,1])
+y = $(x[:,2])
+data = $y
+
+from numpy import power,exp, sin,cos,pi
+
+from lmfit import minimize, Parameters
+
+
+def residual(params, x, y, data):
+    a = params['a']
+    miux = params['miux']
+    sigmax = params['sigmax']
+    miuy = params['miuy']
+    sigmay = params['sigmay']
+    ori = params['ori']
+    sf = params['sf']
+    phase = params['phase']
+
+    sinv = sin(ori)
+    cosv = cos(ori)
+    xx = cosv * x + sinv * y
+    yy = cosv * y - sinv * x
+    model = a*exp(-0.5*(power((xx-miux)/sigmax,2) + power((yy-miuy)/sigmay,2))) * sin(2*pi*(sf * yy + phase))
+
+    return data-model
+
+r=0.8
+params = Parameters()
+params.add('a', value=1500.0,min=1000)
+params.add('miux', value=0.0,min=-0.3*r,max=0.3*r)
+params.add('sigmax', value=0.2*r,min=0.1*r,max=0.3*r)
+params.add('miuy', value=0.0,min=-0.3*r,max=0.3*r)
+params.add('sigmay', value=0.2*r,min=0.1*r,max=0.3*r)
+params.add('ori', value=1.4,min=0,max=pi)
+params.add('sf', value=1.0,min=1,max=3)
+params.add('phase', value=0.0,min=0,max=1)
+
+out = minimize(residual, params, args=(x, y, data),method='ampgo')
+
+
+t = out.params.valuesdict()
+fparams = [t['a'],t['miux'],t['sigmax'],t['miuy'],t['sigmay'],t['ori'],t['sf'],t['phase']]
+"""
+
+
+
+## test
+
+a=DataFrame(id=1:3,p=2:4)
+
+b=DataFrame(id=1:2,r=4:5)
+c=DataFrame(id=[])
+outerjoin(a,b,on=:id)
+crossjoin(a,b)
+

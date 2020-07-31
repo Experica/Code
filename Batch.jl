@@ -1,4 +1,4 @@
-using NeuroAnalysis,FileIO,Query,DataFrames,ProgressMeter,Logging
+using NeuroAnalysis,FileIO,DataFrames,ProgressMeter,Logging
 import Base: close
 
 # includet("Batch_Ripple.jl")
