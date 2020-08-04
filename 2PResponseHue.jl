@@ -7,12 +7,12 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
 
 # User input and Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "007" # Unit
-testId = "009"  # Stimulus test
-hueSpace = "DKL"   # Color space used? DKL or HSL
-interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+disk = "H:"
+subject = "AE7"  # Animal
+recordSession = "008" # Unit
+testId = "006"  # Stimulus test
+hueSpace = "HSL"   # Color space used? DKL or HSL
+interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
@@ -21,7 +21,7 @@ oriaucThres = 0.5
 fitThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
-blankId = 36  # Blank Id
+blankId = 34  # Blank Id  AF4=36; AE6=34
 excId = [27,28,blankId]  # Exclude some condition?
 isplot = false  # Plot figures to investigate?
 
@@ -31,7 +31,7 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -50,7 +50,7 @@ sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
 trialOnLine = sbx["line"][1:2:end]
 trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
 trialOffLine = sbx["line"][2:2:end]
-trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+trialOffFrame = sbx["frame"][2:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -75,12 +75,12 @@ conditionBlank = conditionAll[bi,:]
 # replace!(bctc.ColorID, 36 =>Inf)
 
 # Change ColorID ot HueAngle if needed
-if hueSpace == "DKL"
-    ucid = sort(unique(conditionCond.ColorID))
-    hstep = 360/length(ucid)
-    conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
-    conditionCond=rename(conditionCond, :ColorID => :HueAngle)
-end
+# if hueSpace == "DKL"
+ucid = sort(unique(conditionCond.ColorID))
+hstep = 360/length(ucid)
+conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
+conditionCond=rename(conditionCond, :ColorID => :HueAngle)
+# end
 
 
 # On/off frame indces of condations/stimuli
@@ -97,16 +97,23 @@ condFrame=epoch2samplerange(condEpoch, sbxfs)
 # condOff = fill(condFrame.stop, trialNum)
 
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+# spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 planeNum = size(segment["mask"],3)  # how many planes
 # planeNum = 1
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
@@ -120,7 +127,11 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
     cellNum = length(cellRoi)
     display("plane: $pn")
     display("Cell Number: $cellNum")
@@ -130,8 +141,8 @@ for pn in 1:planeNum
         rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        rawF = transpose(signal["sig_ot"]["sig"][pn])
-        # spike = transpose(signal["sig_ot"]["spks"][pn])
+        rawF = sig
+        # spike = spks
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
@@ -411,4 +422,6 @@ for pn in 1:planeNum
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
 end
+display("Processing is Done !!!! ")
+
 planeStart = 1  # no clear function like Matab, reset it mannually

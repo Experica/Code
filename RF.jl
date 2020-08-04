@@ -1,123 +1,124 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,Interact,ImageSegmentation,LsqFit,FFTW,ProgressMeter
+using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,StatsPlots,Interact,ImageSegmentation,LsqFit,ProgressMeter,Distances,
+Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats
+import NeuroAnalysis: isresponsive
 
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 resultsitedir = joinpath(resultroot,subject,siteid)
 layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
 
 
-
-function exd(stas;sig=true)
-    exi = [argmin(stas),argmax(stas)]
-    ex = stas[exi]
+ccode=Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S')
+"extrema value of max amplitude and it's delay index"
+function exd(csta)
+    exi = [argmin(csta),argmax(csta)]
+    ex = csta[exi]
     absexi = argmax(abs.(ex))
-    (ex=sig ? ex[absexi] : 0,d=exi[absexi][3])
+    (ex=ex[absexi],d=exi[absexi][3])
 end
-function joinsta(stas)
+"join channel stas"
+function joinsta(stas;μ=0.5)
     cn = length(stas)
-    imagesize = stas[1]["imagesize"]
+    sizepx = stas[1]["sizepx"]
+    sizedeg = stas[1]["sizedeg"]
     delays = stas[1]["delays"]
-    stisize = stas[1]["stisize"]
-    ppd = imagesize[1]/stisize[1]
+    ppd = first(sizepx./sizedeg)
     xi = stas[1]["xi"]
-    nxi = setdiff(1:prod(imagesize),xi)
-    cii=CartesianIndices(imagesize)
-    bdi = filter(i->!isnothing(i),indexin([-20,-15,-10,-5,0],delays))
+    notxi = setdiff(1:prod(sizepx),xi)
+    cii=CartesianIndices(sizepx)
+    bdi = filter!(i->!isnothing(i),indexin([-30:0;200:230],delays))
 
-    dataset = Dict("stisize"=>stisize,"imagesize"=>imagesize,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
+    dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
     dataset["log"] = [i["log"] for i in stas]
-    dataset["color"]=[i["color"] for i in stas]
+    dataset["color"] = [i["color"] for i in stas]
+    dataset["ccode"] = map(i->ccode[i],dataset["color"])
     dataset["minmaxcolor"] = [(i["mincolor"],i["maxcolor"]) for i in stas]
-    dataset["minmaxcg"] = map(i->minmaxcolorgradient(i...,n=256),dataset["minmaxcolor"])
-    usta = Dict();ucex=Dict();uresponsive=Dict()
+    usta = Dict();ucexd=Dict();uresponsive=Dict()
 
     uids = mapreduce(c->keys(stas[c]["usta"]),intersect,1:cn)
     for u in uids
-        csta = Array{Float64}(undef,imagesize...,length(delays),cn)
-        bsta = mapreduce(c->stas[c]["usta"][u][bdi,:],vcat,1:cn)
-        bm = mean(bsta);bsd = std(bsta)
-        cex = []
+        csta = Array{Float64}(undef,sizepx...,length(delays),cn)
+        cexd = []
         for c in 1:cn
-            zsta = zscore(stas[c]["usta"][u],bm,bsd)
+            zsta = stas[c]["usta"][u].-μ
             for d in eachindex(delays)
-                csta[cii[nxi],d,c].=mean(zsta[d,:])
+                csta[cii[notxi],d,c].=mean(zsta[d,:])
                 csta[cii[xi],d,c] = zsta[d,:]
             end
-            push!(cex,exd(csta[:,:,:,c]))
+            push!(cexd,exd(csta[:,:,:,c]))
         end
         usta[u] = csta
-        ucex[u] = cex
+        ucexd[u] = cexd
         uresponsive[u] = false
     end
-
     dataset["usta"] = usta
-    dataset["ucex"] = ucex
+    dataset["ucexd"] = ucexd
     dataset["uresponsive"] = uresponsive
     return dataset
 end
-"Local RMS Contrast of each image"
-function localcontrast(csta;ws=0.5,ppd=50)
+"local RMS contrast of each image, highlighting local structure regions"
+function localcontrast(csta;ws=0.5,ppd=45)
     dims = size(csta)
     clc = Array{Float64}(undef,dims)
-    w = floor(Int,ws*ppd)
+    w = round(Int,ws*ppd)
     w = iseven(w) ? w+1 : w
-    for c in 1:dims[4], d in 1:dims[3]
+    for d in 1:dims[3], c in 1:dims[4]
         clc[:,:,d,c] = mapwindow(std,csta[:,:,d,c],(w,w))
     end
     return clc
 end
+"peak ROI region and its delay"
 function peakroi(clc)
     pi = [Tuple(argmax(clc))...]
     plc = clc[:,:,pi[3:end]...]
     segs = seeded_region_growing(plc,[(CartesianIndex(1,1),1),(CartesianIndex(pi[1:2]...),2)])
     idx = findall(labels_map(segs).==2)
-    idxlim = dropdims(extrema(mapreduce(i->[Tuple(i)...],hcat,idx),dims=2),dims=2)
-    hw = map(i->i[2]-i[1],idxlim)
-    radius = floor(Int,maximum(hw)/2)
-    center = round.(Int,mean.(idxlim))
-    cpd = [Tuple(argmax(clc[:,:,:,c]))[3] for c in 1:size(clc,4)]
-    return idx,center,radius,pi[4],cpd
+    idxlims = dropdims(extrema(mapreduce(i->[Tuple(i)...],hcat,idx),dims=2),dims=2)
+    hw = map(i->i[2]-i[1],idxlims)
+    center = round.(Int,mean.(idxlims))
+    radius = round(Int,maximum(hw)/2)
+    return (i=idx,center=center,radius=radius,pd=pi[3])
 end
-import NeuroAnalysis: isresponsive
-function isresponsive(csta,idx,d,bdi;msdfactor=3,csdfactor=3)
+"check local mean or contrast in a region at a delay significently higher than baseline"
+function isresponsive(sta,idx,d,bdi;mfactor=3,cfactor=3)
     d in bdi && return false
-    blc = [std(csta[idx,j]) for j in bdi]
-    bcm = mean(blc);bcsd=std(blc)
-    blm = [mean(csta[idx,j]) for j in bdi]
+    blm = [mean(sta[idx,j]) for j in bdi]
     bmm = mean(blm);bmsd=std(blm)
-    (std(csta[idx,d]) > bcm+csdfactor*bcsd) || (mean(csta[idx,d]) > bmm+msdfactor*bmsd)
+    blc = [std(sta[idx,j]) for j in bdi]
+    bcm = mean(blc);bcsd=std(blc)
+    (std(sta[idx,d]) > bcm+cfactor*bcsd) || (mean(sta[idx,d]) > bmm+mfactor*bmsd)
 end
-function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2,roirlim=1.5)
-    imagesize = dataset["imagesize"]
-    ppd=dataset["ppd"]
+"check unit responsive and cut local sta"
+function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakroirlim=2)
+    sizepx = dataset["sizepx"]
+    ppd = dataset["ppd"]
     bdi = dataset["bdi"]
     usta = dataset["usta"]
-    ucex = dataset["ucex"]
+    ucexd = dataset["ucexd"]
+    uresponsive=dataset["uresponsive"]
 
-    ulsta=Dict();ulroi=Dict();uresponsive=dataset["uresponsive"]
+    ulsta=Dict();ulcexd=Dict();ulroi=Dict();ucresponsive=Dict()
     p = ProgressMeter.Progress(length(usta),desc="Test STAs ... ")
     for u in keys(usta)
         clc = localcontrast(usta[u],ws=ws,ppd=ppd)
-        idx,center,radius,c,cpd = peakroi(clc)
-        if radius > roirlim*ppd
-            uresponsive[u] = false
-            next!(p)
-            continue
-        end
-        rs= [isresponsive(usta[u][:,:,:,i],idx,cpd[i],bdi,msdfactor=msdfactor,csdfactor=csdfactor) for i in 1:size(clc,4)]
-        if any(rs)
+        cproi = map(c->peakroi(clc[:,:,:,c]),1:size(clc,4))
+        ucresponsive[u] = map(c->cproi[c].radius < peakroirlim*ppd ? isresponsive(usta[u][:,:,:,c],cproi[c].i,cproi[c].pd,bdi,mfactor=mfactor,cfactor=cfactor) : false,1:size(clc,4))
+        if any(ucresponsive[u])
             uresponsive[u] = true
-            radius = ceil(Int,radius*(1+roimargin))
-            vr = map(i->intersect(i.+(-radius:radius),1:imagesize[1]),center)
-            radius = (minimum ∘ mapreduce)((r,c)->abs.([r[1],r[end]].-c),append!,vr,center)
+            vroi = cproi[ucresponsive[u]]
+            vcs = mapfoldl(r->r.center,hcat,vroi,init=zeros(Int,2,0))
+            center = round.(Int,mean(vcs,dims=2)[:])
+            cdev = maximum(Distances.colwise(Euclidean(),vcs,center))
+            radius = round(Int,(maximum(map(r->r.radius,vroi))+cdev)*(1+roimargin))
+            vr = map(i->intersect(center[i].+(-radius:radius),1:sizepx[i]),1:2)
+            radius = (minimum ∘ mapreduce)((r,c)->abs.([r[begin],r[end]].-c),append!,vr,center)
+            ulroi[u] = (center=center,diameterdeg=(2radius+1)/ppd)
             ulsta[u] = usta[u][map(i->i.+(-radius:radius),center)...,:,:]
-            ulroi[u] = (center=center,stisize=(2radius+1)/ppd,d=cpd[c],c=c)
-
-            ucex[u]=map(i->exd(ulsta[u][:,:,:,i],sig=rs[i]),1:size(ulsta[u],4))
+            ulcexd[u] = map(i->exd(ulsta[u][:,:,:,i]),1:size(ulsta[u],4))
         else
             uresponsive[u] = false
         end
@@ -125,59 +126,65 @@ function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2
     end
     dataset["ulsta"]=ulsta
     dataset["ulroi"]=ulroi
+    dataset["ulcexd"]=ulcexd
+    dataset["ucresponsive"]=ucresponsive
 
     return dataset
 end
-rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[3]*p[5],θ=p[6],f=p[7],phase=p[8])
+"gabor RF model"
+rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[5],θ=p[6],f=p[7],phase=p[8])
 # rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[2]+p[8],σᵢ₁=p[3]*p[9],μᵢ₂=p[4]+p[10],σᵢ₂=p[3]*p[9]*p[5],θᵢ=p[6])
+"dog RF model"
 rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[3]*p[6],μᵢ₂=p[4],σᵢ₂=p[3]*p[6],θᵢ=0)
+"fit a 2D model to an image"
 function modelfit(data,ppd;model=:gabor)
     alb,aub = abs.(extrema(data))
     ab = max(alb,aub)
-    pr = (size(data)[1]-1)/2
-    sr = pr/ppd
+    rpx = (size(data)[1]-1)/2
+    r = rpx/ppd
 
-    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(pr+1) pr+1])/ppd
+    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(rpx+1) rpx+1])/ppd
     y = vec(data)
-    rlt = mfun = nothing
+    rlt = mfun = missing
     try
         if model == :dog
             if aub >= alb
-                ae = aub + 3.5alb
                 ai = 3.5alb
-                ew = 0.2sr;ewl=0.15sr;ewu=0.3sr
-                ir=2;irl = 1.1;iru = 3
+                ae = aub + ai
+                es = 0.2r;esl=0.15r;esu=0.3r
+                ier=2;ierl = 1.1;ieru = 3
             else
-                ai = alb + 3.5aub
                 ae = 3.5aub
-                ew = 0.4sr;ewl=0.16sr;ewu=0.6sr
-                ir=0.5;irl = 0.3;iru = 0.9
+                ai = alb + ae
+                es = 0.4r;esl=0.16r;esu=0.6r
+                ier=0.5;ierl = 0.3;ieru = 0.9
             end
             # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
             # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
             # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
-            lb=[0.5ae,   -0.35sr,    ewl,   -0.35sr,     0.5ai,    irl]
-            ub=[1.5ae,    0.35sr,    ewu,    0.35sr,     1.5ai,    iru]
-            p0=[ae,       0,         ew,     0,          ai,       ir]
+            ub=[1.5ae,    0.36r,    esu,    0.36r,     1.5ai,    ieru]
+            lb=[0.5ae,   -0.36r,    esl,   -0.36r,     0.5ai,    ierl]
+            p0=[ae,       0,        es,     0,          ai,      ier]
             mfun = (x,p) -> rfdog.(x[:,1],x[:,2],p...)
         elseif model == :gabor
-            ori,sf = freqimagestats(powerspectrum(data,ppd)...)
+            ori,sf = f1orisf(powerspectrum2(data,ppd)...)
             fub = min(1.5sf,8);flb=max(0.5sf,0.2)
-            lb=[0.7ab,  -0.36sr,   0.1sr,   -0.36sr,   0.3,    0,    flb,   0]
-            ub=[1.3ab,   0.36sr,   0.36sr,   0.36sr,   2.3,    π,    fub,   1]
-            p0=[ab,      0,        0.2sr,    0,        1,      ori,  sf,    0]
+            ub=[1.3ab,   0.36r,   0.36r,   0.36r,   0.36r,     π,    fub,   1]
+            lb=[0.7ab,  -0.36r,   0.1r,   -0.36r,   0.1r,      0,    flb,   0]
+            p0=[ab,      0,       0.2r,    0,       0.2r,      ori,  sf,    0]
             mfun = (x,p) -> rfgabor.(x[:,1],x[:,2],p...)
         end
-        if !isnothing(mfun)
+        if !ismissing(mfun)
             mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
             maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
-            rlt = (param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
+            rlt = (model=model,radius=r,param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
         end
     catch
     end
     return rlt
 end
-function rffit!(dataset;model=[:gabor])
+"fit responsive sta to each type of models"
+function rffit!(dataset;model=[:gabor,:dog])
     ulsta = dataset["ulsta"]
     ulroi = dataset["ulroi"]
     ppd = dataset["ppd"]
@@ -191,11 +198,10 @@ function rffit!(dataset;model=[:gabor])
         if !haskey(urf,u)
             urf[u] = Dict()
         end
-        # u!=96 && continue
-        exs=map(i->i.ex,dataset["ucex"][u])
-        ds=map(i->i.d,dataset["ucex"][u])
+        rs = dataset["ucresponsive"][u]
+        ds = map(i->i.d,dataset["ulcexd"][u])
         for m in model
-            urf[u][m] = map(i->exs[i]==0 ? nothing : modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m),1:length(exs))
+            urf[u][m] = [rs[i] ? modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m) : missing for i in 1:length(rs)]
         end
         next!(p)
     end
@@ -203,104 +209,361 @@ function rffit!(dataset;model=[:gabor])
     return dataset
 end
 
-t=dataset["ulsta"][92][:,:,12,2]
-
-
 
 
 ## Load all stas
 testids = ["$(siteid)_HartleySubspace_$i" for i in 1:4]
+testn=length(testids)
+stadir = joinpath(resultsitedir,"sta")
+isdir(stadir) || mkpath(stadir)
+lstadir = joinpath(resultsitedir,"lsta")
+isdir(lstadir) || mkpath(lstadir)
+rffitdir = joinpath(resultsitedir,"rffit")
+isdir(rffitdir) || mkpath(rffitdir)
+
 dataset = joinsta(load.(joinpath.(resultsitedir,testids,"sta.jld2")))
 dataset = responsivesta!(dataset)
-dataset = rffit!(dataset)
+dataset = rffit!(dataset,model=[:gabor])
 
 save(joinpath(resultsitedir,"stadataset.jld2"),"dataset",dataset)
 dataset = load(joinpath(resultsitedir,"stadataset.jld2"),"dataset")
 
 ## stas
-@manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
-    usta=dataset["usta"][u]
+plotstas=(u,d;dir=nothing)->begin
+    usta = dataset["usta"][u]
     delays = dataset["delays"]
-    imagesize = dataset["imagesize"]
-    stisize = dataset["stisize"]
-    uresponsive = dataset["uresponsive"]
-    clim = maximum(map(i->abs(i.ex),dataset["ucex"][u]))
-    xlim = [0,stisize[2]]
-    ylim = [0,stisize[1]]
-    x = range(xlim...,length=imagesize[2])
-    y = range(ylim...,length=imagesize[1])
+    sizepx = dataset["sizepx"]
+    sizedeg = dataset["sizedeg"]
+    uresponsive = dataset["uresponsive"][u]
+    clim = maximum(map(i->abs(i.ex),dataset["ucexd"][u]))
+    xlims = [0,sizedeg[2]]
+    ylims = [0,sizedeg[1]]
+    x = range(xlims...,length=sizepx[2])
+    y = range(ylims...,length=sizepx[1])
 
-    p = Plots.plot(layout=(1,4),legend=false,size=(1600,600),title="Unit_$(u)_STA_$(delays[d])_Responsive_$(uresponsive[u])")
+    title = "Unit_$(u)_STA_$(delays[d])"
+    p = Plots.plot(layout=(1,testn),legend=false,size=(400testn,600),titlefontcolor=uresponsive ? :green : :match,title=title)
     foreach(c->Plots.heatmap!(p,subplot=c,x,y,usta[:,:,d,c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xlim,ylims=ylim,xticks=xlim,yticks=ylim,yflip=true,xlabel=dataset["color"][c]),1:4)
-    p
+    xlims=xlims,ylims=ylims,xticks=xlims,yticks=ylims,yflip=true,xlabel=dataset["color"][c]),1:testn)
+    isnothing(dir) ? p : savefig(joinpath(dir,"$title.png"))
 end
-## best roi stas
- for u in sort(collect(keys(dataset["ulsta"])))
+
+@manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
+    plotstas(u,d)
+end
+for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
+    u != 167 && continue
+    plotstas(u,d,dir=stadir)
+end
+## responsive local stas
+plotlstas=(u;dir=nothing)->begin
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
-    imagesize = size(ulsta)
-    stisize = dataset["ulroi"][u].stisize
-    ucex = map(i->i.ex,dataset["ucex"][u])
-    ucd = map(i->i.d,dataset["ucex"][u])
-    clim = maximum(abs.(ucex))
-    xylim = [0,round(stisize,digits=1)]
-    xy = range(xylim...,length=imagesize[2])
+    diameterpx = size(ulsta)[1]
+    diameterdeg = dataset["ulroi"][u].diameterdeg
+    ucresponsive = dataset["ucresponsive"][u]
+    ulcex = map(i->i.ex,dataset["ulcexd"][u])
+    ulcd = map(i->i.d,dataset["ulcexd"][u])
+    clim = maximum(abs.(ulcex))
+    xylims = [0,round(diameterdeg,digits=1)]
+    xy = range(xylims...,length=diameterpx)
 
-    p = Plots.plot(layout=(1,5),legend=false,size=(1650,600))
-    Plots.bar!(p,subplot=1,dataset["color"],ucex,frame=:zerolines)
-    foreach(c->Plots.heatmap!(p,subplot=c+1,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylim,ylims=xylim,xticks=xylim,yticks=[],yflip=true,xlabel=dataset["color"][c],title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:4)
-    p
-    savefig("./temp/Unit_$u.png")
+    p = Plots.plot(layout=(1,testn+1),legend=false,size=(350(testn+1),600))
+    Plots.bar!(p,subplot=1,dataset["color"],ulcex,frame=:zerolines,ylabel="extrema")
+    foreach(c->Plots.heatmap!(p,subplot=c+1,xy,xy,ulsta[:,:,ulcd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    titlefontcolor=ucresponsive[c] ? :green : :match,xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,xlabel=dataset["color"][c],title="Unit_$(u)_STA_$(delays[ulcd[c]])"),1:testn)
+    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$u.png"))
+end
+
+@manipulate for u in sort(collect(keys(dataset["ulsta"])))
+    plotlstas(u)
+end
+for u in sort(collect(keys(dataset["ulsta"])))
+    plotlstas(u,dir=lstadir)
 end
 ## rf fit
-@manipulate for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
-    nc = length(dataset["color"])
+function rfimage(rffit,x,y;yflip=false)
+    if rffit.model == :dog
+        rfi = [rfdog(i,j,rffit.param...) for j in y, i in x]
+    else
+        rfi = [rfgabor(i,j,rffit.param...) for j in y, i in x]
+    end
+    yflip && (rfi=reverse(rfi,dims=1))
+    rfi
+end
+function rfimage(rffit,radiusdeg;ppd=45,yflip=true)
+    x=y= -radiusdeg:1/ppd:radiusdeg
+    rfimage(rffit,x,y,yflip=yflip)
+end
+
+plotrffit=(u,m;dir=nothing)->begin
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
-    imagesize = size(ulsta)
     ppd = dataset["ppd"]
-    stisize = dataset["ulroi"][u].stisize
-    ucex = map(i->i.ex,dataset["ucex"][u])
-    ucd = map(i->i.d,dataset["ucex"][u])
-    clim = maximum(abs.(ucex))
-    xylim = [0,round(stisize,digits=1)]
-    xy = range(xylim...,length=imagesize[2])
+    diameterpx = size(ulsta)[1]
+    diameterdeg = dataset["ulroi"][u].diameterdeg
+    ucresponsive = dataset["ucresponsive"][u]
+    ulcex = map(i->i.ex,dataset["ulcexd"][u])
+    ulcd = map(i->i.d,dataset["ulcexd"][u])
+    clim = maximum(abs.(ulcex))
+    xylims = [0,round(diameterdeg,digits=1)]
+    xy = range(xylims...,length=diameterpx)
 
-    p = Plots.plot(layout=(4,nc),legend=false,size=(1500,750))
-    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylim,ylims=xylim,xticks=xylim,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:nc)
+    p = Plots.plot(layout=(4,testn),legend=false,size=(400testn,4*250))
+    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,ulsta[:,:,ulcd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    titlefontcolor=ucresponsive[c] ? :green : :match,xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ulcd[c]])"),1:testn)
 
-    fit=dataset["urf"][u]
-    pr = (imagesize[1]-1)/2
-    x=y=(-pr:pr)./ppd
-    sr = round(x[end],digits=1)
-    xylim=[-sr,sr]
-    if m == :dog
-        rfs = map(f->isnothing(f) ? nothing : [rfdog(i,j,f.param...) for j in reverse(y), i in x],fit[m])
-    else
-        rfs = map(f->isnothing(f) ? nothing : [rfgabor(i,j,f.param...) for j in reverse(y), i in x],fit[m])
+    umfit=dataset["urf"][u][m]
+    rpx = (diameterpx-1)/2
+    x=y=(-rpx:rpx)./ppd
+    xylims=[round.(extrema(x),digits=2)...]
+    rfs = map(f->ismissing(f) ? missing : rfimage(f,x,y),umfit)
+    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+testn,frame=:none) :
+    Plots.heatmap!(p,subplot=c+testn,x,y,rfs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    xlims=xylims,ylims=xylims,xticks=xylims,yticks=xylims,xlabel=dataset["color"][c],titlefontcolor=ucresponsive[c] ? :green : :match,title="Fit_$(m)"),1:testn)
+
+    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+2testn,frame=:none) :
+    Plots.histogram!(p,subplot=c+2testn,umfit[c].resid,frame=:semi,linecolor=:match,bar_width=0.8,nbins=20,
+    xlabel="Residual",grid=false),1:testn)
+
+    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+3testn,frame=:none) :
+    Plots.scatter!(p,subplot=c+3testn,vec(ulsta[:,:,ulcd[c],c]),vec(rfs[c]),frame=:semi,grid=false,
+    xlabel="y",ylabel="predict y",title="r = $(round(umfit[c].r,digits=3))",markerstrokewidth=0,markersize=1),1:testn)
+    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$(u)_Fit_$(m).png"))
+end
+
+@manipulate for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
+    plotrffit(u,m)
+end
+for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
+    plotrffit(u,m,dir=rffitdir)
+end
+
+## t-SNE of responsive sta
+lsta = mapreduce(u->mapreduce((c,r,exd)->r ? [dataset["ulsta"][u][:,:,exd.d,c]] : [],
+append!,1:testn,dataset["ucresponsive"][u],dataset["ulcexd"][u]),
+append!,keys(dataset["ulsta"]))
+
+maxsizepx=mapreduce(i->maximum(size(i)),max,lsta)
+map!(i->imresize(i,maxsizepx,maxsizepx),lsta,lsta)
+
+@manipulate for i in eachindex(lsta)
+    heatmap(lsta[i],yflip=true,aspect_ratio=:equal,frame=:none,color=:coolwarm)
+end
+
+# PCA reduction
+X = mapreduce(vec,hcat,lsta)
+foreach(i->X[i,:]=zscore(X[i,:]),1:size(X,1))
+M = fit(PCA,X,maxoutdim=60,pratio=0.85,mean=0)
+Y = MultivariateStats.transform(M,X)
+
+@manipulate for i in 1000:6000, p in 2:60
+    Y2 = tsne(permutedims(Y), 2, 0, i, p)
+    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:auto,stroke(0)),frame=:none,leg=false)
+end
+
+# plot t-SNE sta
+mlsta = map(i->alphamask(get(cgrad(:coolwarm),i,:extrema),radius=0.5,sigma=0.35,masktype="Gaussian")[1],lsta)
+
+Y2 = tsne(permutedims(Y), 2, 0, 5000, 8)
+p = plotunitpositionimage(Y2,mlsta)
+save("tSNE_rlSTA.svg",p)
+
+## t-SNE of responsive rf
+m=:gabor
+rfs = mapreduce(u->mapreduce(f->f.r > 0.6 ? [(;(n=>f[n] for n in (:model,:radius,:param))...)] : [],
+append!,skipmissing(dataset["urf"][u][m])),
+append!,keys(dataset["urf"]))
+
+X = mapreduce(f->f.param,hcat,rfs)
+Y = X
+foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
+@manipulate for i in 1000:6000, p in 2:60
+    Y2 = tsne(permutedims(Y), 2, 0, i, p)
+    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:auto,stroke(0)),frame=:none,leg=false)
+end
+
+mrf = map(f->alphamask(get(cgrad(:coolwarm),rfimage(f,f.radius),:extrema),radius=0.5,sigma=0.35,masktype="Gaussian")[1],rfs)
+
+Y2 = tsne(permutedims(Y), 2, 0, 5000, 10)
+p = plotunitpositionimage(Y2,mrf)
+save("tSNE_rf_$m.svg",p)
+
+## type of responsiveness
+CTYPES = sort(join.(sort.(combinations(unique(values(ccode))))))
+CTCOLORS = cgrad(:rainbow,length(CTYPES),categorical = true).colors
+crtype = Dict(u=>join(sort(dataset["ccode"][dataset["ucresponsive"][u]])) for u in keys(dataset["ulsta"]))
+
+p = DataFrame(ResponseType=collect(values(crtype))) |> @vlplot(:bar,y=:ResponseType,x="count()",width=600,height=400)
+
+## type of model responsiveness
+m=:gabor
+cmrtype = filter!(p->!isempty(p.second),Dict(u=>join(sort(dataset["ccode"][map(f->!ismissing(f) && f.r > 0.6,dataset["urf"][u][m])])) for u in keys(dataset["urf"])))
+
+p = DataFrame(ModelResponseType=collect(values(cmrtype))) |> @vlplot(:bar,y=:ModelResponseType,x="count()",width=600,height=400)
+
+## rf space of unit
+modelnull=Dict(:gabor=>fill(missing,8),:dog=>[])
+function rf2unitspace(ps;model=:gabor)
+    if model == :gabor
+        as = ps[1:8:end]
+        maxamp = maximum(skipmissing(as))
+        foreach(i->ps[i]/=maxamp,1:8:length(ps))
+        ps=replace(ps,missing=>0)
+    elseif model == :dog
     end
-    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+nc,frame=:none) :
-    Plots.heatmap!(p,subplot=c+nc,x,y,rfs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylim,ylims=xylim,xticks=xylim,yticks=xylim,yformatter=i->-i,yflip=true,xlabel=dataset["color"][c],
-    title="Fit_$(m)"),1:nc)
+    ps
+end
+"map RF models to unit feature space"
+function rfunitspace(dataset;model=:gabor)
+    corder = sortperm(dataset["ccode"])
+    ufs=Dict()
+    for u in keys(dataset["urf"])
+        ps = vcat(map(f->ismissing(f) || f.r < 0.6 ? modelnull[model] : f.param,dataset["urf"][u][model])[corder]...)
+        if !isempty(skipmissing(ps))
+            ufs[u] = rf2unitspace(ps,model=model)
+        end
+    end
+    ufs
+end
 
-    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+2nc,frame=:none) :
-    Plots.histogram!(p,subplot=c+2nc,fit[m][c].resid,frame=:semi,color=:coolwarm,linecolor=:match,bar_width=1,xlims=[-abs(maximum(fit[m][c].resid)),abs(maximum(fit[m][c].resid))],
-    xlabel="Residual",title="",grid=false),1:nc)
 
-    foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+3nc,frame=:none) :
-    Plots.scatter!(p,subplot=c+3nc,vec(ulsta[:,:,ucd[c],c]),vec(rfs[c]),frame=:semi,color=:coolwarm,grid=false,
-    xlabel="y",ylabel="predict y",title="r = $(round(fit[m][c].r,digits=3))",markerstrokewidth=0,markersize=1),1:nc)
-    p
+rfspace = rfunitspace(dataset,model=:gabor)
+Xg = [cmrtype[u] for u in keys(rfspace)]
+X = hcat(values(rfspace)...)
+Y = X
+foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
+@manipulate for i in 1000:6000, p in 2:60
+    Y2 = tsne(permutedims(Y), 2, 0, i, p)
+    scatter(Y2[:,1], Y2[:,2], marker=(5,5,:circle,stroke(0)),group=Xg,frame=:none,leg=:inline)
+    # savefig("test.svg")
 end
 
 
 
 
 
+
+
+XD=pairwise(Euclidean(),X,dims=2)
+hc = hclust(XD,branchorder=:optimal)
+p=plot(hc,xticks=false)
+
+uids = collect(keys(rfspace))
+cids = cutree(hc,h=2000)
+
+
+
+
+scatter(X2D[:,1], X2D[:,2], marker=(6,6,:auto,stroke(0)),marker_z=cids,
+color=cgrad(:seaborn_bright,length(unique(cids)),categorical=true),
+series_annotations=text.(uids,5,:gray10,:center))
+
+
+
+
+n=length(urfs)
+rs = [kmeans(X,k,display=:final,maxiter=2000,init=:kmpp) for k in 1:15]
+XD = Array{Float64}(undef,n,n)
+
+
+## rf space of unit
+
+
+
+
+
+
+
+
+
+
+crti = map(t->findfirst(t.==crtypes),values(ucrt))
+
+spike = load(joinpath(resultsitedir,testids[1],"spike.jld2"),"spike")
+unitid = spike["unitid"];unitgood = spike["unitgood"];unitposition = spike["unitposition"];unitlayer = assignlayer(unitposition[:,2],layer)
+
+ui = indexin(keys(ucrt),unitid)
+up=unitposition[ui,:]
+
+
+crtcs[2.0,3.0]
+
+plotunitposition(up,color=crtcs[crti])
+
+
+
+
+
+
+
+
+## t
+
+m = :dog
+ucrf = Dict()
+for u in keys(dataset["urf"])
+    umfit = dataset["urf"][u][m]
+    for i in eachindex(umfit)
+        isnothing(umfit[i]) && continue
+        k = (uid=u,d=dataset["ulcexd"][u][i].d,c=i)
+        ucrf[k] = umfit[i].r
+    end
+end
+
+gaborr = collect(values(ucrf))
+dogr = collect(values(ucrf))
+
+rs = [kmeans([gaborr dogr]',k,display=:final,maxiter=1000,init=:rand) for k in 1:10]
+
+tloss = map(r->r.totalcost,rs)
+vinfo = [Clustering.varinfo(rs[i],rs[i+1]) for i in 1:length(rs)-1]
+minfo = [Clustering.mutualinfo(rs[i],rs[i+1]) for i in 1:length(rs)-1]
+vm = [Clustering.vmeasure(rs[i],rs[i+1],β=2) for i in 1:length(rs)-1]
+
+scatter(gaborr,dogr,xlims=[-0.5, 1],ylims=[-0.5,1],aspect_ratio=:equal,marker_z=assignments(r),color=:rainbow,
+markerstrokewidth=0,markersize=10,leg=false,xlabel="Gabor Correlation",ylabel="Dog Correlation")
+
+
+
+plot(tloss[6:end])
+plot(vinfo)
+plot(minfo)
+plot(vm)
+
+
+
+
+
+
+m = :gabor
+ucfittedgabor = Dict()
+for u in keys(dataset["urf"])
+    umfit = dataset["urf"][u][m]
+    for i in eachindex(umfit)
+        ucfittedgabor[u]=map(f->isnothing(f) || f.r<0.6 ? false : true,umfit)
+    end
+end
+
+ucfitted = Dict(u=>ucfitteddog[u] .| ucfittedgabor[u]  for u in keys(ucfitteddog))
+
+
+
+
+fittedtype = hcat(values(ucfitted)...)
+fittedtypecs = [kmeans(fittedtype,k,display=:final,maxiter=1000,init=:rand) for k in 1:10]
+fminfo = [Clustering.mutualinfo(fittedtypecs[i],fittedtypecs[i+1]) for i in 1:length(fittedtypecs)-1]
+plot(fminfo)
+
+
+
+
+
+
+
+
+
+##
 function getbestrf(dataset;rt=0.65)
     urf = dataset["urf"]
     nc = length(dataset["color"])
@@ -494,12 +757,6 @@ plot([nsg ns],range(0,step=40,length=length(ns)),fillalpha=0.4,fill=true,labels=
 hline!([layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(-0.3,layer[k][1],text(k,5,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
 
 savefig("unit_layer_dist.svg")
-
-
-
-import Base:sin
-sin(x,y;fx=1,fy=1) = sin(2π*(fx*x+fy*y))
-
 
 
 

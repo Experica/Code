@@ -12,7 +12,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -32,10 +33,16 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
        scanMode = 1  # unidirectional scanning
     end
     sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-    trialOnLine = sbx["line"][1:2:end]
-    trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-    trialOffLine = sbx["line"][2:2:end]
-    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+
+    if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+        stNum = 2
+    else
+        stNum = 1
+    end
+    trialOnLine = sbx["line"][stNum:2:end]
+    trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+    trialOffLine = sbx["line"][stNum+1:2:end]
+    trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
     # On/off frame indces of trials
     trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -110,8 +117,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig"])
-            # spike = transpose(signal["spks"])
+            rawF = sig
+            # spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -282,7 +289,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
 
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result,"params", param)
     end
 end
 
@@ -304,7 +311,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -327,7 +335,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     trialOnLine = sbx["line"][1:2:end]
     trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
     trialOffLine = sbx["line"][2:2:end]
-    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
     # On/off frame indces of trials
     trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -352,12 +360,12 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     # replace!(bctc.ColorID, 36 =>Inf)
 
     # Change ColorID ot HueAngle if needed
-    if hueSpace == "DKL"
-        ucid = sort(unique(conditionCond.ColorID))
-        hstep = 360/length(ucid)
-        conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
-        conditionCond=rename(conditionCond, :ColorID => :HueAngle)
-    end
+    # if hueSpace == "DKL"
+    ucid = sort(unique(conditionCond.ColorID))
+    hstep = 360/length(ucid)
+    conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
+    conditionCond=rename(conditionCond, :ColorID => :HueAngle)
+    # end
 
 
     # On/off frame indces of condations/stimuli
@@ -385,7 +393,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     segment = prepare(segmentFile)
     signal = prepare(signalFile)
     sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+    # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     planeNum = size(segment["mask"],3)  # how many planes
     # planeNum = 1
@@ -418,8 +426,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig"])
-            # spike = transpose(signal["spks"])
+            rawF = sig
+            # spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -696,7 +704,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
 
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result,"params", param)
         save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
     end
 
@@ -704,14 +712,20 @@ end
 
 function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
+    # files=tests.files[3]  # for testing
+
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+    hartelyBlkId = haskey(param,:hartelyBlkId) ? param[:hartelyBlkId] : 5641
     delays = param[:delays]
+    stanorm = param[:stanorm]
+    hartleyscale = param[:hartleyscale]
     print(collect(delays))
 
     # Expt info
     dataset = prepare(files)
-    ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    ex = dataset["ex"];
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -730,6 +744,12 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     # condtable = DataFrame(ex["Cond"])
     condtable =  DataFrame(ex["raw"]["log"]["randlog_T1"]["domains"]["Cond"])
     rename!(condtable, [:oridom, :kx, :ky,:bwdom,:colordom])
+
+    # find out blanks and unique conditions
+    blkidx = condidx .>= hartelyBlkId  # blanks start from 5641
+    cidx = .!blkidx
+    condidx2 = condidx.*cidx + blkidx.* hartelyBlkId   # all blanks now have the same id 5641
+
     ## Load data
     if interpolatedData
         segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
@@ -741,7 +761,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     segment = prepare(segmentFile)
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-
+    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     ##
     # Prepare Imageset
@@ -758,7 +778,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     ysize = getparam(envparam,"y_size")
     stisize = xsize
     ppd = haskey(param,:ppd) ? param[:ppd] : 46
-    imagesetname = "Hartley_stisize$stisize"
+    imagesetname = "Hartley_stisize$(stisize)_scale$(hartleyscale)"
     maskradius = haskey(param,:maskradius) ? param[:maskradius] : 0.16 #maskradius/stisize
     # if coneType == "L"
     #     maxcolor = RGBA()
@@ -770,7 +790,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     # end
 
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd)),eachrow(condtable))
+        imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=false,scale=hartleyscale)),eachrow(condtable))
         # imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable))
         imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
         imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
@@ -812,11 +832,10 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
         if interpolatedData
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
-            spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig"])
-            spike = transpose(signal["spks"])
+            # rawF = sig
+            spike = spks
         end
 
         ## Calculate STA
@@ -824,15 +843,18 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
             scaleindex=1
             imagesize = imageset[:imagesize][scaleindex]
             xi = unmaskindex[scaleindex]
-            uci = unique(condidx)
-            ucii = map(i->findall(condidx.==i),uci)  # find the repeats of each unique condition
-            x = Array{Float64}(undef,length(uci),length(xi))
-            foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+            uci = unique(condidx2)
+            ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
+            ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
+
+
+            cx = Array{Float64}(undef,length(ucii),length(xi))
+            foreach(i->cx[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(cx,1))
 
             uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+            ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+            uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
             usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
-            # uy = Array{Float64}(undef,length(delays),length(ucii))
-            # usta = Array{Float64}(undef,length(delays),length(xi))
 
             for d in eachindex(delays)
                 display("Processing delay: $d")
@@ -844,23 +866,26 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                 end
                 for cell in 1:cellNum
                     # display(cell)
-                    y = map(i->mean(spk[cell,:][i]),ucii)
-                    stas = sta(x,y)
-                    uy[cell,d,:]=y
-                    usta[cell,d,:]=stas
-                    # uy[d,:]=y
-                    # usta[d,:]=stas
+                    cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
+                    bly = map(i->mean(spk[cell,:][i]),ubii) # response to blank, baseline
+                    ry = cy.-bly  # remove baseline
+                    csta = sta(cx,ry,isnorm=stanorm)  # calculate sta
+                    ucy[cell,d,:]=cy
+                    uby[cell,d,:]=bly
+                    uy[cell,d,:]=ry
+                    usta[cell,d,:]=csta
                     if plot
-                        r = [extrema(stas)...]
+                        csta = (csta.+1)./2
+                        csta = fill(0.5,imagesize)
+                        csta[xi] = csta
+                        r = [extrema(csta)...]
                         title = "$(ugs[cell])Unit_$(unitid[cell])_STA_$(delays[d])"
-                        p = plotsta(stas,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
+                        p = plotsta(csta,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
                         foreach(i->save(joinpath(resultFolder,"$title$i"),p),[".png"])
                     end
                 end
             end
-            # uy=DefaultDict();usta = DefaultDict()
-            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"x",x,"xi",xi,"xcond",condtable[uci,:],
-            "uy",uy,"usta",usta,"delays",delays,"stisize",stisize,"color",coneType)
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"usta",usta,"uby",uby,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
         end
     end
 
@@ -870,6 +895,7 @@ end
 function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+    hartelyBlkId = haskey(param,:hartelyBlkId) ? param[:hartelyBlkId] : 5641
     delays = param[:delays]
     ntau = length(collect(delays))
     print(collect(delays))
@@ -877,7 +903,8 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -902,9 +929,9 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     condtable[:ky] = [Int(x) for x in condtable[:ky]]
     max_k = max(abs.(condtable.kx)...)
     # find out blanks and unique conditions
-    blkidx = condidx.>5641  # blanks start from 5641
+    blkidx = condidx.>hartelyBlkId  # blanks start from 5641
     cidx = .!blkidx
-    condidx2 = condidx.*cidx + blkidx.* 5641
+    condidx2 = condidx.*cidx + blkidx.* hartelyBlkId
     conduniq = unique(condidx2)
     ## Load data
     if interpolatedData
@@ -917,7 +944,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     segment = prepare(segmentFile)
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-
+    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
@@ -948,11 +975,10 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
         if interpolatedData
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
-            spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig"])
-            spike = transpose(signal["spks"])
+            # rawF = sig
+            spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -1001,48 +1027,107 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
         ## find best kernel and estimate preferred sf and ori
 
-        taumax=[];kur=[];kurmax=[];kernraw=[];kernnor=[];
-        signif=[];sfest=[];oriest=[];
+        taumax=[];kstd=[];kstdmax=[];kernraw=[];kernnor=[];kernest=[];
+        kdelta=[];signif=[];slambda=[];sfmax=[];orimax=[];sfmean=[];orimean=[];
+        sfidx=[];sfcurve=[];oriidx=[];oricurve=[];
         for i = 1:cellNum
             # i=15
             z = r[:,:,:,i]
             q = reshape(z,szhtly^2,:)   # in this case, there are 61^2 pixels in the stimulus.
-            k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+            # k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+            k = [std(q[:,j]) for j in 1:size(q,2)]
             tmax = findall(x->x==max(k...),k)[1]
             kmax = max(k...)
-            sig = kmax>7
-            kernRaw = z[:,:,tmax]  # raw kernel without
-            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])
+            # sig = kmax>7
+            kernRaw = z[:,:,tmax]  # raw kernel without blank normalization
+            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])   # kernal normalized by blank
 
-            # estimate ori/sf
+            # separability measure and estimate kernel
+            u,s,v = svd(kernRaw)
+            s = Diagonal(s)
+            lambda = s[1,1]/s[2,2]
+            q = s[1,1]
+            s = zeros(size(s))
+            s[1,1] = q
+            kest = u*s*v'   # estimated kernel
+
+            # energy measure
+            delta = kmax / k[1] - 1
+            sig = delta > 0.25
+
+            # find the maxi/best condition
             # bw = kern .> (max(kern...) .* 0.95)
-            bw = kern .== max(kern...)
+            bwmax = kern .== max(kern...)
+            idxmax = findall(x->x==1,bwmax)
+            foreach(x->if x[1]>(max_k+1) bwmax[x]=0 end,idxmax)   # choose upper quadrants
+            # estimate ori/sf by max
+            zzm = sum(sum(zz.*bwmax,dims=1),dims=2)[1] / (length(idxmax)/2)
+            sf_max = abs(zzm)/szhtly_visangle  # cyc/deg
+            ori_max = rad2deg(angle(zzm)) # deg
+
+            # find the maxi/best condition
+            bw = kern .> (max(kern...) .* 0.95)
             idx = findall(x->x==1,bw)
-            foreach(x->if x[1]>31 bw[x]=0 end,idx)
+            foreach(x->if x[1]>(max_k+1) bw[x]=0 end,idx)   # choose upper quadrants
+            # estimate ori/sf by mean
             zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / (length(idx)/2)
+            sf_mean = abs(zzm)/szhtly_visangle  # cyc/deg
+            ori_mean = rad2deg(angle(zzm)) # deg
 
-            sf = abs(zzm)/szhtly_visangle  # cyc/deg
-            ori = rad2deg(angle(zzm)) # deg
+            # Ori tuning curve
+            sf_best = max((abs.(zz).*bwmax)...)
+            idxsf = findall(x->x==sf_best,abs.(zz))
+            filter!(x->x[1]<=(max_k+1),idxsf)
 
-            push!(taumax,tmax);push!(kur,k);push!(kurmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
-            push!(signif,sig);push!(oriest,ori); push!(sfest,sf);
+            ori_idx=rad2deg.(angle.(reverse(zz[idxsf])))
+            ori_curve=reverse(kern[idxsf])
+
+            # SF tuning curve
+            ori_best = max((angle.(zz).*bwmax)...)
+            idxori = findall(x->x==ori_best,angle.(zz))
+
+            sf_idx = (abs.(zz[idxori]))./szhtly_visangle
+            sf_curve = kern[idxori]
+            idxinf = findall(x->!isinf(x),sf_curve)
+            sf_idx = sort(sf_idx[idxinf])
+            if idxori[end][2] < max_k
+                sf_curve = reverse(sf_curve)
+            end
+            filter!(x->x!=-Inf,sf_curve)
+
+            push!(taumax,tmax);push!(kstd,k);push!(kstdmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
+            push!(kernest,kest);push!(signif,sig);push!(kdelta,delta); push!(slambda,lambda);
+            push!(orimax,ori_max); push!(sfmax,sf_max);push!(orimean,ori_mean); push!(sfmean,sf_mean);
+            push!(oriidx, ori_idx);push!(oricurve,ori_curve); push!(sfidx,sf_idx); push!(sfcurve,sf_curve)
 
             # if sig == true
             #     heatmap(kern,yflip=true, aspect_ratio=:equal,color=:coolwarm)
             #     # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
             # end
         end
-        result.sig = signif
-        result.oriest = oriest
-        result.sfest = sfest
+        result.signif = signif
         result.taumax = taumax
+        result.kstdmax = kstdmax
+        result.kdelta = kdelta
+        result.slambda = slambda
+        result.orimax = orimax
+        result.sfmax = sfmax
+        result.orimean = orimean
+        result.sfmean = sfmean
+
+        result1=copy(result)
+
+        result.kstd = kstd
         result.kernnor = kernnor
         result.kernraw = kernraw
-        result.kurmax=kurmax
-        result.kur = kur
+        result.kernest = kernest
+        result.oriidx = oriidx
+        result.oricurve = oricurve
+        result.sfidx = sfidx
+        result.sfcurve = sfcurve
 
         #Save results
-        CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result)
+        CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result1)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result,"params",param)
     end
 end

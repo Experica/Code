@@ -2,17 +2,16 @@
 # Peichao's Notes:
 # 1. Code was written for 2P data (Direction-Spatial Frequency test) from Scanbox. Will export results (dataframe and csv) for plotting.
 # 2. If you have multiple planes, it works with splited & interpolated dat. Note results are slightly different.
-# 3. If you have single plane, need to change the code (signal and segmentation) a little bit to make it work.
 
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "H:"
-subject = "AE7"  # Animal
-recordSession = "001" # Unit
-testId = "001"  # Stimulus test
+disk = "O:"
+subject = "AF4"  # Animal
+recordSession = "003" # Unit
+testId = "010"  # Stimulus test
 
-interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
@@ -26,7 +25,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -42,10 +42,15 @@ else
    scanMode = 1  # unidirectional scanning
 end
 sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-trialOnLine = sbx["line"][1:2:end]
-trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][2:2:end]
-trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+    stNum = 2
+else
+    stNum = 1
+end
+trialOnLine = sbx["line"][stNum:2:end]
+trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+1:2:end]
+trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -116,8 +121,8 @@ for pn in 1:planeNum
         rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        rawF = transpose(signal["sig"])
-        # spike = transpose(signal["spks"])
+        rawF = sig
+        # spike = spks
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
@@ -142,6 +147,7 @@ for pn in 1:planeNum
     fms=[];fses=[];  # mean ans sem of each condition of each cell
     ufm = Dict(k=>[] for k in keys(fa))  # maxi factor level of each cell
     for cell in 1:cellNum
+        # display(cell)
         mseuc = condresponse(cellMeanTrial[cell,:],condition)  # condtion response, averaged over repeats
         fm,fse,_  = factorresponse(mseuc)  # put condition response into factor space
         p = Any[Tuple(argmax(coalesce.(fm,-Inf)))...]
@@ -193,7 +199,7 @@ for pn in 1:planeNum
     ## Check which cell is significantly tuning by orientation or direction
     oriAUC=[]; dirAUC=[];
     for cell in 1:cellNum
-        # cell=1  # for test
+        # display(cell)
             # Get all trial Id of under maximal sf
             # mcti = @where(condition, :SpatialFreq .== ufm[:SpatialFreq][cell])
         mcti = condition[condition.SpatialFreq.==ufm[:SpatialFreq][cell], :]
@@ -291,7 +297,7 @@ for pn in 1:planeNum
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
 
 end
-planeStart  #
+display("Processing Is Done!!!!!") #
 
 # Plot Spike Train for all trials of all cells
 # epochext = preicidur

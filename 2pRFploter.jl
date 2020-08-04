@@ -1,29 +1,44 @@
 using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,Interact,ImageSegmentation,LsqFit,FFTW,ProgressMeter
 
-disk = "K:"
-subject = "AE6"
+disk = "O:"
+subject = "AF4"
 
 # recordSession = "002"
 # testId = ["008","009","010","011"]
 
 # recordSession = "003"
 # testId = ["000","001","002","004"]
-
+# #
 # recordSession = "004"
 # testId = ["001","002","003","004"]
 
-# recordSession = "005"
-# testId = ["000","001","003","004"]
+recordSession = "005"
+testId = ["000","001","003","004"]
 
 # recordSession = "006"
 # testId = ["000","001","002","003"]
 
-recordSession = "002"
-testId = ["006", "007", "008","005"]
+# recordSession = "004"
+# testId = ["006", "007", "008","005"]
 # testId = ["012", "013", "014","011"]
+# testId = ["005", "006","007","002"]
+# testId = ["011", "012","013","010"]
+# testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
+# testId = ["013", "014", "015","012"]
 
-recordPlane = "001"
+recordPlane = "000"
+delays = collect(-0.066:0.033:0.4)
+print(collect(delays))
 
+lbTime = 0.198
+ubTime = 0.330
+blkTime = 0.099
+respThres = 0.25
+
+# cw = datasetFinal["coneweight"]
+# achroResp = datasetFinal["achroResp"]
+# CSV.write(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_dataset.csv"])), cw)
+# CSV.write(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_achrosta_dataset.csv"])), achroResp)
 ## Prepare data & result path
 siteId=[]
 for i =1:size(testId,1)
@@ -35,6 +50,7 @@ dataFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]))
 dataExportFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), siteId, "DataExport")
 resultFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", "DataExport")
 resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
+# resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","Fourier")
 isdir(resultFolder) || mkpath(resultFolder)
 isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 
@@ -43,254 +59,63 @@ isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 dataFile=[]
 for i=1:size(testId,1)
     datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],adddir=true)[1]
+    # datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_tuning_result.jld2"), dir=dataExportFolder[i],adddir=true)[1]
     push!(dataFile, datafile)
 end
 
-dataset = joinsta(load.(dataFile))
-save(joinpath(resultFolder,join([subject,"_plane",recordPlane,"_sta_dataset.jld2"])),"dataset",dataset)
+## Join STAs from L, M, S, and achromatic expts. Also find the strongest response withe corresponding delay.
+dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
+# dataset = sbxjoinhartleyFourier(load.(dataFile))
+save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_dataset.jld2"])),"dataset",dataset)
+## Check responsiveness of cell based on threshold and delay range, filter out low-response and cell 'response' too early or too late
+dataset = sbxresponsivesta!(dataset,lbTime,ubTime,respThres)
+dataset = sbxrffit!(dataset)
+dataset = sbxgetbestconesta(dataset)
+datasetFinal=sbxgetconeweight(dataset)
+save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_datasetFinal.jld2"])),"datasetFinal",datasetFinal)
 
-datasetResp = responsivesta!(dataset)
-save(joinpath(resultFolder,join([subject,"_plane",recordPlane,"_sta_datasetResp.jld2"])),"dataset",datasetResp)
-datasetFit = rffit!(datasetResp)
-save(joinpath(resultFolder,join([subject,"_plane",recordPlane,"_sta_datasetFit.jld2"])),"dataset",datasetFit)
+# stop
+dataset = load(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_datasetFinal.jld2"])),"datasetFinal")
 
-dataset= load(joinpath(resultFolder,join([subject,"_plane",recordPlane,"_sta_dataset.jld2"])),"dataset")
+## Plot Hartley Fourier image
 
-# filter.(x->occursin.("sta.jld2",x), readdir.(dataExportFolder))
-#
-#
-# uids = size(stas[4]["usta"],1)
-# uids = mapreduce(c->size(stas[c]["usta"],1),intersect,1:cn)
-# uids = mapreduce(c->size(stas[c]["usta"],1),intersect,1:cn)
+for u in sort(collect(keys(dataset["kern"])))
+    # u=53
+    colors =["L", "M", "S", "A"]
+    kern = dataset["kern"][u]
+    replace!(kern, -Inf=>0)
+    kern= normalized(kern;equal=false)
+    delta = dataset["delta"]
+    imagesize = size(kern)[1]
+    # stisize = dataset["stisize"]
+    # maskradius = dataset["maskradius"]
+    # truestimsz = stisize*maskradius*2
+    truestimsz = 12
+    # ucex = map(i->i.ex,dataset["ulcex"][u])
+    # ucd = map(i->i.pd,dataset["ulcex"][u])
+    # clim = maximum(abs.(kern))    clims=(-clim,clim),
+    xylim = [0,round(truestimsz,digits=1)]
+    xy = range(xylim...,length=imagesize)
 
-function exd(stas,opidx;sig=true)
-    exi = [argmin(stas),argmax(stas)]
-    ex = stas[exi]
-    absexi = argmax(abs.(ex))
-    (ex=sig ? ex[absexi] : 0, d=opidx[exi[absexi][3]])
+    p = Plots.plot(layout=(1,4),legend=false,size=(1650,600))
+    # Plots.bar!(p,subplot=1,dataset["color"],ucex,frame=:zerolines)
+    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,kern[:,:,c],aspect_ratio=:equal,frame=:grid,
+    color=:bwr,clims=(-1,1),xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,xlabel=string(colors[c]),title="Cell_$(u)_Fourier"),1:4)
+    foreach(c->Plots.plot!(p,subplot=c,[6], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=3, linealpha=1, xticks=([6],["0"]), label=""),1:4)
+    foreach(c->Plots.plot!(p,subplot=c,[6], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=3, linealpha=1, label=""),1:4)
+    foreach(c->Plots.plot!(p,subplot=c,yticks=([6],["0"])),1)
+    # :diverging_bwr_40_95_c42_n256   RdBu_5
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]), label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"])),1)
+
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.6,1.2,1.8,2.4],["-1.2","-0.6","0","0.6","1.2"]), label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.6,1.2,1.8,2.4],["-1.2","-0.6","0","0.6","1.2"])),1)
+    p
+    savefig(joinpath(resultFolderPlot,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
 end
 
-function joinsta(stas)
-    cn = length(stas)
-    imagesize = stas[1]["imagesize"]
-    delays = stas[1]["delays"]
-    # opidx=filter(i->!isnothing(i),indexin([0.198, 0.231, 0.264, 0.297, 0.33],delays))
-    opidx=filter(i->!isnothing(i),indexin([0.198, 0.264, 0.33],delays))
-    stisize = stas[1]["stisize"]
-    ppd = imagesize[1]/stisize[1]
-    xi = stas[1]["xi"]
-    nxi = setdiff(1:prod(imagesize),xi)
-    cii=CartesianIndices(imagesize)
-    # bdi = filter(i->!isnothing(i),indexin([-0.066, -0.033, 0.0],delays))   # use delays after 0 (no delay) as blanks
-    bdi = filter(i->!isnothing(i),indexin([-0.066, 0.0],delays))
-
-    dataset = Dict("stisize"=>stisize,"imagesize"=>imagesize,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
-    # dataset["log"] = [i["log"] for i in stas]
-    dataset["color"]=[i["color"] for i in stas]
-    # dataset["minmaxcolor"] = [(i["mincolor"],i["maxcolor"]) for i in stas]
-    # dataset["minmaxcg"] = map(i->minmaxcolorgradient(i...,n=256),dataset["minmaxcolor"])
-    usta = Dict();ucex=Dict();uresponsive=Dict()
-    # uids = mapreduce(c->size(stas[c]["usta"],1),intersect,1:cn)
-    uids = size(stas[1]["usta"],1)
-    # uids = mapreduce(c->keys(stas[c]["usta"]),intersect,1:cn)
-    for u in 1:uids
-        csta = Array{Float64}(undef,imagesize...,length(delays),cn)
-        bsta = mapreduce(c->stas[c]["usta"][u,bdi,:],vcat,1:cn)  # sta of blank
-        bm = mean(bsta);bsd = std(bsta)
-        cex = []
-        for c in 1:cn
-            zsta = zscore(stas[c]["usta"][u,:,:],bm,bsd)  # z-scored sta
-            for d in eachindex(delays)
-                csta[cii[nxi],d,c].=mean(zsta[d,:])
-                csta[cii[xi],d,c] = zsta[d,:]
-            end
-            push!(cex,exd(csta[:,:,opidx,c], opidx))   #PL: To check the extrema of STA, I set the time window constrain here
-        end
-        usta[u] = csta
-        ucex[u] = cex
-        uresponsive[u] = false
-    end
-
-    dataset["usta"] = usta
-    dataset["ucex"] = ucex
-    dataset["uresponsive"] = uresponsive
-    return dataset
-end
-# "Local RMS Contrast of each image"
-function localcontrast(csta;ws=0.5,ppd=46)
-    dims = size(csta)
-    clc = Array{Float64}(undef,dims)
-    w = floor(Int,ws*ppd)
-    w = iseven(w) ? w+1 : w
-    for c in 1:dims[4], d in 1:dims[3]
-        clc[:,:,d,c] = mapwindow(std,csta[:,:,d,c],(w,w))
-    end
-    return clc
-end
-
-function peakroi(clc)
-    pi = [Tuple(argmax(clc))...]
-    plc = clc[:,:,pi[3:end]...]
-    segs = seeded_region_growing(plc,[(CartesianIndex(1,1),1),(CartesianIndex(pi[1:2]...),2)])
-    idx = findall(labels_map(segs).==2)
-    idxlim = dropdims(extrema(mapreduce(i->[Tuple(i)...],hcat,idx),dims=2),dims=2)
-    hw = map(i->i[2]-i[1],idxlim)
-    radius = floor(Int,maximum(hw)/2)
-    center = round.(Int,mean.(idxlim))
-    cpd = [Tuple(argmax(clc[:,:,:,c]))[3] for c in 1:size(clc,4)]
-    return idx,center,radius,pi[4],cpd
-end
-
-function isresponsive(csta,idx,d,bdi,nonopidx;msdfactor=3.0,csdfactor=3.0)
-    # nonopidx=[-0.066, -0.033, 0.0, 0.033, 0.066, 0.099, 0.132, 0.165, 0.363, 0.396]
-    d in nonopidx && return false
-    blc = [std(csta[idx,j]) for j in bdi]
-    bcm = mean(blc);bcsd=std(blc)
-    blm = [mean(csta[idx,j]) for j in bdi]
-    bmm = mean(blm);bmsd=std(blm)
-    (std(csta[idx,d]) > bcm+csdfactor*bcsd) || (mean(csta[idx,d]) > bmm+msdfactor*bmsd)
-end
-
-function responsivesta!(dataset;ws=0.5,msdfactor=3.5,csdfactor=3.5,roimargin=0.2,roirlim=1.6)
-    imagesize = dataset["imagesize"]
-    ppd=dataset["ppd"]
-    bdi = dataset["bdi"]
-    usta = dataset["usta"]
-    ucex = dataset["ucex"]
-    delays = dataset["delays"]
-    uresponsive=dataset["uresponsive"]
-    # nonopidx=filter(i->!isnothing(i),indexin([-0.066, -0.033, 0.0, 0.033, 0.066, 0.099, 0.132, 0.165, 0.363, 0.396],delays))
-    # opidx=filter(i->!isnothing(i),indexin([0.198, 0.231, 0.264, 0.297, 0.33],delays))
-
-    nonopidx=filter(i->!isnothing(i),indexin([-0.066, 0.0, 0.066, 0.132, 0.396],delays))
-    opidx=filter(i->!isnothing(i),indexin([0.198, 0.264, 0.33],delays))
-
-    ulsta=Dict();ulroi=Dict();uconeresponsive=Dict();uconeresponse=Dict();
-    p = ProgressMeter.Progress(length(usta),desc="Test STAs ... ")
-    for u in keys(usta)
-        # u=671
-        clc = localcontrast(usta[u],ws=ws,ppd=ppd)
-        idx,center,radius,c,cpd = peakroi(clc)
-        # if radius > roirlim*ppd
-        #     uresponsive[u] = false
-        #     next!(p)
-        #     continue
-        # end
-
-        # PL: Check responsiveness of each cone type and achromatic
-        # PL: based on std and mean of STA image (compare with blank, which are STAs from the onset or before stim)
-        rs= [isresponsive(usta[u][:,:,:,i],idx,cpd[i],bdi,nonopidx,msdfactor=msdfactor,csdfactor=csdfactor) for i in 1:size(clc,4)]
-        # PL: based on threshold and delay range, to filter out low-response and cell 'response' too early or too late
-        # rs2 = [(abs(ucex[u][i][:ex])>5.5) && (ucex[u][i][:d] in opidx) for i in 1:size(clc,4)]
-        rs2 = [abs(ucex[u][i][:ex])>6.5 for i in 1:size(clc,4)]
-        uconeresponsive[u] = rs2  # save cell's responesiveness to each cone & achromatic stimuli
-
-        # PL: if cell response to one of cone stim and pass the threshold, it is responsive.
-        if any(rs) && any(rs2)
-            uresponsive[u] = true
-            center = [115 115]
-            # radius = 37  #ceil(Int,radius*(1+roimargin)) AF4
-            # radius = 56  # AE7
-            radius = 42  # AE6
-            vr = map(i->intersect(i.+(-radius:radius),1:imagesize[1]),center)
-            radius = (minimum ∘ mapreduce)((r,c)->abs.([r[1],r[end]].-c),append!,vr,center)
-            ulsta[u] = usta[u][map(i->i.+(-radius:radius),center)...,:,:]  # PL: I using stim size
-            # uconeresponse[u] =
-            ulroi[u] = (center=center,stisize=(2*radius+1)/ppd,d=cpd[c],c=c)
-            ucex[u]=map(i->exd(ulsta[u][:,:,opidx,i],opidx,sig=rs[i]),1:size(ulsta[u],4))
-        else
-            uresponsive[u] = false
-        end
-        next!(p)
-    end
-    dataset["ulsta"]=ulsta
-    dataset["ulroi"]=ulroi
-    dataset["uconeresponsive"] = uconeresponsive
-    return dataset
-end
-
-rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[3]*p[5],θ=p[6],f=p[7],phase=p[8])
-# rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[2]+p[8],σᵢ₁=p[3]*p[9],μᵢ₂=p[4]+p[10],σᵢ₂=p[3]*p[9]*p[5],θᵢ=p[6])
-rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[3]*p[6],μᵢ₂=p[4],σᵢ₂=p[3]*p[6],θᵢ=0)
-
-
-function modelfit(data,ppd;model=:gabor)
-    alb,aub = abs.(extrema(data))
-    ab = max(alb,aub)
-    pr = (size(data)[1]-1)/2
-    sr = pr/ppd
-
-    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(pr+1) pr+1])/ppd
-    y = vec(data)
-    rlt = mfun = nothing
-    try
-        if model == :dog
-            if aub >= alb
-                ae = aub + 3.5alb
-                ai = 3.5alb
-                ew = 0.2sr;ewl=0.15sr;ewu=0.3sr
-                ir=2;irl = 1.1;iru = 3
-            else
-                ai = alb + 3.5aub
-                ae = 3.5aub
-                ew = 0.4sr;ewl=0.16sr;ewu=0.6sr
-                ir=0.5;irl = 0.3;iru = 0.9
-            end
-            # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
-            # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
-            # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
-            lb=[0.2ae,   -0.6sr,    ewl,   -0.6sr,     0.5ai,    irl]
-            ub=[1.5ae,    0.6sr,    ewu,    0.6sr,     1.5ai,    iru]
-            p0=[ae,       0,         ew,     0,          ai,       ir]
-            mfun = (x,p) -> rfdog.(x[:,1],x[:,2],p...)
-        elseif model == :gabor
-            ori,sf = freqimagestats(powerspectrum2(data,ppd)...)
-            fub = min(1.5sf,8);flb=max(0.5sf,0.2)
-            lb=[0.2ab,  -0.6sr,   0.1sr,   -0.6sr,   0.3,    0,    flb,   0]
-            ub=[1.5ab,   0.6sr,   1.0sr,   0.6sr,   2.3,    π,    fub,   1]
-            p0=[ab,      0,        0.2sr,    0,        1,      ori,  sf,    0]
-            mfun = (x,p) -> rfgabor.(x[:,1],x[:,2],p...)
-        end
-        if !isnothing(mfun)
-            mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
-            maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
-            rlt = (param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
-        end
-    catch
-    end
-    return rlt
-end
-
-function rffit!(dataset;model=[:gabor,:dog])
-    ulsta = dataset["ulsta"]
-    ulroi = dataset["ulroi"]
-    ppd = dataset["ppd"]
-
-    if !haskey(dataset,"urf")
-        dataset["urf"]=Dict()
-    end
-    urf = dataset["urf"]
-    p = ProgressMeter.Progress(length(ulsta),desc="Fit RFs ... ")
-    for u in keys(ulsta)
-        if !haskey(urf,u)
-            urf[u] = Dict()
-        end
-        # u!=96 && continue
-        exs=map(i->i.ex,dataset["ucex"][u])
-        ds=map(i->i.d,dataset["ucex"][u])
-        for m in model
-            urf[u][m] = map(i->abs(exs[i])<=4.0 ? nothing : modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m),1:length(exs))
-        end
-        next!(p)
-    end
-    return dataset
-end
-
-t=datasetResp["ulsta"][633][:,:,12,2]
-
-@manipulate for i in 1:3
-    heatmap(rand(10,10),xlabel="t")
-end
 ## stas
 # @manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
 @manipulate for u in sort(collect(keys(dataset["ulsta"])))#,d in eachindex(dataset["delays"])
@@ -314,30 +139,32 @@ end
 end
 ## best roi stas
  # for u in sort(collect(keys(dataset["ulsta"])))
-for u in sort(collect(keys(datasetResp["ulsta"])))
+for u in sort(collect(keys(dataset["ulsta"])))
     # u=11
-    ulsta = datasetResp["ulsta"][u]
-    delays = datasetResp["delays"]
+    ulsta = dataset["ulsta"][u]
+    delays = dataset["delays"]
     imagesize = size(ulsta)[1]
-    stisize = datasetResp["ulroi"][u].stisize
-    # stisize = datasetResp["stisize"]
-    ucex = map(i->i.ex,datasetResp["ucex"][u])
-    ucd = map(i->i.d,datasetResp["ucex"][u])
+    stisize = dataset["stisize"]
+    maskradius = dataset["maskradius"]
+    truestimsz = stisize*maskradius*2
+    ucex = map(i->i.ex,dataset["ulcex"][u])
+    ucd = map(i->i.pd,dataset["ulcex"][u])
     clim = maximum(abs.(ucex))
-    xylim = [0,round(stisize,digits=1)]
+    xylim = [0,round(truestimsz,digits=1)]
     xy = range(xylim...,length=imagesize)
 
     p = Plots.plot(layout=(1,5),legend=false,size=(1650,600))
     Plots.bar!(p,subplot=1,dataset["color"],ucex,frame=:zerolines)
     foreach(c->Plots.heatmap!(p,subplot=c+1,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:grid,
-    color=:coolwarm,clims=(-clim,clim),xlims=xylim,ylims=xylim,xticks=[],yticks=[],
-    yflip=true,xlabel=string(datasetResp["color"][c]),title="Cell_$(u)_STA_$(delays[ucd[c]])"),1:4)
-    foreach(c->Plots.plot!(p,subplot=c+1,[0.3,0.6,0.9,1.2,1.5], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.3,0.6,0.9,1.2,1.5,1.8],["-0.9","-0.6","-0.3","0","0.3","0.6","0.9"]), label=""),1:4)
-    foreach(c->Plots.plot!(p,subplot=c+1,[0.3,0.6,0.9,1.2,1.5], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
-    foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.3,0.6,0.9,1.2,1.5,1.8],["-0.9","-0.6","-0.3","0","0.3","0.6","0.9"])),1)
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]), label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"])),1)
+    color=:bwr,clims=(-clim,clim),xlims=xylim,ylims=xylim,xticks=[],yticks=[],
+    yflip=true,xlabel=string(dataset["color"][c]),title="Cell_$(u)_STA_$(delays[ucd[c]])"),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.3,0.6,0.9,1.2,1.5], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.3,0.6,0.9,1.2,1.5,1.8],["-0.9","-0.6","-0.3","0","0.3","0.6","0.9"]), label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,[0.3,0.6,0.9,1.2,1.5], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
+    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.3,0.6,0.9,1.2,1.5,1.8],["-0.9","-0.6","-0.3","0","0.3","0.6","0.9"])),1)
+
+    foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]), label=""),1:4)
+    foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
+    foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"])),1)
 
     # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.6,1.2,1.8,2.4],["-1.2","-0.6","0","0.6","1.2"]), label=""),1:4)
     # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
@@ -350,19 +177,55 @@ end
 
 sort(collect(keys(dataset["urf"])))
 collect(keys(first(values(dataset["urf"]))))
+
+## Plot example STA
+u=427
+coneIdex = 1
+ulsta = dataset["ulsta"][u][:,:,10,coneIdex]
+
+maskradius = dataset["maskradius"]
+ppd=dataset["ppd"]
+xi = dataset["xi"]
+stisize = dataset["stisize"]
+
+imagesize = size(ulsta)[1]
+truestimsz = stisize*maskradius*2
+ucex = map(i->i.ex,dataset["ulcex"][u])[coneIdex]
+ucd = map(i->i.pd,dataset["ulcex"][u])[coneIdex]
+clim = maximum(abs.(ucex))
+xylim = [0,round(truestimsz,digits=1)]
+xy = range(xylim...,length=imagesize)
+
+p = Plots.plot(legend=false,size=(600,600))
+
+Plots.heatmap!(p,xy,xy,ulsta,aspect_ratio=:equal,frame=:grid,
+color=:bwr,clims=(-clim,clim),xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true)
+Plots.plot!(p,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label="")
+Plots.plot!(p,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label="")
+# Plots.plot!(p,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]))
+p
+save(joinpath(resultFolder,"AF4_U004_plane001_cell427_L_new.svg"),p)
+a
+
+# r = rand(-10:10,10,10)
+# p=Plots.heatmap(r, color=:bwr)
+# p
+# save(joinpath(resultFolder,"bwr_colorbar.svg"),p)
 ## rf fit
 # @manipulate
-for u in sort(collect(keys(datasetFit["urf"])))#,m in collect(keys(first(values(datasetFit["urf"]))))
-    nc = length(datasetFit["color"])
-    ulsta = datasetFit["ulsta"][u]
-    delays = datasetFit["delays"]
+for u in sort(collect(keys(dataset["urf"])))#,m in collect(keys(first(values(dataset["urf"]))))
+    nc = length(dataset["color"])
+    ulsta = dataset["ulsta"][u]
+    delays = dataset["delays"]
     imagesize = size(ulsta)[1]
-    ppd = datasetFit["ppd"]
-    stisize = datasetFit["ulroi"][u].stisize
-    ucex = map(i->i.ex,datasetFit["ucex"][u])
-    ucd = map(i->i.d,datasetFit["ucex"][u])
+    ppd = dataset["ppd"]
+    stisize = dataset["stisize"]
+    maskradius = dataset["maskradius"]
+    truestimsz = stisize*maskradius*2
+    ucex = map(i->i.ex,dataset["ucex"][u])
+    ucd = map(i->i.d,dataset["ucex"][u])
     clim = maximum(abs.(ucex))
-    xylim = [0,round(stisize,digits=1)]
+    xylim = [0,round(truestimsz,digits=1)]
     xy = range(xylim...,length=imagesize)
 
     p = Plots.plot(layout=(2,nc),legend=false,size=(1650,900))
@@ -370,7 +233,7 @@ for u in sort(collect(keys(datasetFit["urf"])))#,m in collect(keys(first(values(
     xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:nc)
 
 
-    fit=datasetFit["urf"][u]
+    fit=dataset["urf"][u]
     pr = (imagesize[1]-1)/2
     x=y=(-pr:pr)./ppd
     sr = round(x[end],digits=1)
@@ -380,7 +243,7 @@ for u in sort(collect(keys(datasetFit["urf"])))#,m in collect(keys(first(values(
     rfs = map(f->isnothing(f) ? nothing : [rfdog(i,j,f.param...) for j in reverse(y), i in x],fit[m])
     foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+nc,frame=:none) :
     Plots.heatmap!(p,subplot=c+nc,x,y,rfs[c],aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,xlabel=string(datasetFit["color"][c])),1:nc)
+    xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,xlabel=string(dataset["color"][c])),1:nc)
     # else
     #     rfs = map(f->isnothing(f) ? nothing : [rfgabor(i,j,f.param...) for j in reverse(y), i in x],fit[m])
     # end
@@ -397,12 +260,12 @@ for u in sort(collect(keys(datasetFit["urf"])))#,m in collect(keys(first(values(
     savefig(joinpath(resultFolderPlot,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
 end
 
-using Plots,Interact
-@manipulate for i=1:3
-    plot(1:3)
 
-    # savefig("test.png")
-end
+
+
+
+
+
 
 
 function getbestrf(dataset;rt=0.65)
@@ -600,7 +463,6 @@ sin(x,y;fx=1,fy=1) = sin(2π*(fx*x+fy*y))
 
 
 
-
 t = dataset["ulsta"][92][:,:,10,2]
 
 Plots.heatmap(t)
@@ -609,9 +471,6 @@ ft=abs.(fft(t))
 Plots.heatmap(ft)
 
 freqs = fftfreq(25,30)
-
-
-
 
 
 lmpi = [Tuple(argmax(clc))...]
@@ -636,22 +495,6 @@ lp = floor.(Int,mean.(t))[:]
 
 hspan!([lp[1]-rsize,lp[1]+rsize],alpha=0.2)
 vspan!([lp[2]-rsize,lp[2]+rsize],alpha=0.2)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @manipulate for u in uids
@@ -700,27 +543,16 @@ plot(sds1)
 end
 
 
-
-
-
-
-
-
-
-
-
-
-
 skm = pyimport("skimage.metrics")
 
 @manipulate for u in uids
-t1 = stas[1]["usta"][u][1,:]
-t2 = stas[1]["usta"][u][25,:]
-ti1=fill(mean(t1),imagesize)
-ti1[xi]=t1
-ti2=fill(mean(t2),imagesize)
-ti2[xi]=t2
-ssim,di=skm.structural_similarity(ti1,ti2,full=true)
+    t1 = stas[1]["usta"][u][1,:]
+    t2 = stas[1]["usta"][u][25,:]
+    ti1=fill(mean(t1),imagesize)
+    ti1[xi]=t1
+    ti2=fill(mean(t2),imagesize)
+    ti2[xi]=t2
+    ssim,di=skm.structural_similarity(ti1,ti2,full=true)
 
-heatmap(di,clims=(0.4,1))
+    heatmap(di,clims=(0.4,1))
 end

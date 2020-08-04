@@ -2,19 +2,22 @@
 # Peichao's Notes:
 # 1. Code was written for 2P data (Hartley) from Scanbox. Will export results (dataframe and csv) for plotting.
 # 2. If you have multiple planes, it works with splited & interpolated dat. Note results are slightly different.
-# 3. If you have single plane, need to change the code (signal and segmentation) a little bit to make it work.
+# 3. If you have single plane, need to set interpolateData to false.
 
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random, Plots
 
 # Expt info
-disk = "K:"
-subject = "AE6"  # Animal
-recordSession = "002" # Unit
-testId = "006"  # Stimulus test
+disk = "O:"
+subject = "AF4"  # Animal
+recordSession = "006" # Unit
+testId = "002"  # Stimulus test
 
-interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+hartelyBlkId = 5641
+stanorm =false
+hartleyscale = 1
 
-delays = -0.066:0.066:0.4
+delays = -0.066:0.033:0.4
 print(collect(delays))
 isplot = false
 
@@ -25,7 +28,7 @@ metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaF
 
 ## load expt, scanning parameters
 # metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
-metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_ot_meta.mat"),dir=metaFolder,adddir=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -40,6 +43,12 @@ condidx = ex["CondTest"]["CondIndex"]
 # condtable = DataFrame(ex["Cond"])
 condtable =  DataFrame(ex["raw"]["log"]["randlog_T1"]["domains"]["Cond"])
 rename!(condtable, [:oridom, :kx, :ky,:bwdom,:colordom])
+
+# find out blanks and unique conditions
+blkidx = condidx .>= hartelyBlkId  # blanks start from 5641
+cidx = .!blkidx
+condidx2 = condidx.*cidx + blkidx.* hartelyBlkId
+
 ## Load data
 if interpolatedData
     segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
@@ -51,7 +60,7 @@ end
 segment = prepare(segmentFile)
 signal = prepare(signalFile)
 # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-
+spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 ##
 # Prepare Imageset
@@ -67,9 +76,9 @@ masksigma = 1#getparam(envparam,"Sigma")
 xsize = getparam(envparam,"x_size")
 ysize = getparam(envparam,"y_size")
 stisize = xsize
-ppd = 46
-imagesetname = "Hartley_stisize$stisize"
-maskradius = 0.18 #maskradius/stisize=0.13
+ppd = haskey(param,:ppd) ? param[:ppd] : 46
+imagesetname = "Hartley_stisize$(stisize)_scale$(hartleyscale)"
+maskradius = haskey(param,:maskradius) ? param[:maskradius] : 0.16 #maskradius/stisize
 # if coneType == "L"
 #     maxcolor = RGBA()
 #     mincolor = RGBA()
@@ -80,7 +89,7 @@ maskradius = 0.18 #maskradius/stisize=0.13
 # end
 
 if !haskey(param,imagesetname)
-    imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd)),eachrow(condtable))
+    imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=false,scale=hartleyscale)),eachrow(condtable))
     # imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable))
     imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
     imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
@@ -121,11 +130,10 @@ for pn in 1:planeNum
 
     if interpolatedData
         # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
-        spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
         spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        # rawF = transpose(signal["sig"])
-        spike = transpose(signal["spks"])
+        # rawF = sig
+        spike = spks
     end
 
     ## Calculate STA
@@ -133,20 +141,20 @@ for pn in 1:planeNum
         scaleindex=1
         imagesize = imageset[:imagesize][scaleindex]
         xi = unmaskindex[scaleindex]
-        uci = unique(condidx)
-        # ucii = map(i->findall(condidx.==i),uci)  # find the repeats of each unique condition
-        ucii = map(i->findall(condidx.==i),uci)
+        uci = unique(condidx2)
+        ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
+        ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
 
-        x = Array{Float64}(undef,length(uci),length(xi))
-        foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+        cx = Array{Float64}(undef,length(ucii),length(xi))
+        foreach(i->cx[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(cx,1))
 
         uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+        ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+        uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
         usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
-        # uy = Array{Float64}(undef,length(delays),length(ucii))
-        # usta = Array{Float64}(undef,length(delays),length(xi))
 
         for d in eachindex(delays)
-            # d=1
+            # d=5
             display("Processing delay: $d")
             y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
             spk=zeros(size(spike,1),length(idx))
@@ -156,31 +164,36 @@ for pn in 1:planeNum
             end
             for cell in 1:cellNum
                 # display(cell)
-                y = map(i->mean(spk[cell,:][i]),ucii)
-                stas = sta(x,y)
-                uy[cell,d,:]=y
-                usta[cell,d,:]=stas
-                # uy[d,:]=y
-                # usta[d,:]=stas
+                # cell=401
+                cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
+                bly = map(i->mean(spk[cell,:][i]),ubii) # response to blank, baseline
+                ry = cy.-bly  # remove baseline
+                csta = sta(cx,ry,isnorm=stanorm)  # calculate sta
+                ucy[cell,d,:]=cy
+                uby[cell,d,:]=bly
+                uy[cell,d,:]=ry
+                usta[cell,d,:]=csta
+
                 if isplot
-                    r = [extrema(stas)...]
+                    csta = (csta.+1)./2
+                    csta = fill(0.5,imagesize)
+                    csta[xi] = csta
+                    r = [extrema(csta)...]
                     title = "$(ugs[cell])Unit_$(unitid[cell])_STA_$(delays[d])"
-                    p = plotsta(stas,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
+                    p = plotsta(csta,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
                     foreach(i->save(joinpath(resultFolder,"$title$i"),p),[".png"])
                 end
             end
         end
-        # uy=DefaultDict();usta = DefaultDict()
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"x",x,"xi",xi,"xcond",condtable[uci,:],
-        "uy",uy,"usta",usta,"delays",delays,"stisize",stisize,"color",coneType)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"usta",usta,"uby",uby,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
     end
 end
 
-
-# csta = fill(mean(usta[6,:]),imagesize)
-# csta[xi] = usta[6,:]
+# csta = (csta.+1)./2
+# csta = fill(0.5,imagesize)
+# csta[xi] = csta
 # heatmap!(csta,aspect_ratio=:equal,frame=:semi,color=:coolwarm,yflip=true,legend=false)
 #
-# r = [extrema(usta[6,:])...]
-# p = plotsta(usta[6,:],imagesize=imagesize,stisize=stisize,index=xi,r=r)
-# save(joinpath(resultFolder,"153_scale.png"),p)
+# r = [extrema(csta)...]
+# p = plotsta(csta,imagesize=imagesize,stisize=stisize,index=xi,r=r)
+# save(joinpath(resultFolder,"482_scale.png"),p)
