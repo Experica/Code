@@ -54,7 +54,7 @@ oritests = @from i in tests begin
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
     end
-deleterows!(oritests, [2,3,4,5,6,7,8,9,11,12,14,15,16,17,18,19,20,22,23,24,25,27,28,29,30])
+deleterows!(oritests, [2,3,4,5,6,8,9,11,12,13,14,15,16,17,19,20,21,22,24,25,26,27])
 
 huetests = @from i in tests begin
     @where i.RecordSite != "u001"
@@ -63,7 +63,7 @@ huetests = @from i in tests begin
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
     end
-deleterows!(huetests, [2, 3, 6,7,8,10])
+deleterows!(huetests, [2,3,6,7,9])
 
 hartleytests = @from i in tests begin
     @where i.RecordSite != "u001"
@@ -93,15 +93,18 @@ staData=DataFrame(); staSum=DataFrame();
 for i = 1:exptOriNum
     display("Processing Oriexpt No: $i")
     for j = 1:planeNum
+        local unitId
+        local siteId
+        local result
         unitId = oriExptId[i][5:7]
         siteId = join([unitId, "_",recordPlane[j]])
         dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
-        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
-        # segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-        # alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
+        # segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        # alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_ot_[A-Za-z0-9]*.align"),dir=dataFolder,join=true)[1]
 
-        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-        alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.align"),dir=dataFolder,join=true)[1]
 
         result = load(dataFile)["result"]
         segment = prepare(segmentFile)
@@ -126,13 +129,16 @@ end
 
 ## Hue data
 for i = 1:exptHueNum
+    display("Processing Hueexpt No: $i")
     for j = 1:planeNum
+        local siteId
+        local result
         siteId = join([recordSession[i], "_",recordPlane[j]])
         dataFolder = joinpath(mainpath, join(["U", recordSession[i]]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
-        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
+        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
         resultori = load(dataFile)["result"]
         dataFolder = joinpath(mainpath, join(["U", recordSession[i]]), join([hueExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
-        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
+        dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
         result = load(dataFile)["result"]
         locID = repeat([siteId],size(result)[1])
         insertcols!(result,4,locId=locID)
@@ -156,10 +162,12 @@ if addSTA
     for i = 1:sessNum
         display("RecordSession Num: $i")
         for j = 1:planeNum
+            local unitId
+            local dataFolder
             unitId = recordSession[i]
             plId = recordPlane[j]
             dataFolder = joinpath(mainpath, join(["U",unitId]),"_Summary","DataExport")  # load ori data for cpi calculation
-            dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_sta_datasetFinal.jld2"),dir=dataFolder,adddir=true)[1]
+            dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_sta_datasetFinal.jld2"),dir=dataFolder,join=true)[1]
             sta = load(dataFile)["datasetFinal"]
             cellNum = length(sta["ulsta"])
             ulsta = sort!(OrderedDict(sta["ulsta"]))
@@ -169,12 +177,13 @@ if addSTA
                 dataExportFolder2 = joinpath(mainpath, join(["U", unitId]), "_Summary", "DataExport")
                 isdir(dataExportFolder2) || mkpath(dataExportFolder2)
             end
+            local result
             result = DataFrame()
             result.py = 0:cellNum-1
             result.ani = fill(subject, cellNum)
             result.unitId = fill(unitId, cellNum)
             result.planeId = fill(plId, cellNum)
-            result.cellId = keys(ulsta)
+            result.cellId = collect(keys(ulsta))
             iscone=[];isachro=[];domicone=[];delycone=[];conemaxExt=[];conemaxMag=[];lcwmn=[];mcwmn=[];scwmn=[];lcwmg=[];mcwmg=[];scwmg=[];
             lcwmgall=[];mcwmgall=[];scwmgall=[];lmg=[];mmg=[];smg=[];amg=[];achResp=[];ls=[];ms=[];ss=[];as=[];isl=[];ism=[];iss=[];isa=[];
             ubcone=sta["ubcone"]
@@ -281,6 +290,7 @@ end
 ## Data is organized accoording plane
 ct=0
 for i = 1:sessNum
+    local unitId
     unitId = recordSession[i]
     planeSum = DataFrame()
     dataExportFolder3 = joinpath(mainpath, join(["U", unitId]), "_Summary", "DataExport")

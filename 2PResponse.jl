@@ -262,7 +262,7 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
+        push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end

@@ -1,4 +1,4 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,Interact,ImageSegmentation,LsqFit,FFTW,ProgressMeter
+using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,LsqFit,FFTW
 
 disk = "O:"
 subject = "AF4"
@@ -26,7 +26,7 @@ testId = ["000","001","003","004"]
 # testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
 # testId = ["013", "014", "015","012"]
 
-recordPlane = "000"
+recordPlane = "001"
 delays = collect(-0.066:0.033:0.4)
 print(collect(delays))
 
@@ -58,7 +58,7 @@ isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 # testids = ["$(siteId)_HartleySubspace_$i" for i in 1:4]
 dataFile=[]
 for i=1:size(testId,1)
-    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],adddir=true)[1]
+    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],join=true)[1]
     # datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_tuning_result.jld2"), dir=dataExportFolder[i],adddir=true)[1]
     push!(dataFile, datafile)
 end
@@ -68,6 +68,7 @@ dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
 # dataset = sbxjoinhartleyFourier(load.(dataFile))
 save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_dataset.jld2"])),"dataset",dataset)
 ## Check responsiveness of cell based on threshold and delay range, filter out low-response and cell 'response' too early or too late
+
 dataset = sbxresponsivesta!(dataset,lbTime,ubTime,respThres)
 dataset = sbxrffit!(dataset)
 dataset = sbxgetbestconesta(dataset)
@@ -141,6 +142,7 @@ end
  # for u in sort(collect(keys(dataset["ulsta"])))
 for u in sort(collect(keys(dataset["ulsta"])))
     # u=11
+    local delays
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
     imagesize = size(ulsta)[1]

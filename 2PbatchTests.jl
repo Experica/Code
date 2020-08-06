@@ -43,7 +43,8 @@ batchtests(tests,param,plot=false)
 
 ## HartleySubspace Parametric and Image Response
 param[:model]=[:STA]
-param[:stanorm] = false
+param[:stanorm] = nothing
+param[:stawhiten] = nothing
 param[:hartleyscale] = 1
 param[:hartelyBlkId]=5641
 param[:delayLB] = -0.066  # in sec; Usually do not need to change it

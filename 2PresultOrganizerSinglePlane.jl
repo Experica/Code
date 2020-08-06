@@ -101,13 +101,15 @@ staData=DataFrame(); staSum=DataFrame();
 for i = 1:exptOriNum
     display("Processing Oriexpt No: $i")
     j=1#map(j->isodd(i) ? 1 : 2, i)
+    local unitId
+    local siteId
     unitId = oriExptId[i][5:7]
     siteId = join([unitId, "_",recordPlane[j]])
     dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
-    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
+    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
 
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-    alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.align"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    alignFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*.align"),dir=dataFolder,join=true)[1]
 
     result = load(dataFile)["result"]
     segment = prepare(segmentFile)
@@ -133,14 +135,16 @@ end
 ## Hue data
 for i = 1:exptHueNum
     j=1#map(j->isodd(i) ? 1 : 2, i)
+    local unitId
+    local siteId
     unitId = hueExptId[i][5:7]
     siteId = join([unitId, "_",recordPlane[j]])
     dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[huerefOri[i]][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
     # dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
-    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
+    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
     resultori = load(dataFile)["result"]
     dataFolder = joinpath(mainpath, join(["U", unitId]), join([hueExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
-    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,adddir=true)[1]
+    dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
     result = load(dataFile)["result"]
     locID = repeat([join([unitId, "_", recordPlane[j]])],size(result)[1])
     insertcols!(result,4,locId=locID)
@@ -165,12 +169,13 @@ end
 if addSTA
     for i = 1:sessNum
         display("Plane Num: $i")
+        local unitId
         j=1#map(j->isodd(i) ? 1 : 2, i)
         # unitId = hartleyExptId[i][5:7]
         unitId = recordSession[i]
         plId = recordPlane[j]
         dataFolder = joinpath(mainpath, join(["U",unitId]),"_Summary","DataExport")  # load ori data for cpi calculation
-        dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_sta_datasetFinal.jld2"),dir=dataFolder,adddir=true)[1]
+        dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_sta_datasetFinal.jld2"),dir=dataFolder,join=true)[1]
         display(dataFile)
         sta = load(dataFile)["datasetFinal"]
         cellNum = length(sta["ulsta"])
