@@ -9,11 +9,11 @@ subject = "AF4"
 # recordSession = "003"
 # testId = ["000","001","002","004"]
 # #
-# recordSession = "004"
-# testId = ["001","002","003","004"]
+recordSession = "004"
+testId = ["001","002","003","004"]
 
-recordSession = "005"
-testId = ["000","001","003","004"]
+# recordSession = "005"
+# testId = ["000","001","003","004"]
 
 # recordSession = "006"
 # testId = ["000","001","002","003"]
@@ -181,8 +181,8 @@ sort(collect(keys(dataset["urf"])))
 collect(keys(first(values(dataset["urf"]))))
 
 ## Plot example STA
-u=427
-coneIdex = 1
+u=399
+coneIdex = 2
 ulsta = dataset["ulsta"][u][:,:,10,coneIdex]
 
 maskradius = dataset["maskradius"]
@@ -206,7 +206,7 @@ Plots.plot!(p,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray
 Plots.plot!(p,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label="")
 # Plots.plot!(p,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]))
 p
-save(joinpath(resultFolder,"AF4_U004_plane001_cell427_L_new.svg"),p)
+save(joinpath(resultFolder,"AF4_U004_plane001_cell399_M.svg"),p)
 a
 
 # r = rand(-10:10,10,10)
