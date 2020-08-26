@@ -265,7 +265,7 @@ if addSTA
                 save(joinpath(dataExportFolder2,join([subject,"_",unitId, "_thres$staThres", "_sta_dataset.jld2"])),"planeData",planeData)
                 CSV.write(joinpath(dataExportFolder2,join([subject,"_",unitId,"_thres$staThres", "_sta_dataset.csv"])), planeData)
             end
-            summ=DataFrame(id=result.unitId, planeid=plId, staNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(result.conedelay))
+            summ=DataFrame(id=result.unitId[1], planeid=plId[1], staNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(delycone[BitArray(iscone)]), stddelay=std(delycone[BitArray(iscone)]))
             append!(staSum, summ)
         end
     end

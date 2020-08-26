@@ -28,7 +28,7 @@ cpiThres = 0.33
 numberofColor = 12
 colorSpace = "HSL"   # DKL, # HSL
 
-addSTA = true
+addSTA = false
 staThres = 0.25
 
 ## Make folders and path
@@ -51,9 +51,9 @@ tests = @from i in meta begin
     end
 sort!(tests, [:RecordSite, :filename])
 oritests = @from i in tests begin
-    # @where i.RecordSite == "u012"
+    @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
     # @where i.RecordSite != "u001"
-    # @where i.RecordSite != "u005"
+    # @where i.RecordSite == "u012"
     @where i.ID == "DirSF"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -62,7 +62,7 @@ oritests = @from i in tests begin
 huetests = @from i in tests begin
     # @where i.RecordSite == "u012"
     # @where i.RecordSite != "u001"
-    @where i.RecordSite != "u008"
+    @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
     @where i.ID == "DirSFColor"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -139,8 +139,8 @@ for i = 1:exptHueNum
     local siteId
     unitId = hueExptId[i][5:7]
     siteId = join([unitId, "_",recordPlane[j]])
-    dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[huerefOri[i]][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
-    # dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
+    # dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[huerefOri[i]][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
+    dataFolder = joinpath(mainpath, join(["U", unitId]), join([oriExptId[i][5:11], "_", recordPlane[j]]), "DataExport")  # load ori data for cpi calculation
     dataFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_result.jld2"),dir=dataFolder,join=true)[1]
     resultori = load(dataFile)["result"]
     dataFolder = joinpath(mainpath, join(["U", unitId]), join([hueExptId[i][5:11], "_", recordPlane[j]]), "DataExport")
@@ -272,7 +272,7 @@ if addSTA
         save(joinpath(dataExportFolder2,join([subject,"_",unitId, "_thres$staThres", "_sta_dataset.jld2"])),"planeData",planeData)
         CSV.write(joinpath(dataExportFolder2,join([subject,"_",unitId,"_thres$staThres", "_sta_dataset.csv"])), planeData)
         # end
-        summ=DataFrame(id=result.unitId[1], planeid=plId[1], staNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(result.conedelay))
+        summ=DataFrame(id=result.unitId[1], planeid=plId[1], staNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(result.conedelay[BitArray(result.iscone)]), stddelay=std(result.conedelay[BitArray(result.iscone)]))
         append!(staSum, summ)
     end
 end
