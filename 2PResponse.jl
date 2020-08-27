@@ -6,10 +6,10 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "003" # Unit
-testId = "010"  # Stimulus test
+disk = "J:"
+subject = "AF3"  # Animal
+recordSession = "002" # Unit
+testId = "001"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
@@ -25,8 +25,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-# metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,adddir=true)[1]
-metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
+metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -67,23 +67,22 @@ end
 
 condition = condin(ctc)
 condNum = size(condition,1) # including blanks
-
 # On/off frame indces of condations/stimuli
 preStim = ex["PreICI"]; stim = ex["CondDur"]; postStim = ex["SufICI"]
 trialOnTime = fill(0, trialNum)
 condOfftime = preStim + stim
 preEpoch = [0 preStim-preOffset]
 condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-preFrame=epoch2samplerange(preEpoch, sbxfs)
-condFrame=epoch2samplerange(condEpoch, sbxfs)
+preFrame=epoch2sampleindex(preEpoch, sbxfs)
+condFrame=epoch2sampleindex(condEpoch, sbxfs)
 
 ## Load data
 if interpolatedData
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
 else
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
 end
 segment = prepare(segmentFile)
 signal = prepare(signalFile)
@@ -218,7 +217,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
+                resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -268,16 +267,30 @@ for pn in 1:planeNum
     end
 
     tempDF=DataFrame(ufs[:SpatialFreq])
-    result.fitsf = tempDF.osf
+    result.osf = tempDF.osf  # preferred sf from weighted average
+    result.maxsf = tempDF.maxsf
+    result.maxsfr = tempDF.maxr
+    result.fitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+    result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+    result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+    result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+    result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+
     tempDF=DataFrame(ufs[:Dir])
     result.cvdir = tempDF.od   # preferred direction from cv
     result.dircv = tempDF.dcv
     result.fitdir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
-    result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.dsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.dsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+    result.dhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+    result.gvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
     result.cvori = tempDF.oo  # preferred orientation from cv
     result.oricv = tempDF.ocv
-    result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from cv
-    result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+    result.osi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.osi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+    result.ohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+    result.vmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
 
     # Plot tuning curve of each factor of each cell
     if isplot
