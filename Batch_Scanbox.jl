@@ -718,6 +718,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     hartelyBlkId = haskey(param,:hartelyBlkId) ? param[:hartelyBlkId] : 5641
     delays = param[:delays]
     stanorm = param[:stanorm]
+    stawhiten = param[:stawhiten]
     hartleyscale = param[:hartleyscale]
     print(collect(delays))
 
@@ -858,7 +859,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
             for d in eachindex(delays)
                 display("Processing delay: $d")
-                y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+                y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
                 spk=zeros(size(spike,1),length(idx))
                 for i =1:length(idx)
                     spkepo = @view spike[:,idx[i][1]:idx[i][end]]
@@ -869,7 +870,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                     cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
                     bly = map(i->mean(spk[cell,:][i]),ubii) # response to blank, baseline
                     ry = cy.-bly  # remove baseline
-                    csta = sta(cx,ry,isnorm=stanorm)  # calculate sta
+                    csta = sta(cx,ry,norm=stanorm,whiten=stawhiten)  # calculate sta
                     ucy[cell,d,:]=cy
                     uby[cell,d,:]=bly
                     uy[cell,d,:]=ry
@@ -987,7 +988,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         ## Chop spk trains according delays
         spk=zeros(nstim,ntau,cellNum)
         for d in eachindex(delays)
-            y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+            y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
             for i =1:nstim
                 spkepo = @view spike[:,idx[i][1]:idx[i][end]]
                 spk[i,d,:]= mean(spkepo, dims=2)
