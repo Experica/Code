@@ -1,4 +1,5 @@
 using NeuroAnalysis,Query,FileIO,ProgressMeter,Logging,Statistics,DataFrames,StatsPlots,Mmap,Images,StatsBase#,ePPR
+using DataFramesMeta,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random,LinearAlgebra
 import Base: close
 
 includet("Batch_Ripple.jl")

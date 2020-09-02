@@ -1,4 +1,3 @@
-using DataFramesMeta,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
 
 function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
 
@@ -66,8 +65,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
     condOfftime = preStim + stim
     preEpoch = [0 preStim-preOffset]
     condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-    preFrame=epoch2samplerange(preEpoch, sbxfs)
-    condFrame=epoch2samplerange(condEpoch, sbxfs)
+    preFrame=epoch2sampleindex(preEpoch, sbxfs)
+    condFrame=epoch2sampleindex(condEpoch, sbxfs)
     # preOn = fill(preFrame.start, trialNum)
     # preOff = fill(preFrame.stop, trialNum)
     # condOn = fill(condFrame.start, trialNum)
@@ -213,7 +212,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
                     for i=1:size(resp,1)
                         shuffle!(@view resp[i,:])
                     end
-                    resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
+                    resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
                     orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
                     orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                     oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -257,7 +256,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
             mseuc[f]=fa[f]
 
             # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-            push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
+            push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
             # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
             # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
         end
@@ -374,8 +373,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     condOfftime = preStim + stim
     preEpoch = [0 preStim-preOffset]
     condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-    preFrame=epoch2samplerange(preEpoch, sbxfs)
-    condFrame=epoch2samplerange(condEpoch, sbxfs)
+    preFrame=epoch2sampleindex(preEpoch, sbxfs)
+    condFrame=epoch2sampleindex(condEpoch, sbxfs)
     # preOn = fill(preFrame.start, trialNum)
     # preOff = fill(preFrame.stop, trialNum)
     # condOn = fill(condFrame.start, trialNum)
@@ -520,7 +519,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             mbti = conditionBlank[conditionBlank.SpatialFreq.==ufm[:SpatialFreq][cell], :]
             blankResp = [cellMeanTrial[cell,conditionBlank.i[r][t]] for r in 1:nrow(conditionBlank), t in 1:conditionBlank.n[1]]
             # resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-            # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
+            # resu= [factorresponsefeature(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
             # orivec = reduce(vcat,[resu[t].oov for t in 1:mcti.n[1]])
             # pori=[];pdir=[];pbori=[];pbdir=[];
 
@@ -537,7 +536,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
                     for i=1:size(resp,1)
                         shuffle!(@view resp[i,:])
                     end
-                    resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
+                    resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
                     orivec = reduce(vcat,[resu[t].om for t in 1:mcti[1,:n]])
                     orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                     oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -605,7 +604,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
                         shuffle!(@view resp[i,:])
                     end
 
-                    resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
+                    resu= [factorresponsefeature(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
                     huevec = reduce(vcat,[resu[t].ham for t in 1:mcti.n[1]])  # hue axis
                     # hueaxp = hotellingt2test([real(huevec) imag(huevec)],[0 0],0.05)
                     huevecmean = mean(huevec, dims=1)[1]  # final mean vec
@@ -660,7 +659,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             mseuc[f]=fa[f]
 
             # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-            push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
+            push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
             # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
             # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
         end
