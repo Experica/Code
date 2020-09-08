@@ -331,10 +331,15 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
        scanMode = 1  # unidirectional scanning
     end
     sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-    trialOnLine = sbx["line"][1:2:end]
-    trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-    trialOffLine = sbx["line"][2:2:end]
-    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+    if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+        stNum = 2
+    else
+        stNum = 1
+    end
+    trialOnLine = sbx["line"][stNum:2:end]
+    trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+    trialOffLine = sbx["line"][stNum+1:2:end]
+    trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
     # On/off frame indces of trials
     trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))

@@ -25,7 +25,7 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -52,11 +52,11 @@ condidx2 = condidx.*cidx + blkidx.* 5641
 conduniq = unique(condidx2)
 ## Load data
 if interpolatedData
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
 else
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
 end
 segment = prepare(segmentFile)
 signal = prepare(signalFile)
@@ -103,7 +103,7 @@ for pn in 1:planeNum
     ## Chop spk trains according to delays
     spk=zeros(nstim,ntau,cellNum)
     for d in eachindex(delays)
-        y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+        y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
         for i =1:nstim
             spkepo = @view spike[:,idx[i][1]:idx[i][end]]
             spk[i,d,:]= mean(spkepo, dims=2)
@@ -158,7 +158,7 @@ for pn in 1:planeNum
         kernRaw = z[:,:,tmax]  # raw kernel without blank normalization
         kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])  # kernal normalized by blank
         replace!(kern, -Inf=>0)
-        
+
         # separability measure and estimate kernel
         u,s,v = svd(kernRaw)
         s = Diagonal(s)
