@@ -7,12 +7,12 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
 
 # User input and Expt info
-disk = "H:"
-subject = "AE7"  # Animal
-recordSession = "008" # Unit
-testId = "006"  # Stimulus test
+disk = "J:"
+subject = "AF3"  # Animal
+recordSession = "003" # Unit
+testId = "009"  # Stimulus test
 hueSpace = "HSL"   # Color space used? DKL or HSL
-interpolatedData = false   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
+interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
 responseOffset = 0.05  # in sec
 α = 0.05   # p value
@@ -21,7 +21,7 @@ oriaucThres = 0.5
 fitThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
-blankId = 34  # Blank Id  AF4=36; AE6=34
+blankId = 36  # Blank Id  AF3AF4=36; AE6AE7=34
 excId = [27,28,blankId]  # Exclude some condition?
 isplot = false  # Plot figures to investigate?
 
@@ -31,7 +31,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,join=true)[1]
+metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -46,11 +47,16 @@ if haskey(sbx, "recordsPerBuffer_bi")
 else
    scanMode = 1  # unidirectional scanning
 end
-sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-trialOnLine = sbx["line"][1:2:end]
-trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][2:2:end]
-trialOffFrame = sbx["frame"][2:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+sbxfs = 1/(lineNum/scanFreq/scanMode)
+if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+    stNum = 2
+else
+    stNum = 1
+end   # frame rate
+trialOnLine = sbx["line"][stNum:2:end]
+trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+1:2:end]
+trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -89,8 +95,8 @@ trialOnTime = fill(0, trialNum)
 condOfftime = preStim + stim
 preEpoch = [0 preStim-preOffset]
 condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-preFrame=epoch2samplerange(preEpoch, sbxfs)
-condFrame=epoch2samplerange(condEpoch, sbxfs)
+preFrame=epoch2sampleindex(preEpoch, sbxfs)
+condFrame=epoch2sampleindex(condEpoch, sbxfs)
 # preOn = fill(preFrame.start, trialNum)
 # preOff = fill(preFrame.stop, trialNum)
 # condOn = fill(condFrame.start, trialNum)
@@ -98,11 +104,11 @@ condFrame=epoch2samplerange(condEpoch, sbxfs)
 
 ## Load data
 if interpolatedData
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
 else
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,adddir=true)[1]
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,adddir=true)[1]
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
 end
 segment = prepare(segmentFile)
 signal = prepare(signalFile)
@@ -235,7 +241,7 @@ for pn in 1:planeNum
         mbti = conditionBlank[conditionBlank.SpatialFreq.==ufm[:SpatialFreq][cell], :]
         blankResp = [cellMeanTrial[cell,conditionBlank.i[r][t]] for r in 1:nrow(conditionBlank), t in 1:conditionBlank.n[1]]
         # resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-        # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
+        # resu= [factorresponsefeature(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
         # orivec = reduce(vcat,[resu[t].oov for t in 1:mcti.n[1]])
         # pori=[];pdir=[];pbori=[];pbdir=[];
 
@@ -252,7 +258,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
+                resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti[1,:n]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -320,7 +326,7 @@ for pn in 1:planeNum
                     shuffle!(@view resp[i,:])
                 end
 
-                resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
+                resu= [factorresponsefeature(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
                 huevec = reduce(vcat,[resu[t].ham for t in 1:mcti.n[1]])  # hue axis
                 # hueaxp = hotellingt2test([real(huevec) imag(huevec)],[0 0],0.05)
                 huevecmean = mean(huevec, dims=1)[1]  # final mean vec
@@ -375,7 +381,7 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
+        push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
