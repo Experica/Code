@@ -20,36 +20,7 @@ Shape(a)
 
 
 
-function plotunitposition(unitposition;unitgood=[],title="Unit_Position",color=nothing,alpha=0.4,marker=:hline,rot=range(0,π,length=20))
-    if isnothing(color)
-        if !isempty(unitgood)
-            color = map(i->i ? :darkgreen : :gray30,unitgood)
-        else
-            color = :gray30
-        end
-        if !isnothing(alpha)
-            color = coloralpha.(parse.(RGB,color),alpha)
-        end
-    end
 
-    markshape = HyperRectangle(Vec2f0(0),Vec2f0(1,60))
-    markshape = Vec2f0[(0.5,0.2),(-0.5,0.2),(-0.5,-0.2),(0.5,-0.2)]
-    markshape = GLPlainMesh(Point2f0[(0,0), (0, 1), (0.5, 0.5), (1, 1), (1, 0)])
-    p = Scene()
-    Makie.meshscatter!(p,unitposition[:,1],unitposition[:,2],scale_plot=true,color=color,marker=markshape,rotations=rot,markersize=10,strokewidth=0,linewidth=0)
-
-    t1= unitposition.+[-1 0]
-    t2 = unitposition.+[1 0]
-    pos = zeros(2*size(t1,1),size(t1,2))
-    pos[1:2:end,:]=t1
-    pos[2:2:end,:]=t2
-
-
-    # Makie.linesegments!(p,pos[:,1],pos[:,2],color=:black,rotations=rot,linewidth=2)
-    # axis = p.Axis
-    # axis.names.axisnames=("Position_X (μm)","Position_Y (μm)")
-    return Makie.title(p,title)
-end
 
 unitposition.+[-1 0]
 
@@ -89,12 +60,22 @@ ggt=gray.(gt)
 
 plot(ggt[:,200])
 
+using NeuroAnalysis
+using MAT
+
+
+t=Dict("a"=>1, "b"=>"sdf","c"=>rand(10,10))
+
+matwrite("test.mat",t)
+matread("test.mat")
+matread("Y:\\AF5\\AF5_HLV1_ODL4_Color_1.mat")
+prepare("Y:\\AF5\\AF5_HLV1_ODL4_Color_1.mat")
 
 
 
 
-using JLD2
 
+Dict(string(i)=>(a=rand(10,10),b=rand(10)) for i in 1:3)
 
 
 using Interact,Plots,VegaLite,DataFrames,Distances,LinearAlgebra
@@ -235,118 +216,38 @@ b = a[:,argmax(a,dims=2)]
 
 
 
-# Variables for testing
-x0 = "foo"
-x1 = rand(3000)
-x2 = rand(3000,1)
-x3 = rand(1,3000)
-x4 = rand(1,1)
-x5 = rand(3000,1,30,1,3)
-x6 = [x0, x1, x2, x3, x4, x5]
-x7 = fill(x4,200,20,30)
-x8 = Dict(:a=>x4,:b=>x4)
-x9 = Any[x4,x4]
-x = Dict(:x0=>x0, :x1=>x1, :x2=>x2, :x3=>x3, :x4=>x4, :x5=>x5) # Dict of arrays and strings
-y = reshape([x, x0, x1, x6], (1,4))                            # Array of dicts and arrays and strings
-z = Dict(:y=>y, :x=>x, :x6=>x6, :x7=>x7, :x8=>x8, :x9=>x9)                                # Dict of dicts and arrays and strings
-
-# Some tests to check that all the arrays are squeezed recursively
-["$k: size conversion: $(size(v)) → $(size(f(v))))" for (k,v) in x if v isa Array]
-f(z)     # is a vector
-f(z)[:y][1][:x5] # is a (3,3,3) array
-
-
-@btime f($(z))
-@btime f2($(z))
-@btime f3($(z))
-@btime dropmatdim!($(z))
-
-f2(x7)
-
-
-any((<:).(eltype(x7),[Any,Array,Dict]))
-
-x7[1] :: Array
-
-x7 isa Array
-
-dropmatdim!(z)
 
 
 
+## Tuning Properties in layers
+layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
+# testids = ["$(siteid)_$(lpad(i,3,'0'))" for i in [8,12,13,14]]
+
+testids = ["$(siteid)_OriSF_$i" for i in 1:5]
+testn=length(testids)
+ds = load.(joinpath.(siteresultdir,testids,"factorresponse.jld2"))
+testtitles = ["$(i["color"])" for i in ds]
+spikes = load.(joinpath.(siteresultdir,testids,"spike.jld2"),"spike")
+
+f = :Ori
+p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60))
+for i in 1:testn
+    vi = spikes[i]["unitgood"].&ds[i]["responsive"].&ds[i]["modulative"]
+    if f in [:Ori,:Ori_Final]
+        color = map((i,j)->j ? HSV(i.oo,1-i.ocv/1.5,1) : RGBA(0.5,0.5,0.5,0.1),ds[i]["factorstats"][:Ori_Final],vi)
+    elseif f==:Dir
+        color = map((i,j)->j ? HSV(i.od,1-i.dcv/1.5,1) : RGBA(0.5,0.5,0.5,0.1),ds[i]["factorstats"][:Ori_Final],vi)
+    end
+    scatter!(p,subplot=i,spikes[i]["unitposition"][:,1],spikes[i]["unitposition"][:,2],color=color,markerstrokewidth=0,markersize=2,title=testtitles[i],titlefontsize=8)
+    if !isnothing(layer)
+        hline!(p,subplot=i,[layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(17,layer[k][1],text(k,5,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
+    end
+end
+p
+foreach(i->savefig(joinpath(siteresultdir,"Layer_UnitPosition_$(f)_Tuning$i")),[".png",".svg"])
 
 
 
-using MAT
-d=matread("c:\\users\\fff00\\mattest.mat")
-
-
-
-
-d=readmat("c:\\users\\fff00\\mattest.mat")
-
-
-
-using Unitful
-
-a=3.6u"ms"
-
-ustrip(datatimeunit,edur)
-
-a=[2,4.5,7,9.3]
-
-b=a*u"s"
-
-
-edur = 150u"ms"
-
-datatimeunit = u"ms"
-
-uconvert.(u"ms",b)
-
-
-a=rand(10)
-
-e=[0u"ms" 150u"ms"]
-
-a=[[1.0,2.0],[3.0,4.0]]
-
-typeof(a) <: Vector{Vector}
-
-b=[1.0,2.0]
-
-typeof(b) <: Vector
-
-
-
-## test
-scatter(rand(10),group=rand(1:2,10),color=[:coolwarm :reds])
-
-
-heatmap(randn(30,30),color=:grays,frame=:none,leg=false,aspect_ratio=1)
-
-savefig("test.png")
-
-
-
-x=collect(-10:0.1:10)
-mfun(x,p) = p[1]*sin.(p[2]*x .+ p[3])
-y=mfun(x,[5,2,1]) .+ randn(length(x))
-
-mfun(x,p) = vmf.(x,β=p[1],μ=p[2],κ=p[3],n=2)
-y=mfun(x,[5,0,1]) .+ randn(length(x))
-
-plot(x,[y mfun(x,mfit.param)])
-
-mfit = curve_fit(mfun,x,y,[2,1.0,0],x_tol=1e-11)
-
-
-
-mfit = curve_fit(mfun,x,y,1 ./ mfit.resid.^2,[2,1.0,0])
-
-
-
-## temp
 if plot
     vi = uresponsive.&umodulative.&unitgood.&uenoughresponse
     pfactor=intersect([:Ori,:Ori_Final],keys(ufs))
@@ -378,125 +279,3 @@ if plot
         foreach(i->savefig(joinpath(resultdir,"UnitPosition_Hue_Tuning$i")),[".png",".svg"])
     end
 end
-
-
-## optim
-
-
-data = dataset["ulsta"][89][:,:,20,2]
-function dataxy(data,ppd)
-    rpx = (size(data)[1]-1)/2
-    r = rpx/ppd
-    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(rpx+1) rpx+1])/ppd
-    y = vec(data)
-    return x,y
-end
-
-x,y = dataxy(data,45)
-
-function objfun(p;x=x,y=y)
-    model = rfgabor.(x[:,1],x[:,2],p...)
-    sum((y.-model).^2)
-end
-lb = [1000.0, -0.4,  0.1,  -0.4,  0.1,  0,  0.1,    0]
-ub = [2000.0,  0.4,  0.4,   0.4,  0.4,  π,   8,  1]
-
-llb = [1.0,     -1,  0.1,  -1,  0.1,  0,  0.2,    0]
-uub = [10000.0,  1,  0.6,   1,  0.6,  π,   8,  1]
-
-
-res = optimize(objfun,llb,uub,[1500.0,0.0,0.2,0,0.2,1.4,1,0],SAMIN(),Optim.Options(iterations=10^5))
-
-pyfit = (model=:gabor,param=res.minimizer)
-heatmap(rfimage(pyfit,0.82),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-
-
-yp = rfgabor.(x[:,1],x[:,2],res.minimizer...)
-
-
-
-rcopy(R"cor.test($y,$yp,alternative='greater',method='pearson')")
-
-
-## rffit
-
-
-lc = localcontrast(data,ws=0.5,ppd=45)
-roi=peakroi(lc)
-rg = zeros(size(lc))
-rg[roi.i].=1
-heatmap(data,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-heatmap(lc,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-heatmap(rg,aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-
-
-
-frlt = modelfit(data,45)
-heatmap(rfimage(frlt,frlt.radius),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-
-
-using PyCall
-lmfit = pyimport("lmfit")
-
-
-pyfit = (model=:gabor,param=py"fparams")
-heatmap(rfimage(pyfit,0.82),aspect_ratio=1,frame=:none,color=:coolwarm,yflip=true)
-
-
-py"""
-x = $(x[:,1])
-y = $(x[:,2])
-data = $y
-
-from numpy import power,exp, sin,cos,pi
-
-from lmfit import minimize, Parameters
-
-
-def residual(params, x, y, data):
-    a = params['a']
-    miux = params['miux']
-    sigmax = params['sigmax']
-    miuy = params['miuy']
-    sigmay = params['sigmay']
-    ori = params['ori']
-    sf = params['sf']
-    phase = params['phase']
-
-    sinv = sin(ori)
-    cosv = cos(ori)
-    xx = cosv * x + sinv * y
-    yy = cosv * y - sinv * x
-    model = a*exp(-0.5*(power((xx-miux)/sigmax,2) + power((yy-miuy)/sigmay,2))) * sin(2*pi*(sf * yy + phase))
-
-    return data-model
-
-r=0.8
-params = Parameters()
-params.add('a', value=1500.0,min=1000)
-params.add('miux', value=0.0,min=-0.3*r,max=0.3*r)
-params.add('sigmax', value=0.2*r,min=0.1*r,max=0.3*r)
-params.add('miuy', value=0.0,min=-0.3*r,max=0.3*r)
-params.add('sigmay', value=0.2*r,min=0.1*r,max=0.3*r)
-params.add('ori', value=1.4,min=0,max=pi)
-params.add('sf', value=1.0,min=1,max=3)
-params.add('phase', value=0.0,min=0,max=1)
-
-out = minimize(residual, params, args=(x, y, data),method='ampgo')
-
-
-t = out.params.valuesdict()
-fparams = [t['a'],t['miux'],t['sigmax'],t['miuy'],t['sigmay'],t['ori'],t['sf'],t['phase']]
-"""
-
-
-
-## test
-
-a=DataFrame(id=1:3,p=2:4)
-
-b=DataFrame(id=1:2,r=4:5)
-c=DataFrame(id=[])
-outerjoin(a,b,on=:id)
-crossjoin(a,b)
-

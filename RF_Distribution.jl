@@ -45,91 +45,139 @@ Y2 = umap(Y, 2, n_neighbors=10, min_dist=0.01, n_epochs=500)'
 p = plotunitpositionimage(Y2,mlsta)
 save("UMAP_rlSTA.svg",p)
 
-## Collect Responsive RF
+
+
+## Collect RF and Merge into Cells
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
 cells = load(joinpath(resultroot,"cells.jld2"),"cells")
 
-function collectrf(indir;cells=DataFrame(id=[]),model=:gabor,rffile="stadataset.jld2")
-    df=DataFrame()
-    for (root,dirs,files) in walkdir(indir)
-        if rffile in files
-            dataset = load(joinpath(root,rffile),"dataset")
-            siteid = dataset["siteid"]
-            id = ["$(siteid)_SU$u" for u in keys(dataset["urf"])]
-            rc = Any[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["urf"])]
-            rf = Any[map(f->ismissing(f) ? missing : (;(n=>f[n] for n in (:model,:radius,:param,:r))...),dataset["urf"][u][model]) for u in keys(dataset["urf"])]
-            vui = map(i->!isempty(skipmissing(i)),rc)
-            append!(df,DataFrame(id=id[vui],rc=rc[vui],rf=rf[vui]))
-        end
-    end
-    return outerjoin(cells,unique!(df,:id),on=:id)
-end
 
-cells = collectrf(resultroot,cells=cells,model=:gabor)
-save(joinpath(resultroot,"cells.jld2"),"cells",cells)
-
-
-rfcells = dropmissing(cells,:rf)
-
-srfcells = dropmissing!(flatten(rfcells,[:rf,:rc]),:rf)
-
-# rfcells = cells |> 
-#         @dropna(:rf) |> 
-#         @mutate(rc = map((f,c)->!ismissing(f) && f.r > 0.6 ? c : missing,_.rf,get(_.rc)),rf = map(f->!ismissing(f) && f.r > 0.6 ? f : missing,_.rf)) |> 
-#         @filter(!isempty(skipmissing(_.rf))) |> DataFrame
-
-# srfcells = [rfcells |> @mapmany(skipmissing(get(_.rf)),{id=_.id,rf=__}) |> DataFrame rfcells |> @mapmany(skipmissing(get(_.rc)),{rc=__}) |> DataFrame]
-# srfcells = leftjoin(srfcells,rfcells[!,Not([:rf,:rc])],on=:id)
-
-srfcells.rfi = rfcolorimage.(rfimage.(srfcells.rf,ppd=40))
-
-@manipulate for i in 1:nrow(srfcells)
-    srfcells.rfi[i]
-end
-
-S = mapreduce(f->f.param,hcat,srfcells.rf)
-
-Y = deepcopy(S)
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 200:1000, n in 5:60, d in 0.001:0.001:5
-    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
-    scatter(Y2[:,1], Y2[:,2], marker=(3,3,:auto,stroke(0)),frame=:none,leg=false)
-end
-
-Y2 = umap(Y, 2, n_neighbors=20, min_dist=0.015, n_epochs=500)'
-p = plotunitpositionimage(Y2,srfcells.rfi)
-save("UMAP_rf.svg",p)
+cells |> [@vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Cells"});
+          @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"})]
 
 ## RF Spatial Pattern
-Ω(p::Missing)=missing
-Ω(p) = p < 0.5 ? 4abs(p-0.25) : 4abs(p-0.75)
-SP = mapreduce(i->begin
-                    σyoverσx = S[5,i]/S[3,i]
-                    f4σy = 4S[5,i]*S[7,i]
-                    w = Ω(S[8,i])
-                    # w = p<0.25 ? 0.5-p : p>0.75 ? 1.5-p : p
-                    # w = 0.5-w
-                    [σyoverσx, f4σy, w]
-                end,hcat,1:size(S,2))
+srfcells = transform(dropmissing!(flatten(dropmissing(cells,:rc),[:rf,:rc]),:rf),:rf=>ByRow(x->x.r)=>:r)
+
+srfcells |> @vlplot(height=400,width=550,:bar,x={"r",bin={step=0.05,extent=[0,1]},title="r"},y={"count()",title="Number of Spatial RF"})
+srfcells |> @vlplot(height=400,width=550,mark={:line,size=3},x=:r,transform=[{
+                    sort=[{field=:r}],
+                    window=[{op="count",as="cum"}],
+                    frame=[nothing,0]
+                    }],y={"cum",title="Cumulated Number of Spatial RF"})
+
+odd(p) = p < 0.5 ? 4abs(p-0.25) : 4abs(p-0.75)
+onoff(p) = p < 0.5 ? 1 : -1
+srfcells = transform(filter!(r->r.r>=0.6,srfcells),[:rf=>ByRow(x->x.param[5]/x.param[3])=>:ar,
+                                                    :rf=>ByRow(x->4*x.param[5]*x.param[7])=>:nc,
+                                                    :rf=>ByRow(x->odd(x.param[8]))=>:odd,
+                                                    :rf=>ByRow(x->onoff(x.param[8]))=>:onoff,
+                                                    :rf=>ByRow(x->rad2deg(x.param[6]))=>:ori,
+                                                    :rf=>ByRow(x->4*x.param[3])=>:diameter,
+                                                    :rf=>ByRow(x->x.param[2])=>:cx,
+                                                    :rf=>ByRow(x->x.param[4])=>:cy,
+                                                    :rf=>ByRow(x->x.param[1])=>:amp])
 
 
-mmsrf = map(i->RGBAf0.(imresize(i,32,32)),msrf)
-Makie.scatter(SP[1,:],SP[2,:],SP[3,:],markersize=0.3,marker=mmsrf)
+srfcells |> [@vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Spatial RF"},color="rc");
+          @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Spatial RF"},color="rc")]
 
-p=Plots.plot(layout=(3,1),size=(400,3*250),legend=false)
-Plots.histogram!(p,subplot=1,SP[1,:],nbins=30,xlabel="σy/σx",ylabel="Number of Cells")
-Plots.histogram!(p,subplot=2,SP[2,:],nbins=28,xlabel="4σyf",ylabel="Number of Cells")
-Plots.histogram!(p,subplot=3,SP[3,:],nbins=45,xlabel="ω",ylabel="Number of Cells")
-p
+srfcells |> [@vlplot(:point,x={"ar",title="Aspect Ratio"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"});
+             @vlplot(:point,x={"nc",title="Number of Cycle"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"});
+             @vlplot(:point,x={"odd",title="Oddness"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"})]
 
-Y = deepcopy(SP)
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-Y2 = umap(Y, 2, n_neighbors=25, min_dist=0.02, n_epochs=500)'
-p = plotunitpositionimage(Y2,srfcells.rfimage)
-save("UMAP_rf.svg",p)
+srfcells |> [@vlplot(mark={:point,size=20},x={"ar",title="Aspect Ratio"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"});
+          @vlplot(mark={:point,size=20},x={"nc",title="Number of Cycle"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"});
+          @vlplot(mark={:point,size=20},x={"odd",title="Oddness"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"})]
+
+srfcells |> [@vlplot(:bar,x={"ar",bin={maxbins=20},title="Aspect Ratio"},y={"count()",title="Number of Spatial RF"},color={"layer"});
+             @vlplot(:bar,x={"nc",bin={maxbins=20},title="Number of Cycle"},y={"count()",title="Number of Spatial RF"},color={"layer"});
+             @vlplot(:bar,x={"odd",bin={maxbins=15},title="Oddness"},y={"count()",title="Number of Spatial RF"},color={"layer"})]
+
+srfcells |> [@vlplot(:bar,x={"ar",bin={maxbins=20},title="Aspect Ratio"},y={"count()",title="Number of Spatial RF"},color={"rc"});
+          @vlplot(:bar,x={"nc",bin={maxbins=20},title="Number of Cycle"},y={"count()",title="Number of Spatial RF"},color={"rc"});
+          @vlplot(:bar,x={"odd",bin={maxbins=15},title="Oddness"},y={"count()",title="Number of Spatial RF"},color={"rc"})]
+
+srfimage = rfcolorimage.(rfimage.(srfcells.rf,ppd=40,onlyrf=true))
+@manipulate for i in 1:length(srfimage)
+    imresize(srfimage[i],50,50)
+end
+
+
+Y = [srfcells.ar srfcells.nc srfcells.odd]
+foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
+cluid = x->begin
+    cs = dbscan(x,1,min_cluster_size=3)
+    cid = zeros(Int,size(x,2))
+    foreach(i->cid[cs[i].core_indices] .= i, 1:length(cs))
+    cid
+end
+@manipulate for i in 100:500, n in 5:50, d in 0.001:0.001:3
+    Y2 = umap(Y', 2, n_neighbors=n, min_dist=d, n_epochs=i)
+    Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:auto,stroke(0)),group=cluid(Y2),frame=:none,leg=:inline)
+end
+
+
+Y2 = umap(Y', 2, n_neighbors=10, min_dist=0.02, n_epochs=200)
+srfcells.sclu = cluid(Y2)
+Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:auto,stroke(0)),group=srfcells.sclu,frame=:none,leg=:inline)
+save("UMAP_srf.svg",plotunitpositionimage(Y2',srfimage))
+
+srfcells |> [@vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Cells"},color={"sclu:n"});
+          @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"sclu:n"})]
+
+## Relationship between Cone Spatial RF
+lm = innerjoin(filter(r->r.rc=='L',srfcells),filter(r->r.rc=='M',srfcells),on=:id,makeunique=true)
+lm = transform(lm,[:cx,:cx_1]=>ByRow((i,j)->i-j)=>:xdisplace,[:cy,:cy_1]=>ByRow((i,j)->i-j)=>:ydisplace)
+lm |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=4}]},x=:x,y=:x}, {:point,x={:ar,title="L"},y={:ar_1,title="M"}}],title="Aspect Ratio");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=5}]},x=:x,y=:x}, {:point,x={:nc,title="L"},y={:nc_1,title="M"}}],title="Number of Cycle");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:odd,title="L"},y={:odd_1,title="M"}}],title="Oddness")]
+
+lm |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=180}]},x=:x,y=:x}, {:point,x={:ori,title="L"},y={:ori_1,title="M"}}],title="Orientation");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=-0.3,y=0},{x=0.3,y=0}]},x=:x,y=:y},
+        {mark={:line,size=1,color="black"},data={values=[{x=0,y=-0.3},{x=0,y=0.3}]},x=:x,y=:y},{:point,x={:xdisplace,title="X(L-M)"},y={:ydisplace,title="Y(L-M)"}}],title="RF Displacement");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1.5}]},x=:x,y=:x}, {:point,x={:diameter,title="L"},y={:diameter_1,title="M"}}],title="Diameter")]
+
+ls = innerjoin(filter(r->r.rc=='L',srfcells),filter(r->r.rc=='S',srfcells),on=:id,makeunique=true)
+ls = transform(ls,[:cx,:cx_1]=>ByRow((i,j)->i-j)=>:xdisplace,[:cy,:cy_1]=>ByRow((i,j)->i-j)=>:ydisplace)
+ls |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=4}]},x=:x,y=:x}, {:point,x={:ar,title="L"},y={:ar_1,title="S"}}],title="Aspect Ratio");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=5}]},x=:x,y=:x}, {:point,x={:nc,title="L"},y={:nc_1,title="S"}}],title="Number of Cycle");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:odd,title="L"},y={:odd_1,title="S"}}],title="Oddness")]
+
+ls |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=180}]},x=:x,y=:x}, {:point,x={:ori,title="L"},y={:ori_1,title="S"}}],title="Orientation");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=-0.3,y=0},{x=0.3,y=0}]},x=:x,y=:y},
+        {mark={:line,size=1,color="black"},data={values=[{x=0,y=-0.3},{x=0,y=0.3}]},x=:x,y=:y},{:point,x={:xdisplace,title="X(L-S)"},y={:ydisplace,title="Y(L-S)"}}],title="RF Displacement");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1.5}]},x=:x,y=:x}, {:point,x={:diameter,title="L"},y={:diameter_1,title="S"}}],title="Diameter")]
+
+ms = innerjoin(filter(r->r.rc=='M',srfcells),filter(r->r.rc=='S',srfcells),on=:id,makeunique=true)
+ms = transform(ms,[:cx,:cx_1]=>ByRow((i,j)->i-j)=>:xdisplace,[:cy,:cy_1]=>ByRow((i,j)->i-j)=>:ydisplace)
+ms |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=4}]},x=:x,y=:x}, {:point,x={:ar,title="M"},y={:ar_1,title="S"}}],title="Aspect Ratio");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=5}]},x=:x,y=:x}, {:point,x={:nc,title="M"},y={:nc_1,title="S"}}],title="Number of Cycle");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:odd,title="M"},y={:odd_1,title="S"}}],title="Oddness")]
+
+ms |> [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=180}]},x=:x,y=:x}, {:point,x={:ori,title="M"},y={:ori_1,title="S"}}],title="Orientation");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=-0.3,y=0},{x=0.3,y=0}]},x=:x,y=:y},
+        {mark={:line,size=1,color="black"},data={values=[{x=0,y=-0.3},{x=0,y=0.3}]},x=:x,y=:y},{:point,x={:xdisplace,title="X(M-S)"},y={:ydisplace,title="Y(M-S)"}}],title="RF Displacement");
+        @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1.5}]},x=:x,y=:x}, {:point,x={:diameter,title="M"},y={:diameter_1,title="S"}}],title="Diameter")]
+
+
+## Cone Weights
+rcw = (c,a,s;cone='L')-> begin
+    ci = findfirst(c.==cone)
+    isnothing(ci) ? 0 : s[ci]*a[ci]/sum(a)
+end
+rcwcells = combine(groupby(filter(r->r.rc!='A',srfcells),:id),[:rc,:amp,:onoff]=>((c,a,s)->rcw(c,a,s,cone='L'))=>:wl,
+                                                            [:rc,:amp,:onoff]=>((c,a,s)->rcw(c,a,s,cone='M'))=>:wm,
+                                                            [:rc,:amp,:onoff]=>((c,a,s)->rcw(c,a,s,cone='S'))=>:ws)
+rcwcells = leftjoin(rcwcells,cells,on=:id)
+rcwcells |> @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0,y=1},{x=1,y=0}]},x=:x,y=:y},
+                            {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=1}]},x=:x,y=:y},
+                            {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=-1}]},x=:x,y=:y},
+                            {mark={:line,size=1,color="black"},data={values=[{x=0,y=-1},{x=1,y=0}]},x=:x,y=:y},
+                            {:point,x={:wl,title="L Cone Weight"},y={:wm,title="M Cone Weight"},color=:layer}])
+
 
 ## type of responsiveness
 CTYPES = sort(join.(sort.(combinations(['A','L','M','S']))))
@@ -235,17 +283,3 @@ Yg = crdf.ConeResponseType
 Z = Y[8:8:end,:]
 
 Plots.scatter(360(Zlm[1,:].-Zlm[2,:]),ones(20),nbins=30,projection=:polar)
-
-## Cone Weights
-W = Y[1:8:end,:]
-W ./= sum(W,dims=1)
-
-p = Makie.scatter(W[1,:],W[2,:],W[3,:],markersize=0.02,axis=(names=(axisnames=("L","M","S"),),),color=:crimson)
-Makie.save("test.png",p)
-
-
-foreach(i->Y[i,:]=zscore(Y[i,:]),1:size(Y,1))
-@manipulate for i in 200:1000, n in 5:60, d in 0.001:0.001:5
-    Y2 = umap(Y, 2, n_neighbors=n, min_dist=d, n_epochs=i)'
-    Plots.scatter(Y2[:,1], Y2[:,2], marker=(3,3,:circle,stroke(0)),group=Yg,frame=:none,leg=:inline)
-end

@@ -1,56 +1,37 @@
-using NeuroAnalysis,Statistics,FileIO,Plots,LightGraphs,MetaGraphs
+using NeuroAnalysis,Statistics,FileIO,Plots
+#,LightGraphs,MetaGraphs
 
 # Combine all circuit estimations of one recording site
 dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-resultsitedir = joinpath(resultroot,subject,siteid)
-layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
+siteresultdir = joinpath(resultroot,subject,siteid)
 
-# Merge Circuits
-function mergecircuit(resultsitedir;ischeck=true)
-    projs=[];eunits=[];iunits=[];projweights=[];unitids=[];unitpositions=[];unitgoods=[]
-    for (root,dirs,files) in walkdir(resultsitedir)
-        if "circuit.jld2" in files
-            c = load(joinpath(root,"circuit.jld2"))
-            if !isempty(c["projs"])
-                append!(projs,c["projs"]);append!(eunits,c["eunits"]);append!(iunits,c["iunits"]);append!(projweights,c["projweights"])
-                s = load(joinpath(root,"spike.jld2"),"spike")
-                push!(unitids,s["unitid"]);push!(unitpositions,s["unitposition"]);push!(unitgoods,s["unitgood"])
-            end
+## Merge Circuits
+function mergecircuit(indir;check=true,cfile="circuit.jld2")
+    projs=[];eunits=[];iunits=[];projweights=[]
+    for (root,dirs,files) in walkdir(indir)
+        if cfile in files
+            c = load(joinpath(root,cfile))
+            append!(projs,c["projs"]);append!(eunits,c["eunits"]);append!(iunits,c["iunits"]);append!(projweights,c["projweights"])
         end
     end
-    unitid=reduce(intersect,unitids)
-    uidi=indexin(unitid,unitids[1])
-    unitposition = unitpositions[1][uidi,:]
-    unitgood = unitgoods[1][uidi]
-
-    intersect!(eunits,eunits,unitid)
-    intersect!(iunits,iunits,unitid)
-    ui = indexin(unique(projs),projs)
-    projs=projs[ui];projweights=projweights[ui]
-    ivi=map(p->!isempty(setdiff(p,unitid)),projs)
-    deleteat!(projs,ivi);deleteat!(projweights,ivi)
-    if ischeck
+    if check
         projs,eunits,iunits,projweights=checkcircuit(projs,eunits,iunits,projweights)
     end
-    return projs,eunits,iunits,projweights,unitid,unitgood,unitposition
+    return (;projs,eunits,iunits,projweights)
 end
 
 
+circuit = mergecircuit(siteresultdir)
+save(joinpath(siteresultdir,"sitecircuit.jld2"),"circuit",circuit,"siteid",siteid)
 
-projs,eunits,iunits,projweights,unitid,unitgood,unitposition = mergecircuit(resultsitedir)
-
-
-
-# Layer Circuit Graph
+## Layer Circuit Graph
 plotcircuit(unitposition,unitid,projs,unitgood=unitgood,eunits=eunits,iunits=iunits,projweights=projweights,layer=layer,showmode=:circuit)
-foreach(i->savefig(joinpath(resultsitedir,"Layer_Circuit$i")),[".png",".svg"])
-save(joinpath(resultsitedir,"site_circuit.jld2"),"projs",projs,"eunits",eunits,"iunits",iunits,"projweights",projweights,"unitid",unitid,"unitgood",unitgood,"unitposition",unitposition)
-
+foreach(i->savefig(joinpath(siteresultdir,"Layer_Circuit$i")),[".png",".svg"])
 
 
 ## Graph Analysis
@@ -64,14 +45,6 @@ st = filter((k,v)->k in keys(ct),t)
 YAML.write_file("projs_staunit.yaml",st)
 
 neighbors(G,102)
-
-
-
-
-
-
-
-
 
 
 

@@ -5,12 +5,12 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-resultsitedir = joinpath(resultroot,subject,siteid)
+siteresultdir = joinpath(resultroot,subject,siteid)
 figfmt = [".png",".svg"]
 
-layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
+layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
 layer = Dict("WM"=>[0,0],"Out"=>[3800,3800])
 layer["1"]=[2160,1800]
 layer["2/3"]=[2670,1800]
@@ -27,6 +27,46 @@ layer["5"]=[1300,1800]
 layer["6"]=[1500,1800]
 
 
+df=DataFrame(power=[405.5,239.0,92.8,410.5,115.2,493.6],hue=repeat(["180","0"],outer=3),location=repeat(["P5","P4","P3"],inner=2))
+
+df |> @vlplot(:bar,x={:hue,axis={labelAngle=0}},y={:power,axis={grid=false}},column=:location,color={:hue,scale={range=["#FF5A81","#00A57E"]}})
+
+
+# P5
+mm=405.5
+lm=239.0
+# P4
+mm=92.8
+lm=410.5
+# P3
+mm = 115.2
+lm = 493.6
+
+lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_2","lfp.jld2"))
+freq=lfp["freq"]
+depths = -lfp["depth"].+layer["Out"][1]
+pc = lfp["cmpc"]
+mpc = pc["Color=[0.0, 0.6462, 0.4939, 1.0]"]
+lpc = pc["Color=[1.0, 0.3538, 0.5061, 1.0]"]
+li = 0 .<=depths.<=300
+fi = 30 .<=freq.<=100
+
+mm = sum(mpc[li,fi])
+lm = sum(lpc[li,fi])
+
+
+lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_3","lfp.jld2"))
+freq=lfp["freq"]
+depths = -lfp["depth"].+layer["Out"][1]
+pc = lfp["cmpc"]
+lmpc = pc["Color=[0.3672, 0.6168, 0.0, 1.0]"]
+spc = pc["Color=[0.6328, 0.3832, 1.0, 1.0]"]
+li = 100 .<=depths.<=400
+fi = 30 .<=freq.<=100
+
+lmm = mean(lmpc[li,fi])
+sm = mean(spc[li,fi])
+
 # testids = ["$(siteid)_00$i" for i in 0:3]
 # testn=length(testids)
 # testtitles = ["Eyeₚ","Eyeₙₚ","Eyes","EyeₚS"]
@@ -35,81 +75,76 @@ layer["6"]=[1500,1800]
 
 testids = ["$(siteid)_Flash2Color_$i" for i in 1:4]
 testn=length(testids)
-## All CSD
-csds = load.(joinpath.(resultsitedir,testids,"csd.jld2"))
-testlogs = ["$(i["log"])_$(i["color"])" for i in csds]
-fs=csds[1]["fs"]
-csddepths=csds[1]["depth"]
-csdtimes = csds[1]["time"]
+## All CSD and Power Contrast from LFP
+tlfps = load.(joinpath.(siteresultdir,testids,"lfp.jld2"))
+testlogs = ["$(i["log"])_$(i["color"])" for i in tlfps]
+fs=tlfps[1]["fs"]
+freq=tlfps[1]["freq"]
+lfpdepths=tlfps[1]["depth"]
+lfptimes = tlfps[1]["time"]
 
 csdb = [0 15]
 csdr = [15 100]
 csdbi = epoch2sampleindex(csdb,fs)
 csdri = epoch2sampleindex(csdr,fs)
-csdx = csdtimes[csdri]
-csdss = map(i->imfilter(stfilter(i["csd"],temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((1,1)))[:,csdri],csds)
-csdss1 = map(i->imfilter(stfilter(i["ccsd"][1],temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((1,1)))[:,csdri],csds)
-csdss2 = map(i->imfilter(stfilter(i["ccsd"][2],temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((1,1)))[:,csdri],csds)
-absmax(x) = mapreduce(i->maximum(abs.(i)),max,x)
-csdclim=max(absmax(csdss),absmax(csdss1),absmax(csdss2))
+csdx = lfptimes[csdri]
+csds = mapreduce((l,i)->["$(l)_$k"=>imfilter(stfilter(v,temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((1,1)))[:,csdri] for (k,v) in i["cmcsd"]],
+append!,testlogs,tlfps)
+absmax(x) = mapreduce(i->maximum(abs.(i.second)),max,x)
+csdclim=absmax(csds)
 
-## All Depth PSTH
-depthpsths = load.(joinpath.(resultsitedir,testids,"depthpsth.jld2"))
-psthtimes=depthpsths[1]["time"];bw = psthtimes[2]-psthtimes[1];psthdepths = depthpsths[1]["depth"];depthnunit=depthpsths[end]["n"]
+pcs = mapreduce((l,i)->["$(l)_$k"=>imfilter(v,Kernel.gaussian((1,1))) for (k,v) in i["cmpc"]],
+append!,testlogs,tlfps)
+pcclim=absmax(pcs)
+## All PSTH
+tpsths = load.(joinpath.(siteresultdir,testids,"depthpsth.jld2"))
+ffpsth = first(values(tpsths[1]["cmdepthpsth"]))
+psthtimes=ffpsth.x;bw = psthtimes[2]-psthtimes[1];psthdepths = ffpsth.y;psthdn=ffpsth.n
 
 psthb = [0 15]
 psthr = [15 100]
 psthbi = epoch2sampleindex(psthb,1/(bw*SecondPerUnit))
 psthri = epoch2sampleindex(psthr,1/(bw*SecondPerUnit))
 psthx = psthtimes[psthri]
-psthss = map(i->imfilter(stfilter(i["depthpsth"],temporaltype=:sub,ti=psthbi),Kernel.gaussian((1,1)))[:,psthri],depthpsths)
-psthss1 = map(i->imfilter(stfilter(i["cdepthpsth"][1],temporaltype=:sub,ti=psthbi),Kernel.gaussian((1,1)))[:,psthri],depthpsths)
-psthss2 = map(i->imfilter(stfilter(i["cdepthpsth"][2],temporaltype=:sub,ti=psthbi),Kernel.gaussian((1,1)))[:,psthri],depthpsths)
-psthclim=max(absmax(psthss),absmax(psthss1),absmax(psthss2))
-
-## All Power Spectrum
-pcs = load.(joinpath.(resultsitedir,testids,"powercontrast.jld2"))
-pcdepths=pcs[1]["depth"];freq=pcs[1]["freq"]
-
-pcss = map(i->imfilter(i["pcs"],Kernel.gaussian((1,1))),pcs)
-pcss1 = map(i->imfilter(i["cpcs"][1],Kernel.gaussian((1,1))),pcs)
-pcss2 = map(i->imfilter(i["cpcs"][2],Kernel.gaussian((1,1))),pcs)
-pcclim=max(absmax(pcss),absmax(pcss1),absmax(pcss2))
+psths = mapreduce((l,i)->["$(l)_$k"=>imfilter(stfilter(v.psth,temporaltype=:sub,ti=psthbi),Kernel.gaussian((1,1)))[:,psthri] for (k,v) in i["cmdepthpsth"]],
+append!,testlogs,tpsths)
+psthclim=absmax(psths)
 
 ## Set Layers
-plotlayer=(o...;w=150,h=700,csd=csdss1,psth=psthss1,pc=pcss1)->begin
-    p=plot(layout=(1,3testn),link=:y,legend=false,grid=false,size=(3testn*w,h))
-    for i in 1:testn
+plotlayer=(o...;w=230,h=510)->begin
+    cn = length(csds)
+    p=plot(layout=(3,cn),link=:y,legend=false,grid=false,size=(cn*w,3h))
+    for i in 1:cn
         yticks = i==1 ? true : false
         xlabel = i==1 ? "Time (ms)" : ""
         ylabel = i==1 ? "Depth (um)" : ""
-        heatmap!(p,subplot=i,csdx,csddepths,csd[i],color=:RdBu,clims=(-csdclim,csdclim),title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+        heatmap!(p,subplot=i,csdx,lfpdepths,csds[i].second,color=:RdBu,clims=(-csdclim,csdclim),title=csds[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
         if !isnothing(layer)
             hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
             annotations=[(csdx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
         end
     end
-    for i in 1:testn
-        yticks = false
+    for i in 1:cn
+        yticks = i==1 ? true : false
         xlabel = i==1 ? "Time (ms)" : ""
-        ylabel = ""
-        heatmap!(p,subplot=testn+i,psthx,psthdepths,psth[i],color=:coolwarm,clims=(-psthclim,psthclim),title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-        if i==testn
-            pn = maximum(psthx) .- depthnunit./maximum(depthnunit) .* maximum(psthx) .* 0.2
-            plot!(p,subplot=testn+i,pn,psthdepths,label="Number of Units",color=:seagreen,lw=0.5)
+        ylabel = i==1 ? "Depth (um)" : ""
+        heatmap!(p,subplot=cn+i,psthx,psthdepths,psths[i].second,color=:coolwarm,clims=(-psthclim,psthclim),title=psths[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+        if i==1
+            pn = maximum(psthx) .- psthdn./maximum(psthdn) .* maximum(psthx) .* 0.2
+            plot!(p,subplot=cn+i,pn,psthdepths,label="Number of Units",color=:seagreen,lw=0.5)
         end
         if !isnothing(layer)
-            hline!(p,subplot=testn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
+            hline!(p,subplot=cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
             annotations=[(psthx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
         end
     end
-    for i in 1:testn
-        yticks = false
+    for i in 1:cn
+        yticks = i==1 ? true : false
         xlabel = i==1 ? "Frequency (Hz)" : ""
-        ylabel = ""
-        heatmap!(p,subplot=2testn+i,freq,pcdepths,pc[i],color=:vik,clims=(-pcclim,pcclim),title=testlogs[i],titlefontsize=8,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+        ylabel = i==1 ? "Depth (um)" : ""
+        heatmap!(p,subplot=2cn+i,freq,lfpdepths,pcs[i].second,color=:vik,clims=(-pcclim,pcclim),title=pcs[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
         if !isnothing(layer)
-            hline!(p,subplot=2testn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
+            hline!(p,subplot=2cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
             annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
         end
     end
@@ -121,41 +156,11 @@ foreach(k->on(v->layer[k][1]=v,lw[k]),keys(lw))
 lp = map(plotlayer,values(lw)...)
 vbox(values(lw)...,lp)
 
-plotlayer(csd=csdss,psth=psthss,pc=pcss)
-foreach(ext->savefig(joinpath(resultsitedir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
-plotlayer(csd=csdss1,psth=psthss1,pc=pcss1)
-foreach(ext->savefig(joinpath(resultsitedir,"Cond_1_Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
-plotlayer(csd=csdss2,psth=psthss2,pc=pcss2)
-foreach(ext->savefig(joinpath(resultsitedir,"Cond_2_Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
+plotlayer()
+foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
 
 ## Finalize Layers
-save(joinpath(resultsitedir,"layer.jld2"),"layer",checklayer!(layer),"siteid",siteid)
-
-
-
-
-
-
-## Plot all unit position
-spikes = load.(joinpath.(resultsitedir,testids,"spike.jld2"),"spike")
-
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60),size=(testn*200,700))
-for i in 1:testn
-    yticks = i==1 ? true : false
-    xlabel = i==1 ? "Position_X (um)" : ""
-    ylabel = i==1 ? "Position_Y (um)" : ""
-    scatter!(p,subplot=i,spikes[i]["unitposition"][:,1],spikes[i]["unitposition"][:,2],color=map(i->i ? :darkgreen : :gray30,spikes[i]["unitgood"]),yticks=yticks,xlabel=xlabel,ylabel=ylabel,
-    alpha=0.5,markerstrokewidth=0,markersize=3,series_annotations=text.(spikes[i]["unitid"],2,:gray10,:center),title=testlogs[i],titlefontsize=8)
-    if !isnothing(layer)
-        hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray30,legend=false,
-        annotations=[(11,layer[k][1],text(k,4,:gray20,:bottom,:left)) for k in keys(layer)])
-    end
-end
-p
-foreach(i->savefig(joinpath(resultsitedir,"Layer_UnitPosition$i")),[".png",".svg"])
-
-
-
+save(joinpath(siteresultdir,"layer.jld2"),"layer",checklayer!(layer),"siteid",siteid)
 
 # # earliest response should be due to LGN M,P input to 4Ca,4Cb
 # ln = ["4Cb","4Ca","4B","4A","2/3","Out"]
@@ -195,56 +200,3 @@ foreach(i->savefig(joinpath(resultsitedir,"Layer_UnitPosition$i")),[".png",".svg
 # hline!(peaks,label="PSTH Peak")
 # hline!(bases[:,1],label="PSTH Low Border")
 # hline!(bases[:,2],label="PSTH High Border")
-
-
-
-
-## Tuning Properties in layers
-layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
-# testids = ["$(siteid)_$(lpad(i,3,'0'))" for i in [8,12,13,14]]
-
-testids = ["$(siteid)_OriSF_$i" for i in 1:5]
-testn=length(testids)
-ds = load.(joinpath.(resultsitedir,testids,"factorresponse.jld2"))
-testtitles = ["$(i["color"])" for i in ds]
-spikes = load.(joinpath.(resultsitedir,testids,"spike.jld2"),"spike")
-
-f = :Ori
-p=plot(layout=(1,testn),link=:all,legend=false,grid=false,xlims=(10,60))
-for i in 1:testn
-    vi = spikes[i]["unitgood"].&ds[i]["responsive"].&ds[i]["modulative"]
-    if f in [:Ori,:Ori_Final]
-        color = map((i,j)->j ? HSV(i.oo,1-i.ocv/1.5,1) : RGBA(0.5,0.5,0.5,0.1),ds[i]["factorstats"][:Ori_Final],vi)
-    elseif f==:Dir
-        color = map((i,j)->j ? HSV(i.od,1-i.dcv/1.5,1) : RGBA(0.5,0.5,0.5,0.1),ds[i]["factorstats"][:Ori_Final],vi)
-    end
-    scatter!(p,subplot=i,spikes[i]["unitposition"][:,1],spikes[i]["unitposition"][:,2],color=color,markerstrokewidth=0,markersize=2,title=testtitles[i],titlefontsize=8)
-    if !isnothing(layer)
-        hline!(p,subplot=i,[layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(17,layer[k][1],text(k,5,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
-    end
-end
-p
-foreach(i->savefig(joinpath(resultsitedir,"Layer_UnitPosition_$(f)_Tuning$i")),[".png",".svg"])
-
-## Collect layers into cells
-function collectlayer(indir,cells;lfile="layer.jld2")
-    ls = Dict()
-    for (root,dirs,files) in walkdir(indir)
-        if lfile in files
-            l = load(joinpath(root,lfile))
-            ls[l["siteid"]] = l["layer"]
-        end
-    end
-    todepth = (s,p) -> begin
-        haskey(ls,s) || return missing
-        return [p[1] -p[2] + ls[s]["Out"][1]]
-    end
-    tolayer = (s,p) -> begin
-        haskey(ls,s) || return missing
-        return assignlayer(p[2],ls[s])
-    end
-    return [cells select(cells,[[:site,:position] => ByRow(todepth) => :depth, [:site,:position] => ByRow(tolayer) => :layer])]
-end
-
-cells = collectlayer(joinpath(resultroot,"AF5"),cells)
-save(joinpath(resultroot,"cells.jld2"),"cells",cells)

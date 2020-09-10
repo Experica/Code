@@ -5,30 +5,34 @@ dataroot = "../Data"
 dataexportroot = "../DataExport"
 resultroot = "../Result"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
+subject = "AF5";recordsession = "HLV1";recordsite = "ODL5"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-resultsitedir = joinpath(resultroot,subject,siteid)
+siteresultdir = joinpath(resultroot,subject,siteid)
 figfmt = [".png",".svg"]
-
-layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
 
 testids = ["$(siteid)_Color_$i" for i in 1:2]
 testn=length(testids)
-
 ## All factor response
-frs = load.(joinpath.(resultsitedir,testids,"factorresponse.jld2"))
-testlogs = ["$(i["log"])_$(i["color"])" for i in frs]
-cms = [occursin("DKL",i) ? cgrad(ColorMaps["dkl_mcchue_l0"].colors) : cgrad(ColorMaps["hsl_mshue_l0.4"].colors)  for i in testlogs]
+tfrs = load.(joinpath.(siteresultdir,testids,"factorresponse.jld2"))
+testlogs = ["$(i["log"])_$(i["color"])" for i in tfrs]
 
-vus = map(i->i["responsive"].&i["modulative"].&i["unitgood"].&i["enoughresponse"],frs)
+tfa = map(i->i["fa"][:HueAngle],tfrs)
+tvui = map(i->i["responsive"].&i["modulative"].&i["enoughresponse"],tfrs)
+tvuid = map((i,j)->i["unitid"][j],tfrs,tvui)
+tfms = map((i,j)->i["fms"][j],tfrs,tvui)
+tfses = map((i,j)->i["fses"][j],tfrs,tvui)
+tfrf = map((i,j)->i["factorresponsefeature"][:HueAngle][j],tfrs,tvui)
+
+save(joinpath(siteresultdir,"colordataset.jld2"),"log",testlogs,"uid",tvuid,"fl",tfa,"frf",tfrf,"fm",tfms,"fse",tfses,"siteid",siteid)
+
+## plot
+spks = load.(joinpath.(siteresultdir,testids,"spike.jld2"),"spike")
+upos = map((s,v)->s["unitposition"][v,:],spks,vus)
+layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
+tcms = [contains(i,"DKL") ? cgrad(ColorMaps["dkl_mcchue_l0"].colors) : cgrad(ColorMaps["hsl_mshue_l0.4"].colors)  for i in testlogs]
 ohs = map((i,v)->map(j->j.oh,i["factorresponsefeature"][:HueAngle][v]),frs,vus)
 hcvs = map((i,v)->map(j->j.hcv,i["factorresponsefeature"][:HueAngle][v]),frs,vus)
 
-## All spike
-spks = load.(joinpath.(resultsitedir,testids,"spike.jld2"),"spike")
-upos = map((s,v)->s["unitposition"][v,:],spks,vus)
-
-## plot
 plothuehist=(;w=700,h=700)->begin
     p=plot(layout=(1,testn),link=:none,legend=false,grid=true,size=(testn*w,h))
     for i in 1:testn
@@ -42,7 +46,7 @@ plothuehist=(;w=700,h=700)->begin
 end
 
 plothuehist()
-foreach(ext->savefig(joinpath(resultsitedir,"OptHueHist$ext")),figfmt)
+foreach(ext->savefig(joinpath(siteresultdir,"OptHueHist$ext")),figfmt)
 
 plothueposition=(;w=800,h=700)->begin
     p=plot(layout=(1,testn),legend=false,grid=false,size=(testn*w,h))
@@ -60,4 +64,4 @@ plothueposition=(;w=800,h=700)->begin
 end
 
 plothueposition()
-foreach(ext->savefig(joinpath(resultsitedir,"OptHue_UnitPosition$ext")),figfmt)
+foreach(ext->savefig(joinpath(siteresultdir,"OptHue_UnitPosition$ext")),figfmt)
