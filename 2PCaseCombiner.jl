@@ -1,11 +1,17 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,Query,DataStructures, HypothesisTests, StatsFuns, Random
 # Expt info
 dataExportFolder = "O:\\AF4\\COFD_manuscript"
-animalId = ["AE6","AE7","AF4"]
+animalId = ["AE6","AE7","AE8","AE9","AF3","AF4","AF5"]
 Manu_title = "Functional Organization for Color Appearance Mechanisms in Primary Visual Cortex"
 oriaucThres = 0.7
 hueaucThres = 0.8
 
+resultpath=matchfile(Regex("_Summary.jld2"), dir=dataExportFolder,join=true)
+if length(resultpath) > 0
+    result=load(resultpath[1], "result")
+else
+    result=Dict()
+end
 oripath=matchfile(Regex("oriData.csv"), dir=dataExportFolder,join=true)
 huepath=matchfile(Regex("hueData.csv"), dir=dataExportFolder,join=true)
 stapath=matchfile(Regex("staData.csv"), dir=dataExportFolder,join=true)
@@ -24,7 +30,7 @@ stapath=matchfile(Regex("staData.csv"), dir=dataExportFolder,join=true)
 # CSV.write(joinpath(dataExportFolder,join(["AF6_hueData.csv"])), aa)
 
 ## Summary of cell Num in all cases
-oriData=DataFrame(); hueData=DataFrame(); staData=DataFrame();result=Dict();
+oriData=DataFrame(); hueData=DataFrame(); staData=DataFrame();
 for i=1:size(oripath,1)
     append!(oriData, CSV.read(oripath[i]))
 end
@@ -45,23 +51,23 @@ result["title"] = Manu_title
 result["animalId"] = animalId
 result["oriaucThres"] = oriaucThres
 result["hueaucThres"] = hueaucThres
-result["oripath"] = oripath
-result["huepath"] = huepath
-result["stapath"] = stapath
-
-result["oriData"] = oriData
-result["hueData"] = hueData
-result["staData"] = staData
-
-result["visRespNum"] = sum(visResp)
-result["oriNum"] = sum(oriSlec)
-result["hueNum"] = sum(hueSlec)
-result["AllstaNum"] = sum(staSig)
-result["LstaNum"] = sum(staData.isl)
-result["MstaNum"] = sum(staData.ism)
-result["SstaNum"] = sum(staData.iss)
-result["AstaNum"] = sum(staData.isachro)
-result["staProportion"] = sum(staSig) / sum(visResp)
+result["rawData"]=Dict()
+result["rawData"]["oripath"] = oripath
+result["rawData"]["huepath"] = huepath
+result["rawData"]["stapath"] = stapath
+result["rawData"]["oriData"] = oriData
+result["rawData"]["hueData"] = hueData
+result["rawData"]["staData"] = staData
+result["cellNumSum"]=Dict()
+result["cellNumSum"]["visRespNum"] = sum(visResp)
+result["cellNumSum"]["oriNum"] = sum(oriSlec)
+result["cellNumSum"]["hueNum"] = sum(hueSlec)
+result["cellNumSum"]["AllstaNum"] = sum(staSig)
+result["cellNumSum"]["LstaNum"] = sum(staData.isl)
+result["cellNumSum"]["MstaNum"] = sum(staData.ism)
+result["cellNumSum"]["SstaNum"] = sum(staData.iss)
+result["cellNumSum"]["AstaNum"] = sum(staData.isachro)
+result["cellNumSum"]["staProportion"] = sum(staSig) / sum(visResp)
 
 ## Cell Summary in DKL cases
 DKLhuepath = matchfile(Regex("AF4_[A-Za-z0-9]*_hueData.csv"), dir=dataExportFolder,join=true)
@@ -81,11 +87,12 @@ DKLhueInd = ((DKLhueData.hueaxauc.>hueaucThres) .| (DKLhueData.huediauc.>hueaucT
 DKLhuecell = DKLhueData.maxhue[DKLhueInd]
 SaxisDKL = ((DKLhueData.hueaxauc.>hueaucThres) .| (DKLhueData.huediauc.>hueaucThres)) .& DKLvisResp .& ((DKLhueData.maxhue.== 90) .| (DKLhueData.maxhue.==270))
 
-result["DKLhueData"] = DKLhueData
-result["OridklData"] = OridklData
-result["DKLcellNum"] = sum(DKLhueInd)
-result["SaxisNum"] = sum(SaxisDKL)
-result["SaxiscellPro"] = sum(SaxisDKL) / sum(DKLhueInd)
+result["rawData"]["DKLhueData"] = DKLhueData
+result["rawData"]["OridklData"] = OridklData
+result["DKLcellNumSum"]=Dict()
+result["DKLcellNumSum"]["DKLcellNum"] = sum(DKLhueInd)
+result["DKLcellNumSum"]["SaxisNum"] = sum(SaxisDKL)
+result["DKLcellNumSum"]["SaxiscellPro"] = sum(SaxisDKL) / sum(DKLhueInd)
 
 ## AF5 Cone correlation bin proportion
 AF5matpath = matchfile(Regex("AF5_Left_V1_OnOff Relation_result.mat"), dir=dataExportFolder,join=true)
@@ -98,7 +105,7 @@ pLM = AF5["result"]["pLM"]
 # plot()
 # heatmap!(pLM)
 # proportion of pixels in LM opponent quadrants.
-result["AF5V1OnOffResltion"] = AF5
+result["rawData"]["AF5V1OnOffResltion"] = AF5
 result["AF5LMpixelprop"] = sum(pLM[26:50, 1:25]) + sum(pLM[1:25,26:50])
 
 ## AF4 2P cells within ISI COFD distribution
@@ -128,16 +135,17 @@ MonLoffCell_Mhue = sum((120 .<= MonLoffCell_hue .<= 240))
 # sum(hueselective)
 # sum(30 .<= LonMoffCell .<= 150)
 
-result["AF4_2Pcell_ISICOFD_distribution"] = cell_COFD
-result["AF4_2Pcell_ISICOFD_LMquaCellProportion"] = sum(LMoppoQuaInd) / sum(hueCellInCOFDInd)
-result["LonMoffCell_hue"] = length(LonMoffCell_hue)
-result["MonLoffCell_hue"] = length(MonLoffCell_hue)
-result["LonMoffCell_Lhue"] = LonMoffCell_Lhue
-result["LonMoffCell_Mhue"] = LonMoffCell_Mhue
-result["MonLoffCell_Mhue"] = MonLoffCell_Mhue
-result["MonLoffCell_Lhue"] = MonLoffCell_Lhue
+result["rawData"]["AF4_2Pcell_ISICOFD_distribution"] = cell_COFD
+result["AF4_2Pcell_ISICOFD"]=Dict()
+result["AF4_2Pcell_ISICOFD"]["AF4_2Pcell_ISICOFD_LMquaCellProportion"] = sum(LMoppoQuaInd) / sum(hueCellInCOFDInd)
+result["AF4_2Pcell_ISICOFD"]["LonMoffCell_hue"] = length(LonMoffCell_hue)
+result["AF4_2Pcell_ISICOFD"]["MonLoffCell_hue"] = length(MonLoffCell_hue)
+result["AF4_2Pcell_ISICOFD"]["LonMoffCell_Lhue"] = LonMoffCell_Lhue
+result["AF4_2Pcell_ISICOFD"]["LonMoffCell_Mhue"] = LonMoffCell_Mhue
+result["AF4_2Pcell_ISICOFD"]["MonLoffCell_Mhue"] = MonLoffCell_Mhue
+result["AF4_2Pcell_ISICOFD"]["MonLoffCell_Lhue"] = MonLoffCell_Lhue
 
-result["LonMoffCell_Lhue"] / result["LonMoffCell_hue"]
+# result["LonMoffCell_Lhue"] / result["LonMoffCell_hue"]
 LonMoffCell_Lhue/length(LonMoffCell_hue)
 LonMoffCell_Mhue/length(LonMoffCell_hue)
 
@@ -158,24 +166,25 @@ LonMoff_tlt_Ind = (STADKLData.lcw .> 0) .& (STADKLData.mcw .< 0)
 LonMoff_hue_Ind = LonMoff_tlt_Ind .& (STADKLData.HueSelec .== true)
 LonMoff_Lhue_Ind = LonMoff_hue_Ind .& ((0 .<= STADKLData.maxhue .<= 60) .| (300 .<= STADKLData.maxhue .<= 330))
 
-result["STAcellDKLhuePrefer"] = STADKLData
-result["LhueCellNum_inLonMoff"] = sum(LonMoff_Lhue_Ind)
-result["LonMoffQuaTotalCellNum"] = sum(LonMoff_tlt_Ind)
-result["LonMoffQuaHueCellNum"] = sum(LonMoff_hue_Ind)
+result["rawData"]["STAcellDKLhuePrefer"] = STADKLData
+result["AF4_STA_Diamond"]=Dict()
+result["AF4_STA_Diamond"]["LhueCellNum_inLonMoff"] = sum(LonMoff_Lhue_Ind)
+result["AF4_STA_Diamond"]["LonMoffQuaTotalCellNum"] = sum(LonMoff_tlt_Ind)
+result["AF4_STA_Diamond"]["LonMoffQuaHueCellNum"] = sum(LonMoff_hue_Ind)
 
 MonLoff_tlt_Ind = (STADKLData.lcw .< 0) .& (STADKLData.mcw .> 0)
 MonLoff_hue_Ind = MonLoff_tlt_Ind .& (STADKLData.HueSelec .== true)
 MonLoff_Mhue_Ind = MonLoff_hue_Ind .& (120 .<= STADKLData.maxhue .<= 240)
 
-result["MhueCellNum_inMonLoff"] = sum(MonLoff_Mhue_Ind)
-result["MonLoffQuaTotalCellNum"] = sum(MonLoff_tlt_Ind)
-result["MonLoffQuaHueCellNum"] = sum(MonLoff_hue_Ind)
+result["AF4_STA_Diamond"]["MhueCellNum_inMonLoff"] = sum(MonLoff_Mhue_Ind)
+result["AF4_STA_Diamond"]["MonLoffQuaTotalCellNum"] = sum(MonLoff_tlt_Ind)
+result["AF4_STA_Diamond"]["MonLoffQuaHueCellNum"] = sum(MonLoff_hue_Ind)
 
 # result["LhueCellNum_inLonMoff"]/result["LonMoffQuaTotalCellNum"]
 # result["MhueCellNum_inMonLoff"]/result["MonLoffQuaTotalCellNum"]
 
-result["LhueCellNum_inLonMoff"]/result["LonMoffQuaHueCellNum"]
-result["MhueCellNum_inMonLoff"]/result["MonLoffQuaHueCellNum"]
+# result["LhueCellNum_inLonMoff"]/result["LonMoffQuaHueCellNum"]
+# result["MhueCellNum_inMonLoff"]/result["MonLoffQuaHueCellNum"]
 
 ## S cone dominant cells' hue preference
 DKLstapath = matchfile(Regex("AF4_[A-Za-z0-9]*_thres0.25_staData.csv"), dir=dataExportFolder,join=true)
@@ -188,10 +197,10 @@ for i=1:size(DKLSpath,1)
     append!(DKLSData, CSV.read(DKLSpath[i]))
 end
 
-result["DKLstaData"] = DKLstaData
-result["DKLSData"] = DKLSData
+result["rawData"]["DKLstaData"] = DKLstaData
+result["rawData"]["DKLSData"] = DKLSData
 
-DKLhueData = result["DKLhueData"]
+DKLhueData = result["rawData"]["DKLhueData"]
 # SonId = DKLstaData.cellId[DKLstaData.iss .& (DKLstaData.scwmn.>= 0)]
 # SoffId = DKLstaData.cellId[DKLstaData.iss .& (DKLstaData.scwmn.< 0)]
 sum(DKLstaData.iscone)
@@ -225,10 +234,11 @@ nonSDKLmaxHue = DKLhueData.maxhue[nonSDKLInd]
 SDKLmaxHue = DKLhueData.maxhue[SDKLInd]
 SonDKLcell = DKLSData.maxhue[DKLSData.sign .== 1]
 SoffDKLcell = DKLSData.maxhue[DKLSData.sign .== -1]
-result["SonDKLNum"] = length(SonDKLcell)
-result["SoffDKLNum"] = length(SoffDKLcell)
-result["nonSDKLmaxHue"] = nonSDKLmaxHue
-result["SDKLmaxHue"] = SDKLmaxHue
+result["AF4_Scone_DKL"]=Dict()
+result["AF4_Scone_DKL"]["SonDKLNum"] = length(SonDKLcell)
+result["AF4_Scone_DKL"]["SoffDKLNum"] = length(SoffDKLcell)
+result["AF4_Scone_DKL"]["nonSDKLmaxHue"] = nonSDKLmaxHue
+result["AF4_Scone_DKL"]["SDKLmaxHue"] = SDKLmaxHue
 # length(nonSDKLmaxHue)
 # a=60
 # b=120
@@ -244,10 +254,10 @@ SdirNonS = sum(nonSDKLmaxHue .== 90)
 FisherExactTest(SdirSon, length(SonDKLcell), SdirNonS, length(nonSDKLmaxHue))
 # SdirSon/length(SonDKLcell)
 # SdirNonS/length(nonSDKLmaxHue)
-result["SdirSon"] = SdirSon
-result["SdirNonS"] = SdirNonS
+result["AF4_Scone_DKL"]["SdirSon"] = SdirSon
+result["AF4_Scone_DKL"]["SdirNonS"] = SdirNonS
 
-result["nonSDKLmaxHue"] = length(nonSDKLmaxHue)
+result["AF4_Scone_DKL"]["nonSDKLmaxHue"] = length(nonSDKLmaxHue)
 ## 270 in Soff vs. 270 in nonS cells
 
 # SoffdirSoff = sum(c .<= SoffDKLcell .<= d)
@@ -271,8 +281,8 @@ FisherExactTest(SoffdirSoff, length(SoffDKLcell), SoffdirNonS, length(nonSDKLmax
 # b=120
 # c=240
 # d=300
-result["SoffdirSoff"] = SoffdirSoff
-result["SoffdirNonS"] = SoffdirNonS
+result["AF4_Scone_DKL"]["SoffdirSoff"] = SoffdirSoff
+result["AF4_Scone_DKL"]["SoffdirNonS"] = SoffdirNonS
 
 ## 90 in Son vs. 90 in Soff cells
 
@@ -285,7 +295,7 @@ FisherExactTest(SdirSon, length(SonDKLcell), SdirSoff, length(SoffDKLcell))
 
 # SoffSon = sum(c .<= SonDKLcell .<= d)
 # SoffSoff = sum(c .<= SoffDKLcell .<= d)
-result["SdirSoff"] = SdirSoff
+result["AF4_Scone_DKL"]["SdirSoff"] = SdirSoff
 ## 270 in Son vs. 270 in Soff cells
 
 SoffdirSon = sum(SonDKLcell .== 270)
@@ -306,7 +316,69 @@ FisherExactTest(SoffdirSon, length(SonDKLcell), SoffdirSoff, length(SoffDKLcell)
 #
 # FisherExactTest(Int64.(round.((sum(SonDisNorm[2:6]),sum(SonDisNorm[8:12]),sum(SoffDisNorm[2:6]),sum(SoffDisNorm[8:12])))))
 # FisherExactTest(9,4,4,9)
-result["SoffdirSon"] = SoffdirSon
-result["SoffdirSoff"] = SoffdirSoff
+result["AF4_Scone_DKL"]["SoffdirSon"] = SoffdirSon
+result["AF4_Scone_DKL"]["SoffdirSoff"] = SoffdirSoff
+
+## CO intensity in COFD vs nonCOFD
+
+COpath = matchfile(Regex("V1_ConeNoncone_result.mat"), dir=dataExportFolder,join=true)
+COintensity=Dict(); COFDdistr=[]; nonCOFDdistr=[]; COFDmedInt=[]; nonCOFDmedInt=[];
+stats=DataFrame(); ani=Any[]; tests=Any[];pv=[];
+
+for i = 1:length(COpath)
+    # i=1
+    case_result = matread(COpath[i])["result"]
+    cofd = dropdims(case_result["cone"],dims=1)
+    noncofd = dropdims(case_result["noncone"],dims=1)
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(tests,MannWhitneyUTest(cofd,noncofd))
+    push!(pv, pvalue(MannWhitneyUTest(cofd,noncofd)))
+    push!(COFDdistr,cofd)
+    push!(nonCOFDdistr, noncofd)
+    push!(COFDmedInt,median(case_result["cone"],dims=2))
+    push!(nonCOFDmedInt, median(case_result["noncone"],dims=2))
+end
+
+stats.animal=ani
+stats.test=tests
+stats.pvalue=pv
+stats.COFDIntensityMedian = COFDmedInt
+stats.nonCOFDIntensityMedian = nonCOFDmedInt
+COintensity["individualcase"]=stats
+cofd=dropdims(reduce(hcat,COFDmedInt),dims=1)
+noncofd=dropdims(reduce(hcat,nonCOFDmedInt),dims=1)
+COintensity["allcase"]=SignTest(cofd,noncofd)
+result["COintensity"] = COintensity
+
+## CO intensity in COFD subregions
+
+COpath = matchfile(Regex("V1_Allcone_result.mat"), dir=dataExportFolder,join=true)
+Lon=[]; Loff=[]; Mon=[]; Moff=[]; Son=[]; Soff=[]; Aon=[]; Aoff=[];
+ani=[]; tests=Any[]; pv=[];
+
+for i = 1:length(COpath)
+    # i=1
+    case_result = matread(COpath[i])["result"]
+    lon = dropdims(case_result["Liso_on"],dims=2)
+    loff = dropdims(case_result["Liso_off"],dims=2)
+    mon = dropdims(case_result["Miso_on"],dims=2)
+    moff = dropdims(case_result["Miso_off"],dims=2)
+    son = dropdims(case_result["Siso_on"],dims=2)
+    soff = dropdims(case_result["Siso_off"],dims=2)
+    aon = dropdims(case_result["WB_on"],dims=2)
+    aoff = dropdims(case_result["WB_off"],dims=2)
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(tests,MannWhitneyUTest(cofd,noncofd))
+    push!(pv, pvalue(MannWhitneyUTest(cofd,noncofd)))
+    push!(COFDdistr,cofd)
+    push!(nonCOFDdistr, noncofd)
+    push!(COFDmedInt,median(case_result["cone"],dims=2))
+    push!(nonCOFDmedInt, median(case_result["noncone"],dims=2))
+end
+case_result = matread(COpath[1])["result"]
+lon = dropdims(case_result["Liso_on"],dims=2)
+loff = dropdims(case_result["Liso_off"],dims=2)
+vcat(lon, loff)
+
 
 save(joinpath(dataExportFolder,join([Manu_title,"_cellNum_Summary.jld2"])),"result",result)

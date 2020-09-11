@@ -262,16 +262,30 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
         end
 
         tempDF=DataFrame(ufs[:SpatialFreq])
-        result.fitsf = tempDF.osf
+        result.osf = tempDF.osf  # preferred sf from weighted average
+        result.maxsf = tempDF.maxsf
+        result.maxsfr = tempDF.maxr
+        result.fitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+        result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+        result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+        result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+    
         tempDF=DataFrame(ufs[:Dir])
         result.cvdir = tempDF.od   # preferred direction from cv
         result.dircv = tempDF.dcv
         result.fitdir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
-        result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.dsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.dsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+        result.dhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+        result.gvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
         result.cvori = tempDF.oo  # preferred orientation from cv
         result.oricv = tempDF.ocv
-        result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from cv
-        result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+        result.osi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.osi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+        result.ohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+        result.vmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
 
         # Plot tuning curve of each factor of each cell
         if plot
