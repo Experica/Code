@@ -322,63 +322,107 @@ result["AF4_Scone_DKL"]["SoffdirSoff"] = SoffdirSoff
 ## CO intensity in COFD vs nonCOFD
 
 COpath = matchfile(Regex("V1_ConeNoncone_result.mat"), dir=dataExportFolder,join=true)
-COintensity=Dict(); COFDdistr=[]; nonCOFDdistr=[]; COFDmedInt=[]; nonCOFDmedInt=[];
-stats=DataFrame(); ani=Any[]; tests=Any[];pv=[];
+COpath2 = matchfile(Regex("V1_COintensity_stats.mat"), dir=dataExportFolder,join=true)
+COintensity=Dict(); COFDmedDistr=[]; COFDmedInt=[]; nonCOFDmedInt=[];
+allCOFDstats=DataFrame(); ani=Any[]; tests=Any[];pv=[];
 
 for i = 1:length(COpath)
     # i=1
     case_result = matread(COpath[i])["result"]
-    cofd = dropdims(case_result["cone"],dims=1)
-    noncofd = dropdims(case_result["noncone"],dims=1)
+    case_result2 = matread(COpath2[i])["result"]
+    cofd = filter!(!isnan, dropdims(case_result2["LMS"],dims=2))
+    noncofd = median(dropdims(case_result["noncone"],dims=1)) .* ones(size(cofd))
     push!(ani,split(COpath[i],"\\")[4])
-    push!(tests,MannWhitneyUTest(cofd,noncofd))
-    push!(pv, pvalue(MannWhitneyUTest(cofd,noncofd)))
-    push!(COFDdistr,cofd)
-    push!(nonCOFDdistr, noncofd)
+    push!(tests,SignedRankTest(cofd,noncofd))
+    # SignTest(cofd,noncofd)
+    # push!(tests,MannWhitneyUTest(cofd,noncofd))
+    push!(pv, pvalue(SignedRankTest(cofd,noncofd)))
+    push!(COFDmedDistr,cofd)
     push!(COFDmedInt,median(case_result["cone"],dims=2))
     push!(nonCOFDmedInt, median(case_result["noncone"],dims=2))
 end
 
-stats.animal=ani
-stats.test=tests
-stats.pvalue=pv
-stats.COFDIntensityMedian = COFDmedInt
-stats.nonCOFDIntensityMedian = nonCOFDmedInt
-COintensity["individualcase"]=stats
+allCOFDstats.animal=ani
+allCOFDstats.COFDnonCOFDtest=tests
+allCOFDstats.pvalue=pv
+allCOFDstats.COFDmedDistr = COFDmedDistr
+allCOFDstats.COFDIntensityMedian = COFDmedInt
+allCOFDstats.nonCOFDIntensityMedian = nonCOFDmedInt
+COintensity["individualCaseAllCOFD"]=allCOFDstats
 cofd=dropdims(reduce(hcat,COFDmedInt),dims=1)
 noncofd=dropdims(reduce(hcat,nonCOFDmedInt),dims=1)
 COintensity["allcase"]=SignTest(cofd,noncofd)
-result["COintensity"] = COintensity
 
+# show(allCOFDstats, allrows = true, allcols = true)
 ## CO intensity in COFD subregions
 
-COpath = matchfile(Regex("V1_Allcone_result.mat"), dir=dataExportFolder,join=true)
+COpath2 = matchfile(Regex("V1_COintensity_stats.mat"), dir=dataExportFolder,join=true)
 Lon=[]; Loff=[]; Mon=[]; Moff=[]; Son=[]; Soff=[]; Aon=[]; Aoff=[];
-ani=[]; tests=Any[]; pv=[];
+COFDsubRegstats=DataFrame(); ani=[]; testname=Any[]; tests=Any[]; pv=[];
 
-for i = 1:length(COpath)
-    # i=1
-    case_result = matread(COpath[i])["result"]
-    lon = dropdims(case_result["Liso_on"],dims=2)
-    loff = dropdims(case_result["Liso_off"],dims=2)
-    mon = dropdims(case_result["Miso_on"],dims=2)
-    moff = dropdims(case_result["Miso_off"],dims=2)
-    son = dropdims(case_result["Siso_on"],dims=2)
-    soff = dropdims(case_result["Siso_off"],dims=2)
-    aon = dropdims(case_result["WB_on"],dims=2)
-    aoff = dropdims(case_result["WB_off"],dims=2)
+for i = 2:length(COpath2)
+    # i=2
+    case_result = matread(COpath2[i])["result"]
+    lon = filter!(!isnan,dropdims(case_result["Lon"],dims=2))
+    loff = filter!(!isnan,dropdims(case_result["Loff"],dims=2))
+    mon = filter!(!isnan,dropdims(case_result["Mon"],dims=2))
+    moff = filter!(!isnan,dropdims(case_result["Moff"],dims=2))
+    son = filter!(!isnan,dropdims(case_result["Son"],dims=2))
+    soff = filter!(!isnan,dropdims(case_result["Soff"],dims=2))
+    # aon = filter!(!isnan,dropdims(case_result["WB_on"],dims=2))
+    # aoff = filter!(!isnan,dropdims(case_result["WB_off"],dims=2))
+    L = filter!(!isnan,dropdims(case_result["Liso"],dims=2))
+    M = filter!(!isnan,dropdims(case_result["Miso"],dims=2))
+    S = filter!(!isnan,dropdims(case_result["Siso"],dims=2))
     push!(ani,split(COpath[i],"\\")[4])
-    push!(tests,MannWhitneyUTest(cofd,noncofd))
-    push!(pv, pvalue(MannWhitneyUTest(cofd,noncofd)))
-    push!(COFDdistr,cofd)
-    push!(nonCOFDdistr, noncofd)
-    push!(COFDmedInt,median(case_result["cone"],dims=2))
-    push!(nonCOFDmedInt, median(case_result["noncone"],dims=2))
+    push!(testname,"LM")
+    push!(pv,pvalue(MannWhitneyUTest(L,M)))
+    push!(tests,MannWhitneyUTest(L,M))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SL")
+    push!(pv,pvalue(MannWhitneyUTest(S,L)))
+    push!(tests,MannWhitneyUTest(S,L))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SM")
+    push!(pv,pvalue(MannWhitneyUTest(S,M)))
+    push!(tests,MannWhitneyUTest(S,M))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"LonLoff")
+    push!(pv,pvalue(MannWhitneyUTest(lon,loff)))
+    push!(tests,MannWhitneyUTest(lon,loff))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"MonMoff")
+    push!(pv,pvalue(MannWhitneyUTest(mon,moff)))
+    push!(tests,MannWhitneyUTest(mon,moff))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SonSoff")
+    push!(pv,pvalue(MannWhitneyUTest(son,soff)))
+    push!(tests,MannWhitneyUTest(son,soff))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SonLon")
+    push!(pv,pvalue(MannWhitneyUTest(son,lon)))
+    push!(tests,MannWhitneyUTest(son,lon))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SonMon")
+    push!(pv,pvalue(MannWhitneyUTest(son,mon)))
+    push!(tests,MannWhitneyUTest(son,mon))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SoffLon")
+    push!(pv,pvalue(MannWhitneyUTest(soff,lon)))
+    push!(tests,MannWhitneyUTest(soff,lon))
+    push!(ani,split(COpath[i],"\\")[4])
+    push!(testname,"SoffMon")
+    push!(pv,pvalue(MannWhitneyUTest(soff,mon)))
+    push!(tests,MannWhitneyUTest(soff,mon))
 end
-case_result = matread(COpath[1])["result"]
-lon = dropdims(case_result["Liso_on"],dims=2)
-loff = dropdims(case_result["Liso_off"],dims=2)
-vcat(lon, loff)
+COFDsubRegstats.ani = ani
+COFDsubRegstats.COFDsubRegtestName = testname
+COFDsubRegstats.COFDsubRegtestPv = pv
+COFDsubRegstats.COFDsubRegtest = tests
+CSV.write(joinpath(dataExportFolder,join([Manu_title,"COFDsubReg_stats_result.csv"])), COFDsubRegstats)
+
+COintensity["individualCaseCOFDsubReg"]=COFDsubRegstats
+result["COintensity"] = COintensity
 
 
-save(joinpath(dataExportFolder,join([Manu_title,"_cellNum_Summary.jld2"])),"result",result)
+save(joinpath(dataExportFolder,join([Manu_title,"_stats_Summary.jld2"])),"result",result)
