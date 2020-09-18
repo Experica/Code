@@ -684,25 +684,47 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         end
 
         tempDF=DataFrame(ufs[:SpatialFreq])
-        result.fithuesf = tempDF.osf
+        result.hueosf = tempDF.osf   # preferred sf from weighted average
+        result.huemaxsf = tempDF.maxsf
+        result.huemaxsfr = tempDF.maxr
+        result.huefitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+        result.huesfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+        result.huesftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+        result.huesfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.huedog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+        
         tempDF=DataFrame(ufs[:Dir])
-        result.cvhuedir = tempDF.od   # cv
+        result.cvhuedir = tempDF.od   # preferred direction from cv
         result.huedircv = tempDF.dcv
-        result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
-        result.huedsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
+        result.huedsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.huedsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+        result.huedhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+        result.huegvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
+        
         result.cvhueori = tempDF.oo  # cv
         result.hueoricv = tempDF.ocv
-        result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
-        result.hueosi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+        result.hueosi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.hueosi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+        result.hueohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+        result.huevmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
+        
         tempDF=DataFrame(ufs[:HueAngle])
         result.cvhueax = tempDF.oha # cv
         result.hueaxcv = tempDF.hacv
         result.fithueax =map(i->isempty(i) ? NaN : :pha in keys(i) ? i.pha : NaN,tempDF.fit)  # fitting
-        result.hueaxsi =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+        result.hueaxsi1 =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+        result.hueaxsi2 =map(i->isempty(i) ? NaN : :hasi2 in keys(i) ? i.hasi2 : NaN,tempDF.fit)
+        result.hueaxhw =map(i->isempty(i) ? NaN : :hahw in keys(i) ? i.hahw : NaN,tempDF.fit)
+        result.hueaxvmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
         result.cvhuedi = tempDF.oh # cv
         result.huedicv = tempDF.hcv
         result.fithuedi =map(i->isempty(i) ? NaN : :ph in keys(i) ? i.ph : NaN,tempDF.fit)  # fitting
-        result.huedisi =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+        result.huedisi1 =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+        result.huedisi2 =map(i->isempty(i) ? NaN : :hsi2 in keys(i) ? i.hsi2 : NaN,tempDF.fit)
+        result.huedihw =map(i->isempty(i) ? NaN : :hhw in keys(i) ? i.hhw : NaN,tempDF.fit)
+        result.huedigvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
         result.maxhue = tempDF.maxh
         result.maxhueresp = tempDF.maxr
 

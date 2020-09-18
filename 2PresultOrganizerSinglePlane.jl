@@ -51,7 +51,7 @@ tests = @from i in meta begin
     end
 sort!(tests, [:RecordSite, :filename])
 oritests = @from i in tests begin
-    @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
+    # @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
     # @where i.RecordSite != "u001"
     # @where i.RecordSite == "u012"
     @where i.ID == "DirSF"
@@ -61,8 +61,8 @@ oritests = @from i in tests begin
 
 huetests = @from i in tests begin
     # @where i.RecordSite == "u012"
-    # @where i.RecordSite != "u001"
-    @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
+    @where i.RecordSite != "u008"
+    # @where i.RecordSite == "u005" #|| i.RecordSite == "u012"
     @where i.ID == "DirSFColor"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -99,6 +99,7 @@ paraName = string("oa",string(oriaucThres),"da",string(diraucThres),"ha",string(
 rois=Any[]; bkgs=Any[]; oriData=DataFrame(); oriSum=DataFrame(); hueData=DataFrame(); hueSum=DataFrame();
 staData=DataFrame(); staSum=DataFrame();
 for i = 1:exptOriNum
+    # oriData=DataFrame();
     display("Processing Oriexpt No: $i")
     j=1#map(j->isodd(i) ? 1 : 2, i)
     local unitId
@@ -134,6 +135,7 @@ end
 
 ## Hue data
 for i = 1:exptHueNum
+    # hueData=DataFrame();
     j=1#map(j->isodd(i) ? 1 : 2, i)
     local unitId
     local siteId
