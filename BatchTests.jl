@@ -1,7 +1,6 @@
 includet("Batch.jl")
 
 ## Prepare Param and Metadata
-cd(@__DIR__)
 param = Dict{Any,Any}(
     :dataroot => "../Data",
     :dataexportroot => "../DataExport",
@@ -9,25 +8,30 @@ param = Dict{Any,Any}(
     :stimuliroot => "../NaturalStimuli")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
-param[:layer] = layer
-
 ## Query Tests
-tests = @from i in meta begin
-        @where startswith(get(i.Subject_ID), "AF5")
-        @where i.RecordSite == "ODL3"
-        @where i.ID == "Flash2Color"
-        @where i.sourceformat == "SpikeGLX"
-        @select {i.ID,i.UUID,i.files,i.sourceformat}
-        @collect DataFrame
-        end
+tests = select!(filter(meta) do r
+                    startswith(r.Subject_ID, "AF5") &&
+                    r.RecordSite == "ODL1" &&
+                    r.ID == "HartleySubspace" &&
+                    r.sourceformat == "SpikeGLX"
+                    end,
+                [:ID,:UUID,:files,:sourceformat])
 
 ## Batch Condition Tests
 batchtests(tests,param,plot=true)
 
-## HartleySubspace Parametric and Image Response
-param[:model]=[:STA]
-param[:epprndelay]=1
-param[:epprnft]=[3]
-param[:epprlambda]=100
-
+## Batch HartleySubspace Tests
+param[:model] = [:STA]
+param[:blank] = :Ori_Final=>NaN
 batchtests(tests,param,plot=false)
+
+
+
+param[:cell] = load(joinpath(param[:resultroot],"cell.jld2"),"cell")
+param[:model] = [:ePPR]
+param[:ppd] = 45
+param[:eppr_ndelay]=1
+param[:eppr_nft]=[3]
+param[:eppr_lambda]=64000
+
+batchtests(tests,param,plot=true)
