@@ -214,11 +214,11 @@ b = a[:,argmax(a,dims=2)]
 
 
 
+img = rand(100,100,3,5)
 
+img[1:10,1:10,:]
 
-
-
-
+imagepatch(img,10,(0.5,0.5))
 ## Tuning Properties in layers
 layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
 # testids = ["$(siteid)_$(lpad(i,3,'0'))" for i in [8,12,13,14]]

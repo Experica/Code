@@ -10,7 +10,7 @@ siteresultdir = joinpath(resultroot,subject,siteid)
 
 ## Functions
 "join color channel stas"
-function joinsta(stas;ccode = Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S'))
+function joinsta(stas;ccode = Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S'),btw=[-100:0;200:300])
     siteid = stas[1]["siteid"]
     sizepx = stas[1]["sizepx"]
     sizedeg = stas[1]["sizedeg"]
@@ -19,7 +19,7 @@ function joinsta(stas;ccode = Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',
     xi = stas[1]["xi"]
     notxi = setdiff(1:prod(sizepx),xi)
     cii=CartesianIndices(sizepx)
-    bdi = filter!(i->!isnothing(i),indexin([-100:0;200:300],delays))
+    bdi = filter!(i->!isnothing(i),indexin(btw,delays))
 
     dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi,"siteid"=>siteid)
     colors = [i["color"] for i in stas]
@@ -56,7 +56,7 @@ function joinsta(stas;ccode = Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',
     return dataset
 end
 "check unit sta responsive and cut local sta"
-function responsivesta!(dataset;w=0.5,mfactor=3.5,sdfactor=3.5,roimargin=0.2,peakroirlim=1.5)
+function responsivesta!(dataset;w=0.5,mfactor=3.5,sdfactor=3.5,roimargin=0.1,peakroirlim=1.5)
     sizepx = dataset["sizepx"]
     ppd = dataset["ppd"]
     bdi = dataset["bdi"]
@@ -74,7 +74,7 @@ function responsivesta!(dataset;w=0.5,mfactor=3.5,sdfactor=3.5,roimargin=0.2,pea
             uresponsive[u] = true
             vroi = cproi[ucresponsive[u]]
             roi = mergeroi(vroi,sizepx;roimargin)
-            ulroi[u] = roi
+            ulroi[u] = (roi...,centerdeg=roi.center/ppd,radiusdeg=roi.radius/ppd)
             ulsta[u] = usta[u][map(i->i.+(-roi.radius:roi.radius),roi.center)...,:,:]
             ulcexd[u] = map(i->exd(ulsta[u][:,:,:,i]),1:size(ulsta[u],4))
             ulcroi[u] = cproi
@@ -145,6 +145,7 @@ dataset = responsivesta!(dataset)
 dataset = rffit!(dataset,model=[:gabor])
 
 save(joinpath(siteresultdir,"stadataset.jld2"),"dataset",dataset)
+save(joinpath(siteresultdir,"siteroi.jld2"),"siteid",dataset["siteid"],"siteroi",dataset["siteroi"])
 dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
 
 ## stas

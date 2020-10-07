@@ -1,4 +1,4 @@
-using Statistics,StatsPlots,Mmap,Images,StatsBase,ePPR
+using Statistics,StatsBase,StatsPlots,Mmap,Images,ePPR
 
 function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     dataset = prepare(joinpath(param[:dataexportroot],files))
@@ -221,7 +221,6 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     end
     save(joinpath(resultdir,"spike.jld2"),"spike",spike,"siteid",siteid)
 
-
     # Prepare Imageset
     bgcolor = RGBA(getparam(envparam,"BGColor")...)
     maxcolor = RGBA(getparam(envparam,"MaxColor")...)
@@ -344,22 +343,64 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     if :ePPR in param[:model]
         sizepx = imageset[:sizepx]
         xi = imagestimuli[:unmaskindex]
+        cell = haskey(param,:cell) ? param[:cell] : nothing
+        roir = haskey(param,:roir) ? param[:roir] : 16
+        xscale=255
+        bg = xscale*gray(bgcolor)
 
-        x = Array{Float64}(undef,nrow(ctc),prod(sizepx))
-        foreach(i->x[i,:]=gray.(255imagestimuli[:stimuli][condidx[i]]),1:size(x,1))
-        bg = gray(bgcolor)
+        xname = "x_upleft[1, 1]_size$(sizepx)"
+        if !haskey(imagestimuli,xname)
+            x = Array{Float64}(undef,nrow(ctc),prod(sizepx))
+            foreach(i->x[i,:]=xscale*gray.(imagestimuli[:stimuli][condidx[i]]),1:size(x,1))
+            imagestimuli[xname]=Dict(:x=>x,:xsize=>sizepx)
+        end
+
+        # if isnothing(site)
+        #
+        # else
+        #     i = findfirst(site.site.==siteid)
+        #     c = round.(Int,site.roicenter[i]*ppd)
+        #     r = round(Int,site.roiradius[i]*ppd)
+        #     r = clamproi(c,r,sizepx)
+        #     xsize = (2r+1,2r+1)
+        #     xname = "x_center$(c)_size$(xsize)_scale$(xscale)"
+        #     if !haskey(imagestimuli,xname)
+        #         x = Array{Float64}(undef,nrow(ctc),prod(xsize))
+        #         foreach(i->x[i,:]=xscale*gray.(imagestimuli[:stimuli][condidx[i]][map(i->(-r:r).+i,c)...]),1:size(x,1))
+        #         imagestimuli[xname]=Dict(:x=>x,:xsize=>xsize)
+        #     end
+        # end
 
         for u in eachindex(unitspike)
             !unitgood[u] && continue
-            unitid[u]!=127 && continue
-            d=55
+            # unitid[u]!=51 && continue
+            d=60
 
+            if isnothing(cell)
+                x = imagestimuli[xname][:x]
+                xsize = imagestimuli[xname][:xsize]
+            else
+                id = "$(siteid)_SU$(unitid[u])"
+                i = findfirst(cell.id.==id)
+                if isnothing(i) || ismissing(cell.roicenter[i])
+                    continue
+                    x = imagestimuli[xname][:x]
+                    xsize = imagestimuli[xname][:xsize]
+                else
+                    c = round.(Int,cell.roicenter[i]*ppd)
+                    r = round(Int,cell.roiradius[i]*ppd)
+                    r = clamproi(c,r,sizepx)
+                    ur = min(r,roir)
+                    xsize = (2ur+1,2ur+1)
+                    x = Array{Float64}(undef,nrow(ctc),prod(xsize))
+                    foreach(i->x[i,:]=xscale*gray.(imresize(imagestimuli[:stimuli][condidx[i]][map(i->(-r:r).+i,c)...],xsize)),1:size(x,1))
+                end
+            end
+            y = epochspiketrainresponse_ono(unitspike[u],condon.+d,condoff.+d,israte=true,isnan2zero=true)
             unitresultdir = joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_ePPR_$d")
             rm(unitresultdir,force=true,recursive=true)
-
-            y = epochspiketrainresponse_ono(unitspike[u],condon.+d,condoff.+d,israte=true,isnan2zero=true)
-            log = ePPRLog(debug=true,plot=true,dir=unitresultdir)
-            hp = ePPRHyperParams(sizepx...,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
+            log = ePPRLog(debug=true,plot=plot,dir=unitresultdir)
+            hp = ePPRHyperParams(xsize...,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
             model,models = epprcv(x,y,hp,log)
 
             if plot && !isnothing(model)

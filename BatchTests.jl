@@ -27,10 +27,11 @@ batchtests(tests,param,plot=false)
 
 
 
+param[:cell] = load(joinpath(param[:resultroot],"cell.jld2"),"cell")
 param[:model] = [:ePPR]
-param[:ppd] = 10
+param[:ppd] = 45
 param[:eppr_ndelay]=1
 param[:eppr_nft]=[3]
-param[:eppr_lambda]=25
+param[:eppr_lambda]=64000
 
-batchtests(tests[1:1,:],param,plot=true)
+batchtests(tests,param,plot=true)
