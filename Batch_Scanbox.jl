@@ -1,3 +1,5 @@
+using DataFramesMeta,Interact,CSV,MAT,Query,DataStructures,HypothesisTests,StatsFuns,Random,LinearAlgebra
+using Statistics,StatsPlots,StatsBase,Mmap,Images,ePPR
 
 function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
 
@@ -270,7 +272,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
         result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
         result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
         result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
-    
+
         tempDF=DataFrame(ufs[:Dir])
         result.cvdir = tempDF.od   # preferred direction from cv
         result.dircv = tempDF.dcv
@@ -692,7 +694,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         result.huesftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
         result.huesfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
         result.huedog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
-        
+
         tempDF=DataFrame(ufs[:Dir])
         result.cvhuedir = tempDF.od   # preferred direction from cv
         result.huedircv = tempDF.dcv
@@ -701,7 +703,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         result.huedsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
         result.huedhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
         result.huegvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
-        
+
         result.cvhueori = tempDF.oo  # cv
         result.hueoricv = tempDF.ocv
         result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
@@ -709,7 +711,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         result.hueosi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
         result.hueohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
         result.huevmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
-        
+
         tempDF=DataFrame(ufs[:HueAngle])
         result.cvhueax = tempDF.oha # cv
         result.hueaxcv = tempDF.hacv
@@ -806,7 +808,6 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
     ##
     # Prepare Imageset
-    nscale = haskey(param,:nscale) ? param[:nscale] : 1
     downsample = haskey(param,:downsample) ? param[:downsample] : 2
     sigma = haskey(param,:sigma) ? param[:sigma] : 1.5
     # bgRGB = [getparam(envparam,"backgroundR"),getparam(envparam,"backgroundG"),getparam(envparam,"backgroundB")]
@@ -815,35 +816,34 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     masktype = getparam(envparam,"mask_type")
     maskradius = getparam(envparam,"mask_radius")
     masksigma = 1#getparam(envparam,"Sigma")
+    hartleyscale = haskey(param,:hartleyscale) ? param[:hartleyscale] : 1
+    hartleynorm = haskey(param, :hartleynorm) ? param[:hartleynorm] : false
     xsize = getparam(envparam,"x_size")
     ysize = getparam(envparam,"y_size")
     stisize = xsize
-    ppd = haskey(param,:ppd) ? param[:ppd] : 46
-    imagesetname = "Hartley_stisize$(stisize)_scale$(hartleyscale)"
-    maskradius = haskey(param,:maskradius) ? param[:maskradius] : 0.16 #maskradius/stisize
-    # if coneType == "L"
-    #     maxcolor = RGBA()
-    #     mincolor = RGBA()
-    # elseif coneType == "M"
-    #
-    # elseif coneType == "S"
-    #
-    # end
+    ppd = haskey(param,:ppd) ? param[:ppd] : 52
+    ppd = ppd/downsample
+    imagesetname = "Hartley_stisize$(stisize)_hartleyscalescale$(hartleyscale)_ppd$(ppd)"
+    maskradius = maskradius /stisize + 0.03
 
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=false,scale=hartleyscale)),eachrow(condtable))
-        # imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable))
-        imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
-        imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
+        imageset = Dict{Any,Any}(:image =>map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=hartleynorm,scale=hartleyscale)),eachrow(condtable)))
+        # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable)))
+        # imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
+        imageset[:sizepx] = size(imageset[:image][1])
         param[imagesetname] = imageset
     end
-
+    
     # Prepare Image Stimuli
     imageset = param[imagesetname]
-    bgcolor = oftype(imageset[:pyramid][1][1][1],bgcolor)
-    unmaskindex = map(i->alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[2],imageset[:pyramid][1])
-    imagestimuli = map(s->map(i->alphablend.(alphamask(i[s],radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imageset[:pyramid]),1:nscale)
-
+    bgcolor = oftype(imageset[:image][1][1],bgcolor)
+    imagestimuliname = "bgcolor$(bgcolor)_masktype$(masktype)_maskradius$(maskradius)_masksigma$(masksigma)" # bgcolor and mask define a unique masking on an image set
+    if !haskey(imageset,imagestimuliname)
+        imagestimuli = Dict{Any,Any}(:stimuli => map(i->alphablend.(alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imageset[:image]))
+        imagestimuli[:unmaskindex] = alphamask(imageset[:image][1],radius=maskradius,sigma=masksigma,masktype=masktype)[2]
+        imageset[imagestimuliname] = imagestimuli
+    end
+    imagestimuli = imageset[imagestimuliname]
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
@@ -879,24 +879,21 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
             spike = spks
         end
 
-        ## Calculate STA
+        imagesize = imageset[:sizepx]
+        xi = imagestimuli[:unmaskindex]
+        uci = unique(condidx2)
+        ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
+        ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
+
+        # estimate RF using STA
         if :STA in param[:model]
-            scaleindex=1
-            imagesize = imageset[:imagesize][scaleindex]
-            xi = unmaskindex[scaleindex]
-            uci = unique(condidx2)
-            ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
-            ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
-
-
-            cx = Array{Float64}(undef,length(ucii),length(xi))
-            foreach(i->cx[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(cx,1))
-
             uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
             ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
             uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
-            usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
 
+            usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
+            cx = Array{Float64}(undef,length(ucii),length(xi))
+            foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]),1:size(cx,1))
             for d in eachindex(delays)
                 display("Processing delay: $d")
                 y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
@@ -915,19 +912,63 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                     uby[cell,d,:]=bly
                     uy[cell,d,:]=ry
                     usta[cell,d,:]=csta
+
                     if plot
-                        csta = (csta.+1)./2
-                        csta = fill(0.5,imagesize)
-                        csta[xi] = csta
                         r = [extrema(csta)...]
-                        title = "$(ugs[cell])Unit_$(unitid[cell])_STA_$(delays[d])"
-                        p = plotsta(csta,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
+                        title = "Unit_$(cell)_STA_$(delays[d])"
+                        p = plotsta(csta,sizepx=imagesize,sizedeg=stisize,ppd=ppd,index=xi,title=title,r=r)
                         foreach(i->save(joinpath(resultFolder,"$title$i"),p),[".png"])
                     end
                 end
             end
             save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"usta",usta,"uby",uby,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
         end
+
+        # estimate RF using ePPR
+        if :ePPR in param[:model]
+
+            ucy = Array{Float64}(undef,cellNum,length(ucii))
+            ueppr = Dict()
+            xscale=255
+            bg = xscale*gray(bgcolor)
+            roicenter = Int64.(imagesize./2)
+            roiradius = Int64.(floor.(imagesize.*(maskradius)))[1]
+            roisize = (roiradius*2+1,roiradius*2+1)
+            cx = Array{Float64}(undef,length(ucii),prod(roisize))
+            foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][uci[i]][map(i->(-roiradius:roiradius).+i,roicenter)...]),1:size(cx,1))
+
+            # for d in eachindex(delays)
+            d = 10
+            display("Processing delay: $d")
+            y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+            spk=zeros(size(spike,1),length(idx))
+            for i =1:length(idx)
+                spkepo = @view spike[:,idx[i][1]:idx[i][end]]
+                spk[:,i]= mean(spkepo, dims=2)
+            end
+            for cell in 1:cellNum
+                display(cell)
+                cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
+                ucy[cell,:] = cy
+                # unitresultdir = joinpath(resultFolder,"Unit_$(cell)_ePPR_$(delays[d])")
+                # rm(unitresultdir,force=true,recursive=true)
+                log = ePPRLog(debug=false,plot=false,dir=resultFolder)
+                hp = ePPRHyperParams(roisize...,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
+                model,models = epprhypercv(cx.*xscale,cy,hp,log)
+                ueppr[cell] = Dict()
+                ueppr[cell]["model"] = model
+                ueppr[cell]["models"] = models
+
+                if plot && !isnothing(model)
+                    log(plotmodel(model,hp,color=:bwr),file="Unit_$(cell)_Model_Final (λ=$(hp.lambda)).png")
+                end
+                # clean!(model)
+            end
+            # end
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,"xcond",condtable[uci,:],
+            "ueppr",ueppr,"delay",delays[d],"maskradius",maskradius,"stisize",stisize,"color",coneType)
+        end
+
     end
 
 end
