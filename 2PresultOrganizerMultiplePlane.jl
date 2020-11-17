@@ -5,8 +5,8 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT,Query,DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "J:"
-subject = "AF3"  # Animal
+disk = "F:"
+subject = "AF2"  # Animal
 # recordSession = ["002","003","004", "005", "006", "007", "008"] # Unit
 recordPlane = ["000", "001"]
 
@@ -48,17 +48,18 @@ tests = @from i in meta begin
     end
 sort!(tests, [:RecordSite, :filename])
 oritests = @from i in tests begin
-    # @where i.RecordSite == "u003"
-    # @where i.RecordSite != "u007"
+    @where i.RecordSite == "u006"
+    # @where i.RecordSite != "u008"
     @where i.ID == "DirSF"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
     end
 # deleterows!(oritests, [2,3,4,5,6,8,9,11,12,13,14,15,16,17,19,20,21,22,24,25,26,27])
-deleterows!(oritests, [2,4,5,8,10,12,14])
+# deleterows!(oritests, [2,4,5,8,10])
+deleterows!(oritests, [2])
 huetests = @from i in tests begin
-    # @where i.RecordSite == "u003"
-    # @where i.RecordSite != "u007"
+    # @where i.RecordSite != "u005"
+    @where i.RecordSite == "u006"
     @where i.ID == "DirSFColor"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -66,8 +67,8 @@ huetests = @from i in tests begin
 # deleterows!(huetests, [2,3,6,7,9])
 
 hartleytests = @from i in tests begin
-    # @where i.RecordSite == "u003"
-    # @where i.RecordSite != "u007"
+    @where i.RecordSite != "u005"
+    @where i.RecordSite != "u008"
     @where i.ID == "Hartley"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -112,7 +113,7 @@ for i = 1:exptOriNum
         cellRoi = segment["vert"]
         bkgImg = align["m"]
         locID = repeat([siteId],length(cellRoi))
-        insertcols!(result,4,locId=locID)
+        insertcols!(result,4,:locId => locID)
         append!(oriData, result)
         push!(rois, cellRoi)
         push!(bkgs, bkgImg)
@@ -142,10 +143,10 @@ for i = 1:exptHueNum
         result = load(dataFile)["result"]
         locID = repeat([siteId],size(result)[1])
         insertcols!(result,4,locId=locID)
-        # hueResp = 1 .- minimum(hcat(result.hueaxcv, result.huedicv),dims=2)
-        # achroResp = 1 .- resultori.oricv
-        # cpi = dropdims((hueResp .- achroResp) ./ (hueResp .+ achroResp),dims=2)
-        # insertcols!(result,11,huecpi=cpi)
+        hueResp = 1 .- minimum(hcat(result.hueaxcv, result.huedicv),dims=2)
+        achroResp = 1 .- resultori.oricv
+        cpi = dropdims((hueResp .- achroResp) ./ (hueResp .+ achroResp),dims=2)
+        insertcols!(result,11,huecpi=cpi)
         append!(hueData, result)
         summ=DataFrame(id=result.dataId[1], exptid=hueExptId[i], planeid=recordPlane[j], cellNum=size(result)[1], visResp=sum(result.visResp),
              hueaxResp=sum((result.hueaxauc.>hueaucThres).&result.visResp), hueaxRespfit=sum((result.hueaxauc.>hueaucThres).&result.visResp.&(.~isnan.(result.fithueax))),hueaxSelcv=sum((result.hueaxcv.<huecvThres).&(result.hueaxauc.>hueaucThres).&result.visResp), hueaxSelsi=sum((result.hueaxsi1.>huesiThres).&(result.hueaxauc.>hueaucThres).&result.visResp),
@@ -320,10 +321,10 @@ for i = 1:sessNum
             planesum=DataFrame(session=recordSession[i], planeid=recordPlane[j], cellNum=size(pldata)[1], visResp=sum(pldata.visResp.>0),
                 oriResp=sum((pldata.oriauc.>oriaucThres).&pldata.visResp), oriRespfit=sum((pldata.oriauc.>oriaucThres).&pldata.visResp.&(.~isnan.(pldata.fitori))), oriSelcv=sum((pldata.oricv.<oricvThres).&(pldata.oriauc.>oriaucThres).&pldata.visResp), oriSelosi=sum((pldata.osi1.>osiThres).&(pldata.oriauc.>oriaucThres).&pldata.visResp),
                 dirResp=sum((pldata.dirauc.>diraucThres).&pldata.visResp), dirRespfit=sum((pldata.dirauc.>diraucThres).&pldata.visResp.&(.~isnan.(pldata.fitdir))), dirSelcv=sum((pldata.dircv.<dircvThres).&(pldata.dirauc.>diraucThres).&pldata.visResp), dirSeldsi=sum((pldata.dsi1.>dsiThres).&(pldata.dirauc.>diraucThres).&pldata.visResp),
-                hueaxResp=sum((pldata.hueaxauc.>hueaucThres).&pldata.visResp), hueaxRespfit=sum((pldata.hueaxauc.>hueaucThres).&pldata.visResp.&(.~isnan.(pldata.fithueax))),hueaxSelcv=sum((pldata.hueaxcv.<huecvThres).&(pldata.hueaxauc.>hueaucThres).&pldata.visResp), hueaxSelsi=sum((pldata.hueaxsi.>huesiThres).&(pldata.hueaxauc.>hueaucThres).&pldata.visResp),
-                huediResp=sum((pldata.huediauc.>hueaucThres).&pldata.visResp), huediRespfit=sum((pldata.huediauc.>hueaucThres).&pldata.visResp.&(.~isnan.(pldata.fithuedi))),huediSelcv=sum((pldata.huedicv.<huecvThres).&(pldata.huediauc.>hueaucThres).&pldata.visResp), huediSelsi=sum((pldata.huedisi.>huesiThres).&(pldata.huediauc.>hueaucThres).&pldata.visResp),
-                hueoriResp=sum((pldata.hueoriauc.>oriaucThres).&pldata.visResp), hueoriRespfit=sum((pldata.hueoriauc.>oriaucThres).&pldata.visResp.&(.~isnan.(pldata.fithueori))),hueoriSelcv=sum((pldata.hueoricv.<oricvThres).&(pldata.hueoriauc.>oriaucThres).&pldata.visResp), hueoriSeldsi=sum((pldata.hueosi.>osiThres).&(pldata.hueoriauc.>oriaucThres).&pldata.visResp),
-                huedirResp=sum((pldata.huedirauc.>diraucThres).&pldata.visResp), huedirRespfit=sum((pldata.huedirauc.>diraucThres).&pldata.visResp.&(.~isnan.(pldata.fithuedir))),huedirSelcv=sum((pldata.huedircv.<dircvThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp), huedirSeldsi=sum((pldata.huedsi.>dsiThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp),
+                hueaxResp=sum((pldata.hueaxauc.>hueaucThres).&pldata.visResp), hueaxRespfit=sum((pldata.hueaxauc.>hueaucThres).&pldata.visResp.&(.~isnan.(pldata.fithueax))),hueaxSelcv=sum((pldata.hueaxcv.<huecvThres).&(pldata.hueaxauc.>hueaucThres).&pldata.visResp), hueaxSelsi=sum((pldata.hueaxsi1.>huesiThres).&(pldata.hueaxauc.>hueaucThres).&pldata.visResp),
+                huediResp=sum((pldata.huediauc.>hueaucThres).&pldata.visResp), huediRespfit=sum((pldata.huediauc.>hueaucThres).&pldata.visResp.&(.~isnan.(pldata.fithuedi))),huediSelcv=sum((pldata.huedicv.<huecvThres).&(pldata.huediauc.>hueaucThres).&pldata.visResp), huediSelsi=sum((pldata.huedisi1.>huesiThres).&(pldata.huediauc.>hueaucThres).&pldata.visResp),
+                hueoriResp=sum((pldata.hueoriauc.>oriaucThres).&pldata.visResp), hueoriRespfit=sum((pldata.hueoriauc.>oriaucThres).&pldata.visResp.&(.~isnan.(pldata.fithueori))),hueoriSelcv=sum((pldata.hueoricv.<oricvThres).&(pldata.hueoriauc.>oriaucThres).&pldata.visResp), hueoriSeldsi=sum((pldata.hueosi1.>osiThres).&(pldata.hueoriauc.>oriaucThres).&pldata.visResp),
+                huedirResp=sum((pldata.huedirauc.>diraucThres).&pldata.visResp), huedirRespfit=sum((pldata.huedirauc.>diraucThres).&pldata.visResp.&(.~isnan.(pldata.fithuedir))),huedirSelcv=sum((pldata.huedircv.<dircvThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp), huedirSeldsi=sum((pldata.huedsi1.>dsiThres).&(pldata.huedirauc.>diraucThres).&pldata.visResp),
                 hueaucResp=sum(((pldata.hueaxauc.>hueaucThres).|(pldata.huediauc.>hueaucThres)).&pldata.visResp), hueSelcpi=sum(((pldata.hueaxauc.>hueaucThres).|(pldata.huediauc.>hueaucThres)).&pldata.visResp.&(pldata.huecpi.>cpiThres)))
             append!(planeSum, planesum)
             save(joinpath(dataExportFolder3,join([subject,"_",locId,"_",paraName,"_sum.jld2"])), locId,pldata,string(locId,"_sum"),planesum)

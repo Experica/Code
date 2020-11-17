@@ -8,8 +8,8 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 # Expt info
 disk = "J:"
 subject = "AF3"  # Animal
-recordSession = "002" # Unit
-testId = "001"  # Stimulus test
+recordSession = "004" # Unit
+testId = "002"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1

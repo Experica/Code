@@ -9,8 +9,8 @@ using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,
 # User input and Expt info
 disk = "J:"
 subject = "AF3"  # Animal
-recordSession = "003" # Unit
-testId = "009"  # Stimulus test
+recordSession = "008" # Unit
+testId = "002"  # Stimulus test
 hueSpace = "HSL"   # Color space used? DKL or HSL
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
@@ -59,12 +59,12 @@ trialOffLine = sbx["line"][stNum+1:2:end]
 trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
-trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
+trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))[1:end-1,:]
 # minTrialDur = minimum(trialOffFrame-trialOnFrame)
 # histogram(trialOffFrame-trialOnFrame,nbins=20,title="Trial Duration(Set to $minTrialDur)")
 
 # Transform Trials ==> Condition
-ctc = DataFrame(ex["CondTestCond"])
+ctc = DataFrame(ex["CondTestCond"])[1:end-1,:]
 trialNum =  size(ctc,1)
 conditionAll = condin(ctc)
 # Remove extra conditions (only for AF4), and seperate blanks

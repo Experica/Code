@@ -1,15 +1,15 @@
 ## Prepare Param and Metadata
-includet("batch.jl")
+includet("Batch.jl")
 
 param = Dict{Any,Any}(
-    :dataexportroot => "O:\\AF4\\2P_analysis\\Summary\\DataExport",
+    :dataexportroot => "F:\\AF2\\2P_analysis\\Summary\\DataExport",
     :interpolatedData => true,   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
     :preOffset => 0.1,
     :responseOffset => 0.05,  # in sec
     :α => 0.05,   # p value
     :sampnum => 100,   # random sampling 100 times
     :fitThres => 0.5,
-    :hueSpace => "DKL",   # Color space used? DKL or HSL
+    :hueSpace => "HSL",   # Color space used? DKL or HSL
     :diraucThres => 0.8,   # if passed, calculate hue direction, otherwise calculate hue axis
     :oriaucThres => 0.5,
     :Respthres => 0.1,  # Set a response threshold to filter out low response cells?
@@ -24,12 +24,11 @@ end
 ## Query Tests
 tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
-        @where i.Subject_ID == "AF4"
-        # @where i.RecordSite == "u003"
-        @where i.RecordSite != "u001"
-        @where i.RecordSite != "u007"
+        @where i.Subject_ID == "AF2"
+        # @where (i.RecordSite == "u003" || i.RecordSite == "u004")
+        @where i.RecordSite == "u006"
         # @where i.RecordSite != "u010"
-        @where i.ID == "DirSFColor"
+        @where i.ID == "Hartley"
         @where i.sourceformat == "Scanbox"
         @select {i.sourceformat,i.ID,i.files,i.RecordSite,i.filename,i.UUID}
         @collect DataFrame
@@ -45,17 +44,23 @@ batchtests(tests,param,plot=false)
 param[:model]=[:STA]
 param[:stanorm] = nothing
 param[:stawhiten] = nothing
+param[:downsample] = 1  # for down-sampling stimuli image, 1 is no down-sampling
+param[:hartleynorm] = false
 param[:hartleyscale] = 1
 param[:hartelyBlkId]=5641
 param[:delayLB] = -0.066  # in sec; Usually do not need to change it
 param[:delayUB] = 0.4   # in sec; Usually do not need to change it
 param[:delayStep] = 0.033  # Bidirectional = 0.033 sec, Unidirectional = 0.066 sec
 param[:delays] = param[:delayLB]:param[:delayStep]:param[:delayUB]
-param[:maskradius] =0.15 #AE6=0.18 AE7=0.24 AF3=0.15 AF4=0.16  # It is proportion %: mask_radius/size + 0.3
+param[:maskradius] = 1 #AE6=0.75 AE7=0.24 AF2=1 AF3=0.6 AF4=0.65
 
-param[:epprndelay]=1
-param[:epprnft]=[3]
-param[:epprlambda]=100
+param[:model]=[:ePPR]
+param[:downsample] = 2  # for down-sampling stimuli image, 1 is no down-sampling
+param[:hartleynorm] = true
+param[:hartleyscale] = 1
+param[:eppr_ndelay]=1
+param[:eppr_nft]=[3]
+param[:eppr_lambda]=32  #16
 
 batchtests(tests,param,plot=false)
 

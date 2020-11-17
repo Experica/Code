@@ -833,7 +833,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
         imageset[:sizepx] = size(imageset[:image][1])
         param[imagesetname] = imageset
     end
-    
+
     # Prepare Image Stimuli
     imageset = param[imagesetname]
     bgcolor = oftype(imageset[:image][1][1],bgcolor)

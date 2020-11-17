@@ -1,24 +1,39 @@
 using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,LsqFit,FFTW
 
-disk = "O:"
-subject = "AF4"
+disk = "F:"
+subject = "AF2"
 
-# recordSession = "002"
-# testId = ["008","009","010","011"]
+# recordSession = "003"  #AF2
+# testId = ["004", "005","006","003"]
 
-# recordSession = "003"
-# testId = ["000","001","002","004"]
+recordSession = "004"  #AF2
+testId = [ "005","006","007","004"]
+
+# recordSession = "005"  #AF2
+# testId = ["003","004", "005","002"]
+
+# recordSession = "006"  #AF2
+# testId = ["005","007", "008","004"]
+
+# recordSession = "003"  #AF3
+# testId = ["004","005","007", "003"]
+
+# recordSession = "002"  #AF4
+# testId = ["008","009","010","011"]  # In the order of L, M, S, and achromatic
+
+# recordSession = "003"  #AF4
+# testId = ["000","001","002", "004"]
 # #
-recordSession = "004"
-testId = ["001","002","003","004"]
+# recordSession = "004"  #AF4
+# testId = ["001","002","003","004"]
 
-# recordSession = "005"
+# recordSession = "005"  #AF4
 # testId = ["000","001","003","004"]
 
-# recordSession = "006"
+# recordSession = "006"  #AF4
 # testId = ["000","001","002","003"]
 
-# recordSession = "004"
+# recordSession = "004"  #AE6
 # testId = ["006", "007", "008","005"]
 # testId = ["012", "013", "014","011"]
 # testId = ["005", "006","007","002"]
@@ -26,7 +41,7 @@ testId = ["001","002","003","004"]
 # testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
 # testId = ["013", "014", "015","012"]
 
-recordPlane = "001"
+recordPlane = "000"
 delays = collect(-0.066:0.033:0.4)
 print(collect(delays))
 
@@ -49,8 +64,8 @@ end
 dataFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]))
 dataExportFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), siteId, "DataExport")
 resultFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", "DataExport")
-resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
-# resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","Fourier")
+# resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
+resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","Fourier")
 isdir(resultFolder) || mkpath(resultFolder)
 isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 
@@ -58,15 +73,15 @@ isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 # testids = ["$(siteId)_HartleySubspace_$i" for i in 1:4]
 dataFile=[]
 for i=1:size(testId,1)
-    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],join=true)[1]
-    # datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_tuning_result.jld2"), dir=dataExportFolder[i],adddir=true)[1]
+    # datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],join=true)[1]
+    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_tuning_result.jld2"), dir=dataExportFolder[i],join=true)[1]
     push!(dataFile, datafile)
 end
 
 ## Join STAs from L, M, S, and achromatic expts. Also find the strongest response withe corresponding delay.
-dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
-# dataset = sbxjoinhartleyFourier(load.(dataFile))
-save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_dataset.jld2"])),"dataset",dataset)
+# dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
+dataset = sbxjoinhartleyFourier(load.(dataFile))
+save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_fourier_dataset.jld2"])),"dataset",dataset)
 ## Check responsiveness of cell based on threshold and delay range, filter out low-response and cell 'response' too early or too late
 
 dataset = sbxresponsivesta!(dataset,lbTime,ubTime,respThres)
@@ -132,7 +147,7 @@ end
     x = range(xlim...,length=imagesize[2])
     y = range(ylim...,length=imagesize[1])
 
-    p = Plots.plot(layout=(1,4),legend=false,size=(1600,600),title="Unit_$(u)_STA_$(delays[d])_Responsive_$(uresponsive[u])")
+    p = Plots.plot(layout=(1,4),legend=false,size=(1600,600),title="Cell_$(u)_STA_$(delays[d])_Responsive_$(uresponsive[u])")
     foreach(c->Plots.heatmap!(p,subplot=c,x,y,usta[:,:,d,c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
     xlims=xlim,ylims=ylim,xticks=xlim,yticks=ylim,yflip=true,xlabel=dataset["color"][c]),1:4)
     p
