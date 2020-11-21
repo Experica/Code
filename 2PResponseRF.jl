@@ -8,10 +8,10 @@ using NeuroAnalysis,Statistics,StatsBase,StatsPlots,DataFrames,DataFramesMeta,Mm
 using CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random,Plots, ePPR
 
 # Expt info
-disk = "J:"
-subject = "AF3"  # Animal
-recordSession = "003" # Unit
-testId = "007"  # Stimulus test
+disk = "O:"
+subject = "AF4"  # Animal
+recordSession = "004" # Unit
+testId = "004"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 hartelyBlkId = 5641
@@ -146,12 +146,13 @@ for pn in 1:planeNum
 
     imagesize = imageset[:sizepx]
     xi = imagestimuli[:unmaskindex]
-    uci = unique(condidx2)
-    ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
-    ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
 
     # estimate RF using STA
     if :STA in param[:model]
+        uci = unique(condidx2)
+        ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
+        ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
+
         uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
         ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
         uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
@@ -191,17 +192,16 @@ for pn in 1:planeNum
 
     # estimate RF using ePPR
     if :ePPR in param[:model]
-
-        ucy = Array{Float64}(undef,cellNum,length(ucii))
+        ucy = Array{Float64}(undef,cellNum,length(condidx))
         ueppr = Dict()
         xscale=255
         bg = xscale*gray(bgcolor)
-        roicenter = Int64.(imagesize./2)
-        roiradius = Int64.(floor.(imagesize.*(maskradius)))[1]
-        roisize = (roiradius*2+1,roiradius*2+1)
-        cx = Array{Float64}(undef,length(ucii),prod(roisize))
-        foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][uci[i]][map(i->(-roiradius:roiradius).+i,roicenter)...]),1:size(cx,1))
-
+        # roicenter = Int64.(imagesize./2)
+        # roiradius = Int64.(floor.(imagesize.*(maskradius)))[1]
+        # roisize = (roiradius*2+1,roiradius*2+1)
+        cx = Array{Float64}(undef,length(condidx),prod(imagesize))
+        # foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][condidx[i]][map(i->(-roiradius:roiradius).+i,roicenter)...]),1:size(cx,1))
+        foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][condidx[i]]),1:size(cx,1))
         # for d in eachindex(delays)
         d = 10
         display("Processing delay: $d")
@@ -212,20 +212,21 @@ for pn in 1:planeNum
             spk[:,i]= mean(spkepo, dims=2)
         end
         for cell in 1:cellNum
+            # cell = 346
             display(cell)
-            cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
+            cy = spk[cell,:]  # response to grating
             ucy[cell,:] = cy
             # unitresultdir = joinpath(resultFolder,"Unit_$(cell)_ePPR_$(delays[d])")
             # rm(unitresultdir,force=true,recursive=true)
             log = ePPRLog(debug=false,plot=false,dir=resultFolder)
-            hp = ePPRHyperParams(roisize...,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
+            hp = ePPRHyperParams(imagesize...,xindex=xi,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
             model,models = epprhypercv(cx.*xscale,cy,hp,log)
             ueppr[cell] = Dict()
             ueppr[cell]["model"] = model
             ueppr[cell]["models"] = models
 
             if isplot && !isnothing(model)
-                log(plotmodel(model,hp,color=:bwr),file="Unit_$(cell)_Model_Final (λ=$(hp.lambda)).png")
+                log(plotmodel(model,hp,color=:bwr,width=400,height=400),file="Unit_$(cell)_Model_Final (λ=$(hp.lambda)).png")
             end
             # clean!(model)
         end
