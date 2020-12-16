@@ -6,9 +6,9 @@ includet("Batch_SpikeGLX.jl")
 includet("Batch_Scanbox.jl")
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),plot::Bool=true)
-    p = ProgressMeter.Progress(size(tests,1),desc="Batch ... ")
+    p = ProgressMeter.Progress(size(tests,1),desc="Batch ... ",start=-1)
     for t in eachrow(tests)
-        ProgressMeter.update!(p,showvalues = [(:Test, t.files)])
+        next!(p,showvalues = [(:Test, t.files)])
         try
             if t.ID=="OriGrating"
                 u,c=processori(dataset,resultroot,uuid=uuid,log=log,delay=delay,binwidth=binwidth,plot=plot)
@@ -38,8 +38,8 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             display("============================================")
             display.(stacktrace(catch_backtrace()))
         end
-        next!(p,showvalues = [(:Test, t.files)])
     end
+    finish!(p)
     close(log)
 end
 
