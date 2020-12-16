@@ -29,6 +29,7 @@ numberofColor = 12
 colorSpace = "HSL"   # DKL, # HSL
 
 addSTA = false
+addFourier = false
 staThres = 0.25
 
 ## Make folders and path
@@ -172,7 +173,7 @@ if addSTA
     for i = 1:sessNum
         display("Plane Num: $i")
         local unitId
-        j=1#map(j->isodd(i) ? 1 : 2, i)
+        j=map(j->isodd(i) ? 1 : 2, i)
         # unitId = hartleyExptId[i][5:7]
         unitId = recordSession[i]
         plId = recordPlane[j]
@@ -194,6 +195,118 @@ if addSTA
         result.unitId = fill(unitId, cellNum)
         result.planeId = fill(plId, cellNum)
         result.cellId = keys(ulsta)
+        iscone=[];isachro=[];domicone=[];delycone=[];conemaxExt=[];conemaxMag=[];lcwmn=[];mcwmn=[];scwmn=[];lcwmg=[];mcwmg=[];scwmg=[];
+        lcwmgall=[];mcwmgall=[];scwmgall=[];lmg=[];mmg=[];smg=[];amg=[];achResp=[];ls=[];ms=[];ss=[];as=[];isl=[];ism=[];iss=[];isa=[];
+        ubcone=sta["ubcone"]
+        cowg=sta["coneweight"]
+        achroResp=sta["achroResp"]
+        ustasign=sta["ustasign"]
+        ustamag=sta["ustamag"]
+        uconeresponsive = sta["uconeresponsive"]
+
+        cellId = result.cellId
+        for k=1:cellNum
+        # k=1
+            cone=haskey(ubcone,cellId[k]) ? true : false
+            push!(isl,uconeresponsive[cellId[k]][1])
+            push!(ism,uconeresponsive[cellId[k]][2])
+            push!(iss,uconeresponsive[cellId[k]][3])
+            push!(isa,uconeresponsive[cellId[k]][4])
+            push!(iscone,cone)
+            push!(isachro,in(cellId[k],achroResp[:cellId]))
+            push!(domicone,map(i->cone==true ? ubcone[i].bstidx : NaN, cellId[k]))
+            push!(delycone,map(i->cone==true ? ubcone[i].bstdly : NaN, cellId[k]))
+            push!(conemaxExt,map(i->cone==true ? ubcone[i].bstex : NaN, cellId[k]))
+            push!(conemaxMag,map(i->cone==true ? ubcone[i].bstmag : NaN, cellId[k]))
+            push!(lcwmn,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Lconemn]) ? NaN : cowg[isequal(i).(cowg.cellId),:Lconemn], cellId[k])[1])
+            push!(mcwmn,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Mconemn]) ? NaN : cowg[isequal(i).(cowg.cellId),:Mconemn], cellId[k])[1])
+            push!(scwmn,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Sconemn]) ? NaN : cowg[isequal(i).(cowg.cellId),:Sconemn], cellId[k])[1])
+
+            push!(lcwmg,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Lconemg]) ? NaN : cowg[isequal(i).(cowg.cellId),:Lconemg], cellId[k])[1])
+            push!(mcwmg,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Mconemg]) ? NaN : cowg[isequal(i).(cowg.cellId),:Mconemg], cellId[k])[1])
+            push!(scwmg,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Sconemg]) ? NaN : cowg[isequal(i).(cowg.cellId),:Sconemg], cellId[k])[1])
+
+            push!(lcwmgall,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Lconemgall]) ? NaN : cowg[isequal(i).(cowg.cellId),:Lconemgall], cellId[k])[1])
+            push!(mcwmgall,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Mconemgall]) ? NaN : cowg[isequal(i).(cowg.cellId),:Mconemgall], cellId[k])[1])
+            push!(scwmgall,map(i->isempty(cowg[isequal(i).(cowg.cellId),:Sconemgall]) ? NaN : cowg[isequal(i).(cowg.cellId),:Sconemgall], cellId[k])[1])
+
+            push!(achResp,map(i->isempty(achroResp[isequal(i).(achroResp.cellId),:uachro]) ? NaN : achroResp[isequal(i).(achroResp.cellId),:uachro], cellId[k])[1])
+            push!(ls, ustasign[cellId[k]][1])
+            push!(ms, ustasign[cellId[k]][2])
+            push!(ss, ustasign[cellId[k]][3])
+            push!(as, ustasign[cellId[k]][4])
+            push!(lmg, ustamag[cellId[k]][6,1])
+            push!(mmg, ustamag[cellId[k]][6,2])
+            push!(smg, ustamag[cellId[k]][6,3])
+            push!(amg, ustamag[cellId[k]][6,4])
+        end
+        result.isl=isl
+        result.ism=ism
+        result.iss=iss
+        result.isa=isa
+        result.iscone=iscone
+        result.isachro=isachro
+        result.dominantcone=domicone
+        result.conedelay=delycone
+        result.ConemaxExt=conemaxExt
+        result.ConemaxMag=conemaxMag
+        result.lcwmn=lcwmn
+        result.mcwmn=mcwmn
+        result.scwmn=scwmn
+        result.lcwmg=lcwmg
+        result.mcwmg=mcwmg
+        result.scwmg=scwmg
+        result.lcwmgall=lcwmgall
+        result.mcwmgall=mcwmgall
+        result.scwmgall=scwmgall
+        result.achroResp=achResp
+        result.lsign=ls
+        result.msign=ms
+        result.ssign=ss
+        result.asign=as
+        result.lmg=lmg
+        result.mmg=mmg
+        result.smg=smg
+        result.amg=amg
+        append!(staData, result)
+
+        append!(planeData, result)
+        # if isequal(j,planeNum)
+        save(joinpath(dataExportFolder2,join([subject,"_",unitId, "_thres$staThres", "_sta_dataset.jld2"])),"planeData",planeData)
+        CSV.write(joinpath(dataExportFolder2,join([subject,"_",unitId,"_thres$staThres", "_sta_dataset.csv"])), planeData)
+        # end
+        summ=DataFrame(id=result.unitId[1], planeid=plId[1], staNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(result.conedelay[BitArray(result.iscone)]), stddelay=std(result.conedelay[BitArray(result.iscone)]))
+        append!(staSum, summ)
+    end
+end
+
+## Load Hartely (Fourier) data
+if addFourier
+    for i = 1:sessNum
+        display("Plane Num: $i")
+        local unitId
+        j=map(j->isodd(i) ? 1 : 2, i)
+        # unitId = hartleyExptId[i][5:7]
+        unitId = recordSession[i]
+        plId = recordPlane[j]
+        dataFolder = joinpath(mainpath, join(["U",unitId]),"_Summary","DataExport")  # load ori data for cpi calculation
+        dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_fourier_dataset.jld2"),dir=dataFolder,join=true)[1]
+        display(dataFile)
+        fdata = load(dataFile)["dataset"]
+        cellNum = length(fdata["signif"])
+        kern = sort!(OrderedDict(fdata["kern"]))
+        if isequal(j,1)
+            global planeData, dataExportFolder2
+            planeData = DataFrame()
+            dataExportFolder2 = joinpath(mainpath, join(["U", unitId]), "_Summary", "DataExport")
+            isdir(dataExportFolder2) || mkpath(dataExportFolder2)
+        end
+        result = DataFrame()
+        result.py = 0:cellNum-1
+        result.ani = fill(subject, cellNum)
+        result.unitId = fill(unitId, cellNum)
+        result.planeId = fill(plId, cellNum)
+        result.cellId = keys(kern)
         iscone=[];isachro=[];domicone=[];delycone=[];conemaxExt=[];conemaxMag=[];lcwmn=[];mcwmn=[];scwmn=[];lcwmg=[];mcwmg=[];scwmg=[];
         lcwmgall=[];mcwmgall=[];scwmgall=[];lmg=[];mmg=[];smg=[];amg=[];achResp=[];ls=[];ms=[];ss=[];as=[];isl=[];ism=[];iss=[];isa=[];
         ubcone=sta["ubcone"]

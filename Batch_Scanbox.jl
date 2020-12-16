@@ -965,7 +965,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                 # clean!(model)
             end
             # end
-            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,"xcond",condtable[uci,:],
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,
             "ueppr",ueppr,"delay",delays[d],"maskradius",maskradius,"stisize",stisize,"color",coneType)
         end
 

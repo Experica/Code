@@ -29,8 +29,8 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif t.ID in ["DirSFColor"] && t.sourceformat=="Scanbox"
                 process_2P_dirsfcolor(t.files,param,uuid=t.UUID,log=log,plot=plot)
             elseif t.ID in ["Hartley"] && t.sourceformat=="Scanbox"
-                process_2P_hartleySTA(t.files,param,uuid=t.UUID,log=log,plot=plot)
-                # process_2P_hartleyFourier(t.files,param,uuid=t.UUID,log=log,plot=plot)
+                # process_2P_hartleySTA(t.files,param,uuid=t.UUID,log=log,plot=plot)
+                process_2P_hartleyFourier(t.files,param,uuid=t.UUID,log=log,plot=plot)
             end
         catch exc
             display("============================================")

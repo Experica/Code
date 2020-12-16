@@ -8,10 +8,10 @@ using NeuroAnalysis,Statistics,StatsBase,StatsPlots,DataFrames,DataFramesMeta,Mm
 using CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random,Plots, ePPR
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "004" # Unit
-testId = "004"  # Stimulus test
+disk = "F:"
+subject = "AF2"  # Animal
+recordSession = "005" # Unit
+testId = "002"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 hartelyBlkId = 5641
@@ -20,7 +20,7 @@ stawhiten = nothing
 
 delays = -0.066:0.033:0.4
 print(collect(delays))
-isplot = false
+isplot = true
 
 ## Prepare data & result path
 exptId = join(filter(!isempty,[recordSession, testId]),"_")
@@ -231,7 +231,7 @@ for pn in 1:planeNum
             # clean!(model)
         end
         # end
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,"xcond",condtable[uci,:],
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,
         "ueppr",ueppr,"delay",delays[d],"maskradius",maskradius,"stisize",stisize,"color",coneType)
     end
 end

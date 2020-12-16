@@ -1,13 +1,15 @@
 using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,LsqFit,FFTW
 
-disk = "F:"
-subject = "AF2"
+disk = "K:"
+subject = "AE6"
+# recordSession = "002"  #AF2
+# testId = ["004", "005","006","007"]
 
 # recordSession = "003"  #AF2
 # testId = ["004", "005","006","003"]
 
-recordSession = "004"  #AF2
-testId = [ "005","006","007","004"]
+# recordSession = "004"  #AF2
+# testId = [ "005","006","007","004"]
 
 # recordSession = "005"  #AF2
 # testId = ["003","004", "005","002"]
@@ -33,16 +35,16 @@ testId = [ "005","006","007","004"]
 # recordSession = "006"  #AF4
 # testId = ["000","001","002","003"]
 
-# recordSession = "004"  #AE6
+recordSession = "003"  #AE6
 # testId = ["006", "007", "008","005"]
 # testId = ["012", "013", "014","011"]
-# testId = ["005", "006","007","002"]
+testId = ["005", "006","007","002"]
 # testId = ["011", "012","013","010"]
 # testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
 # testId = ["013", "014", "015","012"]
 
-recordPlane = "000"
-delays = collect(-0.066:0.033:0.4)
+recordPlane = "001"
+delays = collect(-0.066:0.066:0.4)
 print(collect(delays))
 
 lbTime = 0.198
@@ -64,8 +66,7 @@ end
 dataFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]))
 dataExportFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), siteId, "DataExport")
 resultFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", "DataExport")
-# resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
-resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","Fourier")
+resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
 isdir(resultFolder) || mkpath(resultFolder)
 isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 
@@ -73,17 +74,13 @@ isdir(resultFolderPlot) || mkpath(resultFolderPlot)
 # testids = ["$(siteId)_HartleySubspace_$i" for i in 1:4]
 dataFile=[]
 for i=1:size(testId,1)
-    # datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],join=true)[1]
-    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_tuning_result.jld2"), dir=dataExportFolder[i],join=true)[1]
+    datafile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*_sta.jld2"), dir=dataExportFolder[i],join=true)[1]
     push!(dataFile, datafile)
 end
 
-## Join STAs from L, M, S, and achromatic expts. Also find the strongest response withe corresponding delay.
-# dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
-dataset = sbxjoinhartleyFourier(load.(dataFile))
-save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_fourier_dataset.jld2"])),"dataset",dataset)
+## Join STAs from L, M, S, and achromatic expts. Also find the strongest response and corresponding delay.
+dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
 ## Check responsiveness of cell based on threshold and delay range, filter out low-response and cell 'response' too early or too late
-
 dataset = sbxresponsivesta!(dataset,lbTime,ubTime,respThres)
 dataset = sbxrffit!(dataset)
 dataset = sbxgetbestconesta(dataset)
@@ -92,45 +89,6 @@ save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thr
 
 # stop
 dataset = load(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_datasetFinal.jld2"])),"datasetFinal")
-
-## Plot Hartley Fourier image
-
-for u in sort(collect(keys(dataset["kern"])))
-    # u=53
-    colors =["L", "M", "S", "A"]
-    kern = dataset["kern"][u]
-    replace!(kern, -Inf=>0)
-    kern= normalized(kern;equal=false)
-    delta = dataset["delta"]
-    imagesize = size(kern)[1]
-    # stisize = dataset["stisize"]
-    # maskradius = dataset["maskradius"]
-    # truestimsz = stisize*maskradius*2
-    truestimsz = 12
-    # ucex = map(i->i.ex,dataset["ulcex"][u])
-    # ucd = map(i->i.pd,dataset["ulcex"][u])
-    # clim = maximum(abs.(kern))    clims=(-clim,clim),
-    xylim = [0,round(truestimsz,digits=1)]
-    xy = range(xylim...,length=imagesize)
-
-    p = Plots.plot(layout=(1,4),legend=false,size=(1650,600))
-    # Plots.bar!(p,subplot=1,dataset["color"],ucex,frame=:zerolines)
-    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,kern[:,:,c],aspect_ratio=:equal,frame=:grid,
-    color=:bwr,clims=(-1,1),xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,xlabel=string(colors[c]),title="Cell_$(u)_Fourier"),1:4)
-    foreach(c->Plots.plot!(p,subplot=c,[6], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=3, linealpha=1, xticks=([6],["0"]), label=""),1:4)
-    foreach(c->Plots.plot!(p,subplot=c,[6], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=3, linealpha=1, label=""),1:4)
-    foreach(c->Plots.plot!(p,subplot=c,yticks=([6],["0"])),1)
-    # :diverging_bwr_40_95_c42_n256   RdBu_5
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"]), label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.2,0.4,0.6,0.8,1.0,1.2,1.4], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.4,0.8,1.2,1.6],["-0.8","-0.4","0","0.4","0.8"])),1)
-
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="vline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, xticks=([0,0.6,1.2,1.8,2.4],["-1.2","-0.6","0","0.6","1.2"]), label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,[0.4,0.8,1.2,1.6,2.0], seriestype="hline", linecolor=:gray, linestyle=:dot, linewidth=1, linealpha=0.5, label=""),1:4)
-    # foreach(c->Plots.plot!(p,subplot=c+1,yticks=([0,0.6,1.2,1.8,2.4],["-1.2","-0.6","0","0.6","1.2"])),1)
-    p
-    savefig(joinpath(resultFolderPlot,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
-end
 
 ## stas
 # @manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])

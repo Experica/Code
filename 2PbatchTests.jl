@@ -13,7 +13,7 @@ param = Dict{Any,Any}(
     :diraucThres => 0.8,   # if passed, calculate hue direction, otherwise calculate hue axis
     :oriaucThres => 0.5,
     :Respthres => 0.1,  # Set a response threshold to filter out low response cells?
-    :blankId => 36,  # Blank Id; AF3AF4=36, AE6AE7=34
+    :blankId => 36,  # Blank Id; AF2AF3AF4=36, AE6AE7=34
     :excId => [27,28])  # Exclude some condition?
 
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
@@ -26,7 +26,7 @@ tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
         @where i.Subject_ID == "AF2"
         # @where (i.RecordSite == "u003" || i.RecordSite == "u004")
-        @where i.RecordSite == "u006"
+        @where i.RecordSite == "u002"
         # @where i.RecordSite != "u010"
         @where i.ID == "Hartley"
         @where i.sourceformat == "Scanbox"
@@ -52,7 +52,7 @@ param[:delayLB] = -0.066  # in sec; Usually do not need to change it
 param[:delayUB] = 0.4   # in sec; Usually do not need to change it
 param[:delayStep] = 0.033  # Bidirectional = 0.033 sec, Unidirectional = 0.066 sec
 param[:delays] = param[:delayLB]:param[:delayStep]:param[:delayUB]
-param[:maskradius] = 1 #AE6=0.75 AE7=0.24 AF2=1 AF3=0.6 AF4=0.65
+# param[:maskradius] = 1 #AE6=0.75 AE7=0.24 AF2=1 AF3=0.6 AF4=0.65
 
 param[:model]=[:ePPR]
 param[:downsample] = 2  # for down-sampling stimuli image, 1 is no down-sampling
