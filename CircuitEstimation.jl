@@ -1,21 +1,11 @@
 using NeuroAnalysis,Statistics,FileIO,Plots
-#,LightGraphs,MetaGraphs
 
-# Combine all circuit estimations of one recording site
-dataroot = "../Data"
-dataexportroot = "../DataExport"
-resultroot = "../Result"
-
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL1"
-siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-siteresultdir = joinpath(resultroot,subject,siteid)
-
-## Merge Circuits
-function mergecircuit(indir;check=true,cfile="circuit.jld2")
+"Merge and Check Circuits of one recording site"
+function mergecircuit(indir;check=true,datafile="circuit.jld2")
     projs=[];eunits=[];iunits=[];projweights=[]
     for (root,dirs,files) in walkdir(indir)
-        if cfile in files
-            c = load(joinpath(root,cfile))
+        if datafile in files
+            c = load(joinpath(root,datafile))
             append!(projs,c["projs"]);append!(eunits,c["eunits"]);append!(iunits,c["iunits"]);append!(projweights,c["projweights"])
         end
     end
@@ -25,26 +15,27 @@ function mergecircuit(indir;check=true,cfile="circuit.jld2")
     return (;projs,eunits,iunits,projweights)
 end
 
+"Batch Site Circuits"
+function batchsitecircuit(indir)
+    for site in readdir(indir)
+        circuit = mergecircuit(joinpath(indir,site))
+        save(joinpath(indir,site,"sitecircuit.jld2"),"circuit",circuit,"siteid",site)
+    end
+end
 
-circuit = mergecircuit(siteresultdir)
-save(joinpath(siteresultdir,"sitecircuit.jld2"),"circuit",circuit,"siteid",siteid)
+
+
+resultroot = "../Result"
+batchsitecircuit(joinpath(resultroot,"AF5"))
 
 ## Layer Circuit Graph
 plotcircuit(unitposition,unitid,projs,unitgood=unitgood,eunits=eunits,iunits=iunits,projweights=projweights,layer=layer,showmode=:circuit)
 foreach(i->savefig(joinpath(siteresultdir,"Layer_Circuit$i")),[".png",".svg"])
 
 
-## Graph Analysis
-G = SimpleDiGraphFromIterator(Edge(i) for i in projs)
 
 
-t=Dict(p[1]=>p[2] for p in projs)
 
-st = filter((k,v)->k in keys(ct),t)
-
-YAML.write_file("projs_staunit.yaml",st)
-
-neighbors(G,102)
 
 
 

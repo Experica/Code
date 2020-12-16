@@ -48,8 +48,6 @@ poly(HyperRectangle(Vec2f0(0), Vec2f0(1,100)))
 
 
 
-
-
 t = load("C:\\Users\\fff00\\Command\\Recordings\\0040.png")
 
 tt=t[200:600,200:600]
@@ -60,22 +58,12 @@ ggt=gray.(gt)
 
 plot(ggt[:,200])
 
-using NeuroAnalysis
-using MAT
 
 
-t=Dict("a"=>1, "b"=>"sdf","c"=>rand(10,10))
-
-matwrite("test.mat",t)
-matread("test.mat")
-matread("Y:\\AF5\\AF5_HLV1_ODL4_Color_1.mat")
-prepare("Y:\\AF5\\AF5_HLV1_ODL4_Color_1.mat")
+dataset = prepare("Y:\\AF5\\AF5_HLV1_ODL1_HartleySubspace_1.mat")
+dataset = prepare("Y:\\AF5\\AF5_HLV1_ODL3_Flash2Color_2.mat")
 
 
-
-
-
-Dict(string(i)=>(a=rand(10,10),b=rand(10)) for i in 1:3)
 
 
 using Interact,Plots,VegaLite,DataFrames,Distances,LinearAlgebra
@@ -214,9 +202,6 @@ b = a[:,argmax(a,dims=2)]
 
 
 
-img = rand(100,100,3,5)
-
-img[1:10,1:10,:]
 
 imagepatch(img,10,(0.5,0.5))
 ## Tuning Properties in layers
@@ -279,3 +264,44 @@ if plot
         foreach(i->savefig(joinpath(resultdir,"UnitPosition_Hue_Tuning$i")),[".png",".svg"])
     end
 end
+
+
+## Test
+ys = reshape2mask(epochsamplenp(mmlf,fs,[condon[1] condon[end]+1000],1:nch,meta=lfmeta,bandpass=[]),exchmask)
+
+dy = 1e6*ys[:,1,:]
+dy=csd(1e6*ys[:,1,:],h=hy)
+
+
+ps,freq=powerspectrum(1e6dy,fs,freqrange=[0,10])
+
+t=periodogram(dy[100,:];fs)
+t=welch_pgram(dy[100,:];fs)
+t=mt_pgram(dy[100,:];fs,nw=10)
+
+plot(t.freq,t.power)
+
+plotanalog(log10.(amp),x=freq1,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],clims=:auto,color=:vik)
+plotanalog(pha,x=freq1,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],clims=:auto,color=:vik)
+
+
+t=rfft(dy,2)
+freq = rfftfreq(size(dy,2),fs)
+
+
+t1=t[:,freq.<2]
+freq1=freq[freq.<2]
+amp=abs.(t1)
+pha = angle.(t1)
+
+f1i=argmin(abs.(freq.-0.33))
+f2i=argmin(abs.(freq.-0.66))
+f3i=argmin(abs.(freq.-0.99))
+
+plot(depths,log10.(amp[:,f1i]))
+plot(depths,log10.(amp[:,f2i]))
+plot(depths,log10.(amp[:,f3i]))
+
+plot(depths,pha[:,f1i])
+plot(depths,pha[:,f2i])
+plot(depths,pha[:,f3i])

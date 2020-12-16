@@ -159,7 +159,7 @@ vbox(values(lw)...,lp)
 plotlayer()
 foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
 
-## Finalize Layers
+## Finalize Layer
 save(joinpath(siteresultdir,"layer.jld2"),"layer",checklayer!(layer),"siteid",siteid)
 
 # # earliest response should be due to LGN M,P input to 4Ca,4Cb
