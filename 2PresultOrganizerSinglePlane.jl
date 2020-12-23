@@ -8,10 +8,10 @@
 
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,Query,DataStructures, HypothesisTests, StatsFuns, Random
 # Expt info
-disk = "G:"
-subject = "AE7"  # Animal
+disk = "O:"
+subject = "AF4"  # Animal
 # recordPlane = ["001", "000"]  # I hard-code the plane Id here. The Id here is matched with the naming rule of multiple plane scanning
-recordPlane = ["000"]
+recordPlane = ["001"]
 oriaucThres = 0.7
 diraucThres = 0.7
 hueaucThres = 0.8
@@ -173,7 +173,7 @@ if addSTA
     for i = 1:sessNum
         display("Plane Num: $i")
         local unitId
-        j=map(j->isodd(i) ? 1 : 2, i)
+        j=1#map(j->isodd(i) ? 1 : 2, i)
         # unitId = hartleyExptId[i][5:7]
         unitId = recordSession[i]
         plId = recordPlane[j]
@@ -285,7 +285,7 @@ if addFourier
     for i = 1:sessNum
         display("Plane Num: $i")
         local unitId
-        j=map(j->isodd(i) ? 1 : 2, i)
+        j=1#map(j->isodd(i) ? 1 : 2, i)
         # unitId = hartleyExptId[i][5:7]
         unitId = recordSession[i]
         plId = recordPlane[j]
@@ -307,23 +307,34 @@ if addFourier
         result.unitId = fill(unitId, cellNum)
         result.planeId = fill(plId, cellNum)
         result.cellId = keys(kern)
-        iscone=[];isachro=[];domicone=[];delycone=[];conemaxExt=[];conemaxMag=[];lcwmn=[];mcwmn=[];scwmn=[];lcwmg=[];mcwmg=[];scwmg=[];
-        lcwmgall=[];mcwmgall=[];scwmgall=[];lmg=[];mmg=[];smg=[];amg=[];achResp=[];ls=[];ms=[];ss=[];as=[];isl=[];ism=[];iss=[];isa=[];
-        ubcone=sta["ubcone"]
-        cowg=sta["coneweight"]
-        achroResp=sta["achroResp"]
-        ustasign=sta["ustasign"]
-        ustamag=sta["ustamag"]
-        uconeresponsive = sta["uconeresponsive"]
+
+        isl=[];ism=[];iss=[];isa=[];iscone=[];isachro=[];   # significance
+        ldelta=[];mdelta=[];sdelta=[];adelta=[];conemaxDelta=[]; domicone=[];  # magnitude change
+        lstd=[];mstd=[];sstd=[];astd=[];  # std/magnitude
+        ltau=[];mtau=[];stau=[];atau=[];   # tau/delay
+        llambda=[];mlambda=[];slambda=[];alambda=[];   # lambda
+        lori=[];mori=[];sori=[];aori=[];   # orientation
+        lsf=[];msf=[];ssf=[];asf=[];   # spatial frequency
+        lct=[];mct=[];sct=[];act=[];   # cell type
+
+        signif=fdata["signif"]
+        tau=fdata["taumax"]
+        delta=fdata["kdelta"]
+        kstd=fdata["kstdmax"]
+        lambda=fdata["slambda"]
+        orimax = fdata["orimax"]
+        sfmax = fdata["sfmax"]
+        orimean = fdata["orimean"]
+        sfmean = fdata["sfmean"]
 
         cellId = result.cellId
         for k=1:cellNum
         # k=1
             cone=haskey(ubcone,cellId[k]) ? true : false
-            push!(isl,uconeresponsive[cellId[k]][1])
-            push!(ism,uconeresponsive[cellId[k]][2])
-            push!(iss,uconeresponsive[cellId[k]][3])
-            push!(isa,uconeresponsive[cellId[k]][4])
+            push!(isl,signif[cellId[k]][1])
+            push!(ism,signif[cellId[k]][2])
+            push!(iss,signif[cellId[k]][3])
+            push!(isa,signif[cellId[k]][4])
             push!(iscone,cone)
             push!(isachro,in(cellId[k],achroResp[:cellId]))
             push!(domicone,map(i->cone==true ? ubcone[i].bstidx : NaN, cellId[k]))
@@ -347,10 +358,10 @@ if addFourier
             push!(ms, ustasign[cellId[k]][2])
             push!(ss, ustasign[cellId[k]][3])
             push!(as, ustasign[cellId[k]][4])
-            push!(lmg, ustamag[cellId[k]][6,1])
-            push!(mmg, ustamag[cellId[k]][6,2])
-            push!(smg, ustamag[cellId[k]][6,3])
-            push!(amg, ustamag[cellId[k]][6,4])
+            push!(ldelta, ustamag[cellId[k]][6,1])
+            push!(mdelta, ustamag[cellId[k]][6,2])
+            push!(sdelta, ustamag[cellId[k]][6,3])
+            push!(adelta, ustamag[cellId[k]][6,4])
         end
         result.isl=isl
         result.ism=ism
@@ -376,10 +387,10 @@ if addFourier
         result.msign=ms
         result.ssign=ss
         result.asign=as
-        result.lmg=lmg
-        result.mmg=mmg
-        result.smg=smg
-        result.amg=amg
+        result.mdelta=mdelta
+        result.mdelta=mdelta
+        result.sdelta=sdelta
+        result.adelta=adelta
         append!(staData, result)
 
         append!(planeData, result)

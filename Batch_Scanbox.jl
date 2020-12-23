@@ -996,6 +996,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     envparam = ex["EnvParam"]
     coneType = getparam(envparam,"colorspace")
     szhtly_visangle = envparam["x_size"]  # deg
+    maxSF = envparam["max_sf"]  # cyc/deg
     sbx = dataset["sbx"]["info"]
     sbxft = ex["frameTimeSer"]   # time series of sbx frame in whole recording
     # Condition Tests
@@ -1111,9 +1112,9 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
         taumax=[];kstd=[];kstdmax=[];kernraw=[];kernnor=[];kernest=[];
         kdelta=[];signif=[];slambda=[];sfmax=[];orimax=[];sfmean=[];orimean=[];
-        sfidx=[];sfcurve=[];oriidx=[];oricurve=[];
+        sfLevel=[];sfResp=[];oriLevel=[];oriResp=[];
         for i = 1:cellNum
-            # i=15
+            # i=373
             z = r[:,:,:,i]
             q = reshape(z,szhtly^2,:)   # in this case, there are 61^2 pixels in the stimulus.
             # k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
@@ -1122,7 +1123,9 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
             kmax = max(k...)
             # sig = kmax>7
             kernRaw = z[:,:,tmax]  # raw kernel without blank normalization
-            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])   # kernal normalized by blank
+            kernSub = z[:,:,tmax] .- z[max_k+1,max_k+1,tmax]  # kernal normalized by blank
+            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])  # kernal normalized by blank
+            replace!(kern, -Inf=>0)
 
             # separability measure and estimate kernel
             u,s,v = svd(kernRaw)
@@ -1139,7 +1142,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
             # find the maxi/best condition
             # bw = kern .> (max(kern...) .* 0.95)
-            bwmax = kern .== max(kern...)
+            bwmax = kernSub.== max(kernSub...)
             idxmax = findall(x->x==1,bwmax)
             foreach(x->if x[1]>(max_k+1) bwmax[x]=0 end,idxmax)   # choose upper quadrants
             # estimate ori/sf by max
@@ -1147,46 +1150,74 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
             sf_max = abs(zzm)/szhtly_visangle  # cyc/deg
             ori_max = rad2deg(angle(zzm)) # deg
 
-            # find the maxi/best condition
-            bw = kern .> (max(kern...) .* 0.95)
+
+            # find the best condition based on thresholding
+            bw = kernSub .>= quantile(kernSub[:], 0.99)
+            # bw = kernSub .>= (max(kernSub...) .* 0.95)
             idx = findall(x->x==1,bw)
             foreach(x->if x[1]>(max_k+1) bw[x]=0 end,idx)   # choose upper quadrants
+            idx = findall(x->x==1,bw)  # choose upper quadrants
             # estimate ori/sf by mean
-            zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / (length(idx)/2)
+            zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / length(idx)
             sf_mean = abs(zzm)/szhtly_visangle  # cyc/deg
             ori_mean = rad2deg(angle(zzm)) # deg
 
-            # Ori tuning curve
-            sf_best = max((abs.(zz).*bwmax)...)
-            idxsf = findall(x->x==sf_best,abs.(zz))
-            filter!(x->x[1]<=(max_k+1),idxsf)
+            ## Ori tuning curve
+            # sf_best = max((abs.(zz).*bwmax)...)
+            # idxsf = findall(x->x==sf_best,abs.(zz))
+            # filter!(x->x[1]<=(max_k+1),idxsf)
+            #
+            # ori_idx=rad2deg.(angle.(reverse(zz[idxsf])))
+            # ori_curve=reverse(kern[idxsf])
+            sf_best = extrema(abs.(zz)[idx])
+            idxsf = findall(x->sf_best[1] <= x <= sf_best[2],abs.(zz))
+            filter!(x->x[1]<=(max_k+1),idxsf)  # choose upper quadrants
+            filter!(x-> !((x[1]==(max_k+1)) & (x[2]<max_k+1)),idxsf) # remove 180 deg
 
-            ori_idx=rad2deg.(angle.(reverse(zz[idxsf])))
-            ori_curve=reverse(kern[idxsf])
-
-            # SF tuning curve
-            ori_best = max((angle.(zz).*bwmax)...)
-            idxori = findall(x->x==ori_best,angle.(zz))
-
-            sf_idx = (abs.(zz[idxori]))./szhtly_visangle
-            sf_curve = kern[idxori]
-            idxinf = findall(x->!isinf(x),sf_curve)
-            sf_idx = sort(sf_idx[idxinf])
-            if idxori[end][2] < max_k
-                sf_curve = reverse(sf_curve)
+            oriCurve = DataFrame()
+            oriCurve.level=rad2deg.(angle.(zz[idxsf]))
+            oriCurve.resp=kernSub[idxsf]
+            sort!(oriCurve)
+            filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), oriCurve)
+            # averaged over repeated orientation
+            gp=groupby(oriCurve, :level)
+            ori_level=[];ori_resp=[];
+            for g in gp
+                push!(ori_level,mean(g.level))
+                push!(ori_resp,mean(g.resp))
             end
-            filter!(x->x!=-Inf,sf_curve)
+
+            ## SF tuning curve
+            ori_best = extrema(angle.(zz)[idx])
+            idxori = findall(x->ori_best[1] <= x <= ori_best[2],angle.(zz))
+            # filter!(x->x[1]<=(max_k+1),idxori)   # choose upper quadrants
+
+            sfCurve = DataFrame()
+            sfCurve.level = (abs.(zz[idxori]))./szhtly_visangle
+            sfCurve.resp = kernSub[idxori]
+            sort!(sfCurve)
+            sfCurve = sfCurve[sfCurve[:level].<=maxSF,:]
+            filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), sfCurve)
+            # averaged over repeated sf
+            gp=groupby(sfCurve, :level)
+            sf_level=[];sf_resp=[];
+            for g in gp
+                push!(sf_level,mean(g.level))
+                push!(sf_resp,mean(g.resp))
+            end
 
             push!(taumax,tmax);push!(kstd,k);push!(kstdmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
             push!(kernest,kest);push!(signif,sig);push!(kdelta,delta); push!(slambda,lambda);
             push!(orimax,ori_max); push!(sfmax,sf_max);push!(orimean,ori_mean); push!(sfmean,sf_mean);
-            push!(oriidx, ori_idx);push!(oricurve,ori_curve); push!(sfidx,sf_idx); push!(sfcurve,sf_curve)
+            push!(oriLevel, ori_level);push!(oriResp,ori_resp); push!(sfLevel,sf_level); push!(sfResp,sf_resp)
+
 
             # if sig == true
-            #     heatmap(kern,yflip=true, aspect_ratio=:equal,color=:coolwarm)
-            #     # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
+                # heatmap(kmask,yflip=true, aspect_ratio=:equal,color=:coolwarm)
+                # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
             # end
         end
+
         result.signif = signif
         result.taumax = taumax
         result.kstdmax = kstdmax
@@ -1203,10 +1234,10 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         result.kernnor = kernnor
         result.kernraw = kernraw
         result.kernest = kernest
-        result.oriidx = oriidx
-        result.oricurve = oricurve
-        result.sfidx = sfidx
-        result.sfcurve = sfcurve
+        result.oriLevel = oriLevel
+        result.oriResp = oriResp
+        result.sfLevel = sfLevel
+        result.sfResp = sfResp
 
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result1)

@@ -48,7 +48,7 @@ testId = ["001","002","003","004"]
 # testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
 # testId = ["013", "014", "015","012"]
 
-recordPlane = "001"
+recordPlane = "000"
 delays = collect(-0.066:0.033:0.4)
 print(collect(delays))
 

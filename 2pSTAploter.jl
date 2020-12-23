@@ -1,7 +1,7 @@
 using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,LsqFit,FFTW
 
-disk = "K:"
-subject = "AE6"
+disk = "O:"
+subject = "AF4"
 # recordSession = "002"  #AF2
 # testId = ["004", "005","006","007"]
 
@@ -26,8 +26,8 @@ subject = "AE6"
 # recordSession = "003"  #AF4
 # testId = ["000","001","002", "004"]
 # #
-# recordSession = "004"  #AF4
-# testId = ["001","002","003","004"]
+recordSession = "004"  #AF4
+testId = ["001","002","003","004"]
 
 # recordSession = "005"  #AF4
 # testId = ["000","001","003","004"]
@@ -35,16 +35,16 @@ subject = "AE6"
 # recordSession = "006"  #AF4
 # testId = ["000","001","002","003"]
 
-recordSession = "003"  #AE6
+# recordSession = "003"  #AE6
 # testId = ["006", "007", "008","005"]
 # testId = ["012", "013", "014","011"]
-testId = ["005", "006","007","002"]
+# testId = ["005", "006","007","002"]
 # testId = ["011", "012","013","010"]
 # testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
 # testId = ["013", "014", "015","012"]
 
 recordPlane = "001"
-delays = collect(-0.066:0.066:0.4)
+delays = collect(-0.066:0.033:0.4)
 print(collect(delays))
 
 lbTime = 0.198
@@ -67,8 +67,10 @@ dataFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]))
 dataExportFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), siteId, "DataExport")
 resultFolder = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", "DataExport")
 resultFolderPlot = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STA")
+resultFolderPlotFit = joinpath.(disk,subject, "2P_analysis", join(["U",recordSession]), "_Summary", join(["plane_",recordPlane]),"0. Original maps","STAfit")
 isdir(resultFolder) || mkpath(resultFolder)
 isdir(resultFolderPlot) || mkpath(resultFolderPlot)
+isdir(resultFolderPlotFit) || mkpath(resultFolderPlotFit)
 
 ## Load all stas
 # testids = ["$(siteId)_HartleySubspace_$i" for i in 1:4]
@@ -82,9 +84,10 @@ end
 dataset = sbxjoinsta(load.(dataFile),lbTime,ubTime,blkTime)
 ## Check responsiveness of cell based on threshold and delay range, filter out low-response and cell 'response' too early or too late
 dataset = sbxresponsivesta!(dataset,lbTime,ubTime,respThres)
-dataset = sbxrffit!(dataset)
+dataset = sbxfitsta!(dataset)
 dataset = sbxgetbestconesta(dataset)
 datasetFinal=sbxgetconeweight(dataset)
+datasetFinal = dataset
 save(joinpath(resultFolder,join([subject,"_",recordSession,"_",recordPlane,"_thres",respThres,"_sta_datasetFinal.jld2"])),"datasetFinal",datasetFinal)
 
 # stop
@@ -188,7 +191,7 @@ a
 # save(joinpath(resultFolder,"bwr_colorbar.svg"),p)
 ## rf fit
 # @manipulate
-for u in sort(collect(keys(dataset["urf"])))#,m in collect(keys(first(values(dataset["urf"]))))
+for u in sort(collect(keys(dataset["ulfit"])))#,m in collect(keys(first(values(dataset["urf"]))))
     nc = length(dataset["color"])
     ulsta = dataset["ulsta"][u]
     delays = dataset["delays"]
@@ -197,8 +200,8 @@ for u in sort(collect(keys(dataset["urf"])))#,m in collect(keys(first(values(dat
     stisize = dataset["stisize"]
     maskradius = dataset["maskradius"]
     truestimsz = stisize*maskradius*2
-    ucex = map(i->i.ex,dataset["ucex"][u])
-    ucd = map(i->i.d,dataset["ucex"][u])
+    ucex = map(i->i.ex,dataset["ulcex"][u])
+    ucd = map(i->i.pd,dataset["ulcex"][u])
     clim = maximum(abs.(ucex))
     xylim = [0,round(truestimsz,digits=1)]
     xy = range(xylim...,length=imagesize)
@@ -208,7 +211,7 @@ for u in sort(collect(keys(dataset["urf"])))#,m in collect(keys(first(values(dat
     xlims=xylim,ylims=xylim,xticks=[],yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:nc)
 
 
-    fit=dataset["urf"][u]
+    fit=dataset["ulfit"][u]
     pr = (imagesize[1]-1)/2
     x=y=(-pr:pr)./ppd
     sr = round(x[end],digits=1)
@@ -232,7 +235,7 @@ for u in sort(collect(keys(dataset["urf"])))#,m in collect(keys(first(values(dat
     # Plots.scatter!(p,subplot=c+3nc,vec(ulsta[:,:,ucd[c],c]),vec(rfs[c]),frame=:grid,color=:coolwarm,grid=false,
     # xlabel="y",ylabel="predict y",title="r = $(round(fit[m][c].r,digits=3))",markerstrokewidth=0,markersize=1),1:nc)
     p
-    savefig(joinpath(resultFolderPlot,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
+    savefig(joinpath(resultFolderPlotFit,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
 end
 
 

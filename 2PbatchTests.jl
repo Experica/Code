@@ -2,14 +2,14 @@
 includet("Batch.jl")
 
 param = Dict{Any,Any}(
-    :dataexportroot => "F:\\AF2\\2P_analysis\\Summary\\DataExport",
+    :dataexportroot => "O:\\AF4\\2P_analysis\\Summary\\DataExport",
     :interpolatedData => true,   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
     :preOffset => 0.1,
     :responseOffset => 0.05,  # in sec
     :α => 0.05,   # p value
     :sampnum => 100,   # random sampling 100 times
     :fitThres => 0.5,
-    :hueSpace => "HSL",   # Color space used? DKL or HSL
+    :hueSpace => "DKL",   # Color space used? DKL or HSL
     :diraucThres => 0.8,   # if passed, calculate hue direction, otherwise calculate hue axis
     :oriaucThres => 0.5,
     :Respthres => 0.1,  # Set a response threshold to filter out low response cells?
@@ -24,9 +24,9 @@ end
 ## Query Tests
 tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
-        @where i.Subject_ID == "AF2"
+        @where i.Subject_ID == "AF4"
         # @where (i.RecordSite == "u003" || i.RecordSite == "u004")
-        @where i.RecordSite == "u002"
+        # @where i.RecordSite == "u002"
         # @where i.RecordSite != "u010"
         @where i.ID == "Hartley"
         @where i.sourceformat == "Scanbox"

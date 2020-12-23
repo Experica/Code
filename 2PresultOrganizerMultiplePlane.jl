@@ -5,8 +5,8 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT,Query,DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "F:"
-subject = "AF2"  # Animal
+disk = "O:"
+subject = "AF4"  # Animal
 # recordSession = ["002","003","004", "005", "006", "007", "008"] # Unit
 recordPlane = ["000", "001"]
 
@@ -24,9 +24,10 @@ huesiThres = 0.5
 cpiThres = 0.33
 
 numberofColor = 12
-colorSpace = "HSL"   # DKL, # HSL
+colorSpace = "DKL"   # DKL, # HSL
 
 addSTA = false
+addFourier = true
 staThres = 0.25
 
 ## Make folders and path
@@ -48,7 +49,7 @@ tests = @from i in meta begin
     end
 sort!(tests, [:RecordSite, :filename])
 oritests = @from i in tests begin
-    @where i.RecordSite == "u006"
+    @where i.RecordSite == "u004"
     # @where i.RecordSite != "u008"
     @where i.ID == "DirSF"
     @select {i.ID,i.RecordSite,i.filename}
@@ -56,19 +57,21 @@ oritests = @from i in tests begin
     end
 # deleterows!(oritests, [2,3,4,5,6,8,9,11,12,13,14,15,16,17,19,20,21,22,24,25,26,27])
 # deleterows!(oritests, [2,4,5,8,10])
+deleterows!(oritests, [2,3,4,5,6])
 deleterows!(oritests, [2])
 huetests = @from i in tests begin
     # @where i.RecordSite != "u005"
-    @where i.RecordSite == "u006"
+    @where i.RecordSite == "u004"
     @where i.ID == "DirSFColor"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
     end
 # deleterows!(huetests, [2,3,6,7,9])
+deleterows!(huetests, [2])
 
 hartleytests = @from i in tests begin
-    @where i.RecordSite != "u005"
-    @where i.RecordSite != "u008"
+    # @where i.RecordSite != "u005"
+    @where i.RecordSite == "u004"
     @where i.ID == "Hartley"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -90,7 +93,7 @@ paraName = string("oa",string(oriaucThres),"da",string(diraucThres),"ha",string(
 
 ## Direction/Orientation data
 rois=Any[]; bkgs=Any[]; oriData=DataFrame(); oriSum=DataFrame(); hueData=DataFrame(); hueSum=DataFrame();
-staData=DataFrame(); staSum=DataFrame();
+staData=DataFrame(); staSum=DataFrame();fourierData=DataFrame(); fourierSum=DataFrame();
 for i = 1:exptOriNum
     display("Processing Oriexpt No: $i")
     for j = 1:planeNum
@@ -272,6 +275,266 @@ if addSTA
     end
 end
 
+## Load Hartely (Fourier) data
+if addFourier
+    for i = 1:sessNum
+        display("RecordSession Num: $i")
+        for j = 1:planeNum
+
+            local unitId
+            local dataFolder
+            unitId = recordSession[i]
+            plId = recordPlane[j]
+            display("Plane Id.: $plId")
+            dataFolder = joinpath(mainpath, join(["U",unitId]),"_Summary","DataExport")  # load ori data for cpi calculation
+            dataFile=matchfile(Regex("$subject*_*$unitId*_$plId*_thres$staThres*_fourier_dataset.jld2"),dir=dataFolder,join=true)[1]
+            fdata = load(dataFile)["dataset"]
+            cellNum = length(fdata["signif"])
+            kern = sort!(OrderedDict(fdata["kern"]))
+            if isequal(j,1)
+                global planeData, dataExportFolder2
+                planeData = DataFrame()
+                dataExportFolder2 = joinpath(mainpath, join(["U", unitId]), "_Summary", "DataExport")
+                isdir(dataExportFolder2) || mkpath(dataExportFolder2)
+            end
+            local result
+            result = DataFrame()
+            result.py = 0:cellNum-1
+            result.ani = fill(subject, cellNum)
+            result.unitId = fill(unitId, cellNum)
+            result.planeId = fill(plId, cellNum)
+            result.cellId = collect(keys(kern))
+
+            isl=[];ism=[];iss=[];isa=[];iscone=[];  # significance
+            ldelta=[];mdelta=[];sdelta=[];adelta=[];conemaxDelta=[]; domicone=[];  # magnitude change
+            lstd=[];mstd=[];sstd=[];astd=[];  # std/magnitude
+            ltau=[];mtau=[];stau=[];atau=[];   # tau/delay
+            llambda=[];mlambda=[];slambda=[];alambda=[];   # lambda
+            lorimax=[];morimax=[];sorimax=[];aorimax=[];   # orientation based on maximal value
+            lorimean=[];morimean=[];sorimean=[];aorimean=[];   # orientation based on mean value
+            lpo=[];mpo=[];spo=[];apo=[];   # Preferred orientation from fitting
+            lohw=[];mohw=[];sohw=[];aohw=[];   # half-width of orientaiton tuning.
+            losi1=[];mosi1=[];sosi1=[];aosi1=[];   # osi of orientaiton tuning.
+            losi2=[];mosi2=[];sosi2=[];aosi2=[];   # osi of orientaiton tuning.
+            lsfmax=[];msfmax=[];ssfmax=[];asfmax=[];   # spatial frequency based maximal value
+            lsfmean=[];msfmean=[];ssfmean=[];asfmean=[];   # spatial frequency based mean value
+            lpsf=[];mpsf=[];spsf=[];apsf=[];   # Preferred SF from fitting
+            lsfhw=[];msfhw=[];ssfhw=[];asfhw=[];   # half-width of sf tuning.
+            lsfbw=[];msfbw=[];ssfbw=[];asfbw=[];   # half-width of sf tuning.
+            lsft=[];msft=[];ssft=[];asft=[];   # SF type
+
+            signif=fdata["signif"]
+            tau=fdata["taumax"]
+            delta=fdata["kdelta"]
+            kstd=fdata["kstdmax"]
+            lambda=fdata["slambda"]
+            orimax = fdata["orimax"]
+            sfmax = fdata["sfmax"]
+            orimean = fdata["orimean"]
+            sfmean = fdata["sfmean"]
+            sffit = fdata["sffit"]
+            orifit = fdata["orifit"]
+
+            cellId = result.cellId
+            for k=1:cellNum
+                # k=1
+                print(k,"-")
+                cone=isequal(sum(signif[cellId[k]][1:3]),0) ? false : true
+                push!(iscone,cone)
+                push!(isl,signif[cellId[k]][1])
+                push!(ism,signif[cellId[k]][2])
+                push!(iss,signif[cellId[k]][3])
+                push!(isa,signif[cellId[k]][4])
+
+                push!(ldelta,delta[cellId[k]][1])
+                push!(mdelta,delta[cellId[k]][2])
+                push!(sdelta,delta[cellId[k]][3])
+                push!(adelta,delta[cellId[k]][4])
+                # push!(domicone,map(i->cone==true ? ubcone[i].bstidx : NaN, cellId[k]))
+
+                push!(lstd,kstd[cellId[k]][1])
+                push!(mstd,kstd[cellId[k]][2])
+                push!(sstd,kstd[cellId[k]][3])
+                push!(astd,kstd[cellId[k]][4])
+
+                push!(ltau,tau[cellId[k]][1])
+                push!(mtau,tau[cellId[k]][2])
+                push!(stau,tau[cellId[k]][3])
+                push!(atau,tau[cellId[k]][4])
+
+                push!(llambda,lambda[cellId[k]][1])
+                push!(mlambda,lambda[cellId[k]][2])
+                push!(slambda,lambda[cellId[k]][3])
+                push!(alambda,lambda[cellId[k]][4])
+
+                push!(lorimax,orimax[cellId[k]][1])
+                push!(morimax,orimax[cellId[k]][2])
+                push!(sorimax,orimax[cellId[k]][3])
+                push!(aorimax,orimax[cellId[k]][4])
+
+                push!(lorimean,orimean[cellId[k]][1])
+                push!(morimean,orimean[cellId[k]][2])
+                push!(sorimean,orimean[cellId[k]][3])
+                push!(aorimean,orimean[cellId[k]][4])
+
+                push!(lpo,orifit[cellId[k]][1].po)
+                push!(mpo,orifit[cellId[k]][2].po)
+                push!(spo,orifit[cellId[k]][3].po)
+                push!(apo,orifit[cellId[k]][4].po)
+
+                push!(lohw,orifit[cellId[k]][1].ohw)
+                push!(mohw,orifit[cellId[k]][2].ohw)
+                push!(sohw,orifit[cellId[k]][3].ohw)
+                push!(aohw,orifit[cellId[k]][4].ohw)
+
+                push!(losi1,orifit[cellId[k]][1].osi1)
+                push!(mosi1,orifit[cellId[k]][2].osi1)
+                push!(sosi1,orifit[cellId[k]][3].osi1)
+                push!(aosi1,orifit[cellId[k]][4].osi1)
+
+                push!(losi2,orifit[cellId[k]][1].osi2)
+                push!(mosi2,orifit[cellId[k]][2].osi2)
+                push!(sosi2,orifit[cellId[k]][3].osi2)
+                push!(aosi2,orifit[cellId[k]][4].osi2)
+
+                push!(lsfmax,sfmax[cellId[k]][1])
+                push!(msfmax,sfmax[cellId[k]][2])
+                push!(ssfmax,sfmax[cellId[k]][3])
+                push!(asfmax,sfmax[cellId[k]][4])
+
+                push!(lsfmean,sfmean[cellId[k]][1])
+                push!(msfmean,sfmean[cellId[k]][2])
+                push!(ssfmean,sfmean[cellId[k]][3])
+                push!(asfmean,sfmean[cellId[k]][4])
+
+                push!(lpsf,sffit[cellId[k]][1].psf)
+                push!(mpsf,sffit[cellId[k]][2].psf)
+                push!(spsf,sffit[cellId[k]][3].psf)
+                push!(apsf,sffit[cellId[k]][4].psf)
+
+                push!(lsfhw,sffit[cellId[k]][1].sfhw)
+                push!(msfhw,sffit[cellId[k]][2].sfhw)
+                push!(ssfhw,sffit[cellId[k]][3].sfhw)
+                push!(asfhw,sffit[cellId[k]][4].sfhw)
+
+                push!(lsfbw,sffit[cellId[k]][1].sfbw)
+                push!(msfbw,sffit[cellId[k]][2].sfbw)
+                push!(ssfbw,sffit[cellId[k]][3].sfbw)
+                push!(asfbw,sffit[cellId[k]][4].sfbw)
+
+                push!(lsft,sffit[cellId[k]][1].sftype)
+                push!(msft,sffit[cellId[k]][2].sftype)
+                push!(ssft,sffit[cellId[k]][3].sftype)
+                push!(asft,sffit[cellId[k]][4].sftype)
+
+                # push!(domicone,map(i->cone==true ? ubcone[i].bstidx : NaN, cellId[k]))
+                # push!(delycone,map(i->cone==true ? ubcone[i].bstdly : NaN, cellId[k]))
+                # push!(conemaxExt,map(i->cone==true ? ubcone[i].bstex : NaN, cellId[k]))
+                # push!(conemaxMag,map(i->cone==true ? ubcone[i].bstmag : NaN, cellId[k]))
+
+            end
+            result.isl=isl
+            result.ism=ism
+            result.iss=iss
+            result.isa=isa
+            result.iscone=iscone
+
+            # result.dominantcone=domicone
+            # result.conedelay=delycone
+            # result.ConemaxExt=conemaxExt
+            # result.ConemaxMag=conemaxMag
+            result.ldelta=ldelta
+            result.mdelta=mdelta
+            result.sdelta=sdelta
+            result.adelta=adelta
+
+            result.lstd=lstd
+            result.mstd=mstd
+            result.sstd=sstd
+            result.astd=astd
+
+            result.ltau=ltau
+            result.mtau=mtau
+            result.stau=stau
+            result.atau=atau
+
+            result.llambda=llambda
+            result.mlambda=mlambda
+            result.slambda=slambda
+            result.alambda=alambda
+
+            result.lorimax=lorimax
+            result.morimax=morimax
+            result.sorimax=sorimax
+            result.aorimax=aorimax
+
+            result.lorimean=lorimean
+            result.morimean=morimean
+            result.sorimean=sorimean
+            result.aorimean=aorimean
+
+            result.lpo=lpo
+            result.mpo=mpo
+            result.spo=spo
+            result.apo=apo
+
+            result.lohw=lohw
+            result.mohw=mohw
+            result.sohw=sohw
+            result.aohw=aohw
+
+            result.losi1=losi1
+            result.mosi1=mosi1
+            result.sosi1=sosi1
+            result.aosi1=aosi1
+
+            result.losi2=losi2
+            result.mosi2=mosi2
+            result.sosi2=sosi2
+            result.aosi2=aosi2
+
+            result.lsfmax=lsfmax
+            result.msfmax=msfmax
+            result.ssfmax=ssfmax
+            result.asfmax=asfmax
+
+            result.lsfmean=lsfmean
+            result.msfmean=msfmean
+            result.ssfmean=ssfmean
+            result.asfmean=asfmean
+
+            result.lpsf=lpsf
+            result.mpsf=mpsf
+            result.spsf=spsf
+            result.apsf=apsf
+
+            result.lsfhw=lsfhw
+            result.msfhw=msfhw
+            result.ssfhw=ssfhw
+            result.asfhw=asfhw
+
+            result.lsfbw=lsfbw
+            result.msfbw=msfbw
+            result.ssfbw=ssfbw
+            result.asfbw=asfbw
+
+            result.lsft=lsft
+            result.msft=msft
+            result.ssft=ssft
+            result.asft=asft
+
+            append!(fourierData, result)
+
+            append!(planeData, result)
+            if isequal(j,planeNum)
+                save(joinpath(dataExportFolder2,join([subject,"_",unitId, "_thres$staThres", "_fourier_dataset_organized.jld2"])),"planeData",planeData)
+                CSV.write(joinpath(dataExportFolder2,join([subject,"_",unitId,"_thres$staThres", "_fourier_dataset_organized.csv"])), planeData)
+            end
+            # summ=DataFrame(id=result.unitId[1], planeid=plId[1], fourierNum=cellNum, staCone=sum(result.iscone), staAchro=sum(result.isachro), meandelay=mean(delycone[BitArray(iscone)]), stddelay=std(delycone[BitArray(iscone)]))
+            # append!(fourierSum, summ)
+        end
+    end
+end
 
 ## Save results
 siteId = join(["U",join(recordSession)])
