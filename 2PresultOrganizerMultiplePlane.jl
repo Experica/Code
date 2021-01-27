@@ -338,7 +338,7 @@ if addFourier
             cellId = result.cellId
             for k=1:cellNum
                 # k=1
-                print(k,"-")
+                # print(k,"-")
                 cone=isequal(sum(signif[cellId[k]][1:3]),0) ? false : true
                 push!(iscone,cone)
                 push!(isl,signif[cellId[k]][1])

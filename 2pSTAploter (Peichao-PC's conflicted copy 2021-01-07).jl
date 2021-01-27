@@ -1,7 +1,7 @@
 using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,Plots,LsqFit,FFTW
 
-disk = "G:"
-subject = "AE7"
+disk = "O:"
+subject = "AF4"
 # recordSession = "002"  #AF2
 # testId = ["004", "005","006","007"]
 
@@ -26,8 +26,8 @@ subject = "AE7"
 # recordSession = "002"  #AF4
 # testId = ["008","009","010","011"]  # In the order of L, M, S, and achromatic
 
-# recordSession = "003"  #AF4
-# testId = ["000","001","002", "004"]
+recordSession = "003"  #AF4
+testId = ["000","001","002", "004"]
 # #
 # recordSession = "004"  #AF4
 # testId = ["001","002","003","004"]
@@ -38,43 +38,13 @@ subject = "AE7"
 # recordSession = "006"  #AF4
 # testId = ["000","001","002","003"]
 
-# --------- AE7
-recordSession = "003"
-testId = ["002","003","004","001"]
-
-# recordSession = "005"
-# testId = ["004","005","006","003"]
-
-# recordSession = "006"
-# testId = ["004","006","007","003"]
-
-# recordSession = "008"
-# testId = ["003","004","005","002"]
-
-# recordSession = "009"
-# testId = ["002","003","004","001"]
-
-# recordSession = "011"
-# testId = ["002","004","005","001"]
-
-# recordSession = "012"
-# testId = ["002","003","004","001"]
-
-# recordSession = "013"
-# testId = ["003","004","005","002"]
-
-#----------------------
-# recordSession = "002"  #AE6
-# testId = ["006", "007", "008","005"]    # 001
-# testId = ["012", "013", "014","011"]    # 000
-
 # recordSession = "003"  #AE6
-# testId = ["005", "006","007","002"]   # 001
-# testId = ["011", "012","013","010"]  # 000
-
-# recordSession = "004"  #AE6
-# testId = ["003", "007", "008","002"]   # 001 # In the order of L, M, S, and achromatic
-# testId = ["013", "014", "015","012"]  # 000
+# testId = ["006", "007", "008","005"]
+# testId = ["012", "013", "014","011"]
+# testId = ["005", "006","007","002"]
+# testId = ["011", "012","013","010"]
+# testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
+# testId = ["013", "014", "015","012"]
 
 recordPlane = "000"
 delays = collect(-0.066:0.033:0.4)
@@ -225,7 +195,7 @@ a
 
 ## Plot fitted STA
 
-for  u in sort(collect(keys(datasetFinal["ulfit"]))),m in collect(keys(first(values(datasetFinal["ulfit"]))))
+plotfitstas=(u,m;dir=nothing)->begin
     cn = length(datasetFinal["color"])
     ulsta = datasetFinal["ulsta"][u]
     delays = datasetFinal["delays"]
@@ -238,17 +208,31 @@ for  u in sort(collect(keys(datasetFinal["ulfit"]))),m in collect(keys(first(val
     ucd = map(i->i.pd,datasetFinal["ulcex"][u])
     clim = maximum(abs.(ucex))
     xylims = [0,round(truestimsz,digits=1)]
-    xy = range(xylims...,length=imagesize)
+    xy = range(xylim...,length=imagesize)
 
-    p = plot(layout=(4,cn),legend=false,size=(400cn,4*250))
-    foreach(c->heatmap!(p[1,c],xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:cn)
+    p = Plots.plot(layout=(2,nc),legend=false,size=(1650,900))
+    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,ulsta[:,:,ucd[c],c],aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
+    xlims=xylims,ylims=xylims,xticks=[],yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ucd[c]])"),1:cn)
 
     umfit=datasetFinal["ulfit"][u][m]
     rpx = (imagesize[1]-1)/2
     x=y=(-rpx:rpx)./ppd
     # sr = round(x[end],digits=1)
     # xylim=[-sr,sr]
+    xylims=[round.(extrema(x),digits=2)...]
+    # if m == :dog
+    # m = :dog
+    # rfs = map(f->isnothing(f) ? nothing : [rfdog(i,j,f.param...) for j in reverse(y), i in x],fit[m])
+    # foreach(c->isnothing(rfs[c]) ? Plots.plot!(p,subplot=c+nc,frame=:none) :
+    # Plots.heatmap!(p,subplot=c+nc,x,y,rfs[c],aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
+    # xlims=xylims,ylims=xylims,xticks=[],yticks=[],yflip=true,xlabel=string(datasetFinal["color"][c])),1:nc)
+    # else
+    #     rfs = map(f->isnothing(f) ? nothing : [rfgabor(i,j,f.param...) for j in reverse(y), i in x],fit[m])
+    # end
+
+    umfit=dataset["ulfit"][u][m]
+    rpx = (diameterpx-1)/2
+    x=y=(-rpx:rpx)./ppd
     xylims=[round.(extrema(x),digits=2)...]
     fs = map(f->ismissing(f) ? missing : predict(f,x,y),umfit)
     foreach(c->ismissing(fs[c]) ? plot!(p[2,c],frame=:none) :
@@ -259,13 +243,52 @@ for  u in sort(collect(keys(datasetFinal["ulfit"]))),m in collect(keys(first(val
     histogram!(p[3,c],umfit[c].resid,frame=:semi,xlabel="Residual",grid=false),1:cn)
 
     foreach(c->ismissing(fs[c]) ? plot!(p[4,c],frame=:none) :
-    scatter!(p[4,c],vec(ulsta[:,:,ucd[c],c]),vec(fs[c]),frame=:semi,grid=false,
-    xlabel="y",ylabel="predicted y",title="r = $(round(umfit[c].r,digits=3))",markerstrokewidth=0,markersize=2),1:cn)
-    # isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$(u)_Fit_$(m).png"))
+    scatter!(p[4,c],vec(ulsta[:,:,ulcd[c],c]),vec(fs[c]),frame=:semi,grid=false,
+    xlabel="y",ylabel="predicted y",titlefontcolor=ucresponsive[c] ? :green : :match,title="r = $(round(umfit[c].r,digits=3))",markerstrokewidth=0,markersize=2),1:cn)
+    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$(u)_Fit_$(m).png"))
 
-    p
-    savefig(joinpath(resultFolderPlotFit,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,"_", m,".png"])))
+    # p
+    savefig(joinpath(resultFolderPlotFit,join([subject,"_U",recordSession,"_Plane",recordPlane, "_Cell",u,".png"])))
 end
+
+
+plotfitstas=(u,m;dir=nothing)->begin
+    cn = length(dataset["ccode"])
+    ulsta = dataset["ulsta"][u]
+    delays = dataset["delays"]
+    ppd = dataset["ppd"]
+    diameterpx = size(ulsta)[1]
+    diameterdeg = diameterpx/ppd
+    ucresponsive = dataset["ucresponsive"][u]
+    ulcex = map(i->i.ex,dataset["ulcexd"][u])
+    ulcd = map(i->i.d,dataset["ulcexd"][u])
+    clim = maximum(abs.(ulcex))
+    xylims = [0,round(diameterdeg,digits=1)]
+    xy = range(xylims...,length=diameterpx)
+
+    p = plot(layout=(4,cn),legend=false,size=(400cn,4*250))
+    foreach(c->heatmap!(p[1,c],xy,xy,ulsta[:,:,ulcd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    titlefontcolor=ucresponsive[c] ? :green : :match,xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ulcd[c]])"),1:cn)
+
+    umfit=dataset["ulfit"][u][m]
+    rpx = (diameterpx-1)/2
+    x=y=(-rpx:rpx)./ppd
+    xylims=[round.(extrema(x),digits=2)...]
+    fs = map(f->ismissing(f) ? missing : predict(f,x,y),umfit)
+    foreach(c->ismissing(fs[c]) ? plot!(p[2,c],frame=:none) :
+    heatmap!(p[2,c],x,y,fs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
+    xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],xlabel=dataset["color"][c],titlefontcolor=ucresponsive[c] ? :green : :match,title="Fit_$(m)"),1:cn)
+
+    foreach(c->ismissing(fs[c]) ? plot!(p[3,c],frame=:none) :
+    histogram!(p[3,c],umfit[c].resid,frame=:semi,xlabel="Residual",grid=false),1:cn)
+
+    foreach(c->ismissing(fs[c]) ? plot!(p[4,c],frame=:none) :
+    scatter!(p[4,c],vec(ulsta[:,:,ulcd[c],c]),vec(fs[c]),frame=:semi,grid=false,
+    xlabel="y",ylabel="predicted y",titlefontcolor=ucresponsive[c] ? :green : :match,title="r = $(round(umfit[c].r,digits=3))",markerstrokewidth=0,markersize=2),1:cn)
+    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$(u)_Fit_$(m).png"))
+end
+
+
 
 
 

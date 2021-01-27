@@ -10,8 +10,8 @@ subject = "AF4"
 # recordSession = "003"  #AF2
 # testId = ["004", "005","006","003"]
 
-# recordSession = "004"  #AF2
-# testId = [ "005","006","007","004"]
+recordSession = "004"  #AF2
+testId = [ "005","006","007","004"]
 
 # recordSession = "005"  #AF2
 # testId = ["003","004", "005","002"]
@@ -30,8 +30,8 @@ subject = "AF4"
 # recordSession = "003"  #AF4
 # testId = ["000","001","002", "004"]
 
-recordSession = "004"  #AF4
-testId = ["001","002","003","004"]
+# recordSession = "004"  #AF4
+# testId = ["001","002","003","004"]
 
 # recordSession = "005"  #AF4
 # testId = ["000","001","003","004"]
@@ -39,16 +39,45 @@ testId = ["001","002","003","004"]
 # recordSession = "006"  #AF4
 # testId = ["000","001","002","003"]
 
-#----------------------
-# recordSession = "003"  #AE6
-# testId = ["006", "007", "008","005"]
-# testId = ["012", "013", "014","011"]
-# testId = ["005", "006","007","002"]
-# testId = ["011", "012","013","010"]
-# testId = ["003", "007", "008","002"]   # In the order of L, M, S, and achromatic
-# testId = ["013", "014", "015","012"]
+# --------- AE7
+# recordSession = "003"
+# testId = ["002","003","004","001"]
 
-recordPlane = "000"
+# recordSession = "005"
+# testId = ["004","005","006","003"]
+
+# recordSession = "006"
+# testId = ["004","006","007","003"]
+
+# recordSession = "008"
+# testId = ["003","004","005","002"]
+
+# recordSession = "009"
+# testId = ["002","003","004","001"]
+
+# recordSession = "011"
+# testId = ["002","004","005","001"]
+
+# recordSession = "012"
+# testId = ["002","003","004","001"]
+
+# recordSession = "013"
+# testId = ["003","004","005","002"]
+
+#----------------------
+# recordSession = "002"  #AE6
+# testId = ["006", "007", "008","005"]    # 001
+# testId = ["012", "013", "014","011"]    # 000
+
+# recordSession = "003"  #AE6
+# testId = ["005", "006","007","002"]   # 001
+# testId = ["011", "012","013","010"]  # 000
+
+# recordSession = "004"  #AE6
+# testId = ["003", "007", "008","002"]   # 001 # In the order of L, M, S, and achromatic
+# testId = ["013", "014", "015","012"]  # 000
+
+recordPlane = "001"
 delays = collect(-0.066:0.033:0.4)
 print(collect(delays))
 
@@ -98,7 +127,7 @@ for u in sort(collect(keys(dataset["kern"])))
     maxmag = maximum(abs.(kern))
     kern = kern ./ maxmag   # Kernal is normalized by maximum of all kernals (L, M, S, A) for this cell
     # kern= normalized(kern;equal=false)
-    delta = dataset["delta"]
+    delta = dataset["kdelta"]
     imagesize = size(kern)[1]
     truestimsz = 12   # Arbitrary
     colorbar_hack = zeros(size(kern))
