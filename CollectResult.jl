@@ -99,7 +99,7 @@ function collectsta(indir;cell=DataFrame(id=[]),datafile="stadataset.jld2")
             rc = Any[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["ulroi"])]
             df = DataFrame(id=id,roicenter=roic,roiradius=roir,rc=rc)
             if haskey(dataset,"ulfit")
-                foreach(m->df[!,"sta!$m"]=Any[map(f->ismissing(f) ? missing : (;f.model,f.fun,f.radius,f.param,f.r),dataset["ulfit"][u][m]) for u in keys(dataset["ulroi"])],
+                foreach(m->df[!,"sta!$m"]=Any[map(f->ismissing(f) ? missing : (;(k=>f[k] for k in setdiff(keys(f),[:resid]))...),dataset["ulfit"][u][m]) for u in keys(dataset["ulroi"])],
                         keys(first(values(dataset["ulfit"]))))
             end
             append!(dfs,df,cols=:union)
@@ -119,7 +119,6 @@ cell = collectsta(indir;cell)
 
 save(joinpath(resultroot,"cell.jld2"),"cell",cell)
 cell = load(joinpath(resultroot,"cell.jld2"),"cell")
-
 
 
 cellgraph = collectcircuitgraph(indir)

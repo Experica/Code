@@ -58,7 +58,21 @@ ggt=gray.(gt)
 
 plot(ggt[:,200])
 
+using Makie,Plots,CairoMakie,GLMakie
 
+AbstractPlotting.inline!(false)
+
+p=Makie.scatter(1:2,1:2,marker=rand(RGB{Float32},10,10),markersize=(50,10))
+
+Makie.scatter(1:2,1:2,marker=[rand(RGB{Float32},10,10), rand(RGB{Float32},20,10)],markersize=[(50,10),(10,50)])
+
+
+
+imgs = [rand(RGB{Float32},20,10), rand(RGB{Float32},10,20)]
+Makie.scatter(1:2,1:2,marker=imgs,markersize=size.(imgs))
+
+CairoMakie.activate!()
+GLMakie.activate!()
 
 dataset = prepare("Y:\\AF5\\AF5_HLV1_ODL1_HartleySubspace_1.mat")
 dataset = prepare("Y:\\AF5\\AF5_HLV1_ODL3_Flash2Color_2.mat")
@@ -77,8 +91,6 @@ using Interact,Plots
 end
 
 
-x = DataFrame(a=[missing,missing,['A','L',missing]])
-save("test.jld2","x",x)
 
 Makie.surface(x,y,z,colormap=:coolwarm,shading=false)
 
@@ -132,16 +144,10 @@ end
 
 
 
-t = minmaxcolormap(:coolwarm,0,1)
-t = minmaxcolorgradient(RGBA(0,0,0,1),RGBA(1,1,1,1))
 
-save("ttt.yaml",t)
 
-fieldnames(ColorGradient)
 
-propertynames(t)
 
-rt = YAML.load_file("ttt.yaml")
 
 
 using NeuroAnalysis,Test,Plots,Interact,Statistics, BenchmarkTools,StatsPlots,DataFrames

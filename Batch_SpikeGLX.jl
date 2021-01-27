@@ -233,20 +233,20 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     masktype = getparam(envparam,"MaskType")
     maskradius = getparam(envparam,"MaskRadius")
     masksigma = getparam(envparam,"Sigma")
-    diameter = 10#getparam(envparam,"Diameter")
+    diameter = 5#getparam(envparam,"Diameter")
     ppd = haskey(param,:ppd) ? param[:ppd] : 45
-    ii = round(Int,4.5ppd):round(Int,8.5ppd)
-    jj = range(round(Int,5.5ppd),length=length(ii))
-    d=round(length(ii)/ppd,digits=1)
+    # ii = round(Int,4.5ppd):round(Int,8.5ppd)
+    # jj = range(round(Int,5.5ppd),length=length(ii))
+    # d=round(length(ii)/ppd,digits=1)
     sizedeg = (diameter,diameter)
     imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_size$(sizedeg)_ppd$ppd" # hartley subspace, degree size and ppd define a unique image set
     if !haskey(param,imagesetname)
-        # imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)),eachrow(condtable)))
-        imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)[ii,jj]),eachrow(condtable)))
+        imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)),eachrow(condtable)))
+        # imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)[ii,jj]),eachrow(condtable)))
         imageset[:sizepx] = size(imageset[:image][1])
         param[imagesetname] = imageset
     end
-    sizedeg=(d,d)
+    # sizedeg=(d,d)
     # Prepare Image Stimuli
     imageset = param[imagesetname]
     bgcolor = oftype(imageset[:image][1][1],bgcolor)
@@ -278,8 +278,9 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     if :STA in param[:model]
         sizepx = imageset[:sizepx]
         xi = imagestimuli[:unmaskindex]
-        uy=Dict();usta = Dict()
-        delays = -30:5:210
+        xin = length(xi)
+        uy=Dict();usta = Dict();uŷ=Dict();ugof=Dict()
+        delays = -40:5:200
 
         if isblank
             uci = unique(ccondidx)
@@ -287,63 +288,55 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
             buci = unique(bcondidx)
             bucii = mapreduce(i->findall(condidx.==i),append!,buci)
             bx = vec(mean(mapreduce(i->gray.(imagestimuli[:stimuli][i][xi]),hcat,buci),dims=2))
-            x = Array{Float64}(undef,length(uci),length(xi))
+            x = Array{Float64}(undef,length(uci),xin)
             foreach(i->x[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]).-bx,1:size(x,1))
 
             for u in eachindex(unitspike)
                 unitgood[u] || continue
                 ys = Array{Float64}(undef,length(delays),length(uci))
-                stas = Array{Float64}(undef,length(delays),length(xi))
+                ŷs = Array{Float64}(undef,length(delays),length(uci))
+                stas = Array{Float64}(undef,length(delays),xin)
                 for d in eachindex(delays)
                     y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
                     by = mean(y[bucii])
                     y = map(i->mean(y[i])-by,ucii)
                     ys[d,:] = y
-                    stas[d,:]=sta(x,y)
+                    k = sta(x,y)
+                    stas[d,:] = k
+                    ŷs[d,:] = x*k
                 end
                 uy[unitid[u]]=ys
                 usta[unitid[u]]=stas
-
-                if false
-                    r = [extrema(stas)...]
-                    for d in eachindex(delays)
-                        title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-                        p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
-                        foreach(ext->save(joinpath(resultdir,"$title$ext"),p),figfmt)
-                    end
-                end
+                uŷ[unitid[u]]=ŷs
+                ugof[unitid[u]]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
             end
         else
             uci = unique(condidx)
             ucii = map(i->findall(condidx.==i),uci)
-            x = Array{Float64}(undef,length(uci),length(xi))
+            x = Array{Float64}(undef,length(uci),xin)
             foreach(i->x[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]),1:size(x,1))
 
             for u in eachindex(unitspike)
                 unitgood[u] || continue
                 ys = Array{Float64}(undef,length(delays),length(uci))
-                stas = Array{Float64}(undef,length(delays),length(xi))
+                ŷs = Array{Float64}(undef,length(delays),length(uci))
+                stas = Array{Float64}(undef,length(delays),xin)
                 for d in eachindex(delays)
                     y = epochspiketrainresponse_ono(unitspike[u],condon.+delays[d],condoff.+delays[d],israte=true,isnan2zero=true)
                     y = map(i->mean(y[i]),ucii)
                     ys[d,:] = y
-                    stas[d,:]=sta(x,y)
+                    k = sta(x,y)
+                    stas[d,:] = k
+                    ŷs[d,:] = x*k
                 end
                 uy[unitid[u]]=ys
                 usta[unitid[u]]=stas
-
-                if false
-                    r = [extrema(stas)...]
-                    for d in eachindex(delays)
-                        title = "$(ugs[u])Unit_$(unitid[u])_STA_$(delays[d])"
-                        p = plotsta(stas[d,:],sizepx=sizepx,sizedeg=sizedeg,index=xi,title=title,r=r)
-                        foreach(ext->save(joinpath(resultdir,"$title$ext"),p),figfmt)
-                    end
-                end
+                uŷ[unitid[u]]=ŷs
+                ugof[unitid[u]]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
             end
         end
 
-        save(joinpath(resultdir,"sta.jld2"),"sizepx",sizepx,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"usta",usta,"delays",delays,
+        save(joinpath(resultdir,"sta.jld2"),"sizepx",sizepx,"x",x,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"uŷ",uŷ,"usta",usta,"ugof",ugof,"delays",delays,
         "siteid",siteid,"sizedeg",sizedeg,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
     end
 
