@@ -245,7 +245,7 @@ CTCOLORS = cgrad(:rainbow,length(CTYPES),categorical = true).colors.colors
 select!(dropmissing(cell,:rc),Not(r"\w*!\w*"),:rc=>ByRow(i->join(skipmissing(i)))=>:sr) |>
     [@vlplot(:bar,y={"sr",title="Spectral Responsive"},x={"count()",title="Number of Cells"});
     @vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Cells"},color={"sr:n",scale={scheme=:category20},title="Spectral"});
-    @vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Cells"},color={"sr:n",scale={scheme=:category20},title="Spectral"});
+    @vlplot(:bar,y={"depth",bin={step=200},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Cells"},color={"sr:n",scale={scheme=:category20},title="Spectral"});
     @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"sr:n",scale={scheme=:category20},title="Spectral"})]
 
 
@@ -253,11 +253,11 @@ crdf = DataFrame(ConeResponseType=filter(i->!isempty(i),map(t->match(r"A?([L,M,S
 p = crdf |> @vlplot(:bar,y=:ConeResponseType,x="count()",width=600,height=400)
 
 ## STA
+sym(r) = r < 1 ? 1 - 1/r : r - 1
+abssym(r) = abs(sym(r))
+signsym(r) = sign(sym(r))
 oddeven(p) = p < 0.5 ? 4abs(p-0.25) : 4abs(p-0.75)
 onoff(p) = p < 0.5 ? 1 - 4abs(p-0.25) : 4abs(p-0.75) - 1
-elness(r) = r < 1 ? 1 - 1/r : r - 1
-roundness(r) = abs(elness(r))
-elsign(r) = sign(elness(r))
 function fitpredict(fit;ppd=45,tight=false)
    if tight
        param = deepcopy(fit.param)
@@ -277,24 +277,24 @@ end
 
 function stadogcell(cell;model=:dog,imgsize=(48,48))
     df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
-        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"$(model)img",
+        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img",
         "sta!$model"=>ByRow(i->i.r)=>:r,"sta!$model"=>ByRow(i->i.bic)=>:bic,"sta!$model"=>ByRow(i->1-i.r2)=>:fvu,
         "sta!$model"=>ByRow(i->i.param[1])=>:ampe,"sta!$model"=>ByRow(i->i.param[5])=>:ampi,
-        "sta!$model"=>ByRow(i->i.param[2])=>:cx,"sta!$model"=>ByRow(i->i.param[4])=>:cy,"sta!$model"=>ByRow(i->4*(i.param[6] < i.param[3] ? i.param[3] : i.param[6]))=>:diameter,
-        "sta!$model"=>ByRow(i->elness(i.param[6]/i.param[3]))=>:cs,"sta!$model"=>ByRow(i->roundness(i.param[6]/i.param[3]))=>:oppo,
-        "sta!$model"=>ByRow(i->elness(i.param[1]/i.param[5]))=>:onoff,"sta!$model"=>ByRow(i->roundness(i.param[1]/i.param[5]))=>:opposth,
-        "sta!$model"=>ByRow(i->elsign(i.param[1]/i.param[5]))=>:sign)
+        "sta!$model"=>ByRow(i->i.param[2])=>:cx,"sta!$model"=>ByRow(i->i.param[4])=>:cy,"sta!$model"=>ByRow(i->4*maximum(i.param[[6,3]]))=>:diameter,
+        "sta!$model"=>ByRow(i->sym(i.param[6]/i.param[3]))=>:cs,"sta!$model"=>ByRow(i->abssym(i.param[6]/i.param[3]))=>:op,
+        "sta!$model"=>ByRow(i->sym(i.param[1]/i.param[5]))=>:onoff,"sta!$model"=>ByRow(i->abssym(i.param[1]/i.param[5]))=>:amp,
+        "sta!$model"=>ByRow(i->signsym(i.param[1]/i.param[5]))=>:sign)
 end
 
 function stagaborcell(cell;model=:gabor,imgsize=(48,48))
     df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
-        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"$(model)img",
+        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img",
         "sta!$model"=>ByRow(i->i.r)=>:r,"sta!$model"=>ByRow(i->i.bic)=>:bic,"sta!$model"=>ByRow(i->1-i.r2)=>:fvu,
         "sta!$model"=>ByRow(i->i.param[1])=>:amp,"sta!$model"=>ByRow(i->i.param[2])=>:cx,"sta!$model"=>ByRow(i->i.param[4])=>:cy,
         "sta!$model"=>ByRow(i->rad2deg(i.param[6]))=>:ori,"sta!$model"=>ByRow(i->i.param[7])=>:sf,"sta!$model"=>ByRow(i->i.param[8])=>:phase,
-        "sta!$model"=>ByRow(i->4*(i.param[5] < i.param[3] ? i.param[3] : i.param[5]))=>:diameter,
-        "sta!$model"=>ByRow(i->elness(i.param[3]/i.param[5]))=>:el,"sta!$model"=>ByRow(i->roundness(i.param[3]/i.param[5]))=>:rd,
-        "sta!$model"=>ByRow(i->4*i.param[5]*i.param[7])=>:wn,"sta!$model"=>ByRow(i->oddeven(i.param[8]))=>:oddeven,
+        "sta!$model"=>ByRow(i->4*maximum(i.param[[5,3]]))=>:diameter,
+        "sta!$model"=>ByRow(i->sym(i.param[3]/i.param[5]))=>:el,"sta!$model"=>ByRow(i->abssym(i.param[3]/i.param[5]))=>:rd,
+        "sta!$model"=>ByRow(i->4*i.param[5]*i.param[7])=>:cyc,"sta!$model"=>ByRow(i->oddeven(i.param[8]))=>:oddeven,
         "sta!$model"=>ByRow(i->onoff(i.param[8]))=>:onoff,"sta!$model"=>ByRow(i->sign(onoff(i.param[8])))=>:sign)
 end
 
@@ -303,7 +303,7 @@ gaborcell = stagaborcell(cell)
 
 gaborcell |> Voyager()
 
-gaborcell |> [@vlplot(:bar,x={"r",bin={step=0.05,extent=[0,1]},title="r"},y={"count()",title="Number of Linear Filter"});
+vdogcell |> [@vlplot(:bar,x={"r",bin={step=0.05,extent=[0,1]},title="r"},y={"count()",title="Number of Linear Filter"});
                 @vlplot(mark={:line,size=2},x=:r,transform=[{sort=[{field=:r}],window=[{op="count",as="cum"}],frame=[nothing,0]}],
                 y={"cum",title="Cumulated Number of Linear Filter"})]
 
@@ -312,6 +312,8 @@ doggaborgoodness |>
     [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1.5e5}]},x=:x,y=:x}, {:point,x={:gaborbic,title="BIC (Gabor)"},y={:dogbic,title="BIC (DoG)"}}]);
     @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:gaborfvu,title="FVU (Gabor)"},y={:dogfvu,title="FVU (DoG)"}}]);
     @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:gaborr,title="R (Gabor)"},y={:dogr,title="R (DoG)"}}])]
+
+
 
 srfcells |> [@vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Spatial RF"},color="rc");
        @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Spatial RF"},color="rc")]
@@ -338,9 +340,9 @@ dogcell |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},title
             @vlplot(mark={:bar,binSpacing=0},x={"ampe",bin={maxbin=30},title="Ae"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"ampi",bin={maxbin=30},title="Ai"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
            @vlplot(mark={:bar,binSpacing=0},x={"cs",bin={step=0.03},title="CenterSurround"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
-           @vlplot(mark={:bar,binSpacing=0},x={"oppo",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+           @vlplot(mark={:bar,binSpacing=0},x={"op",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
            @vlplot(mark={:bar,binSpacing=0},x={"onoff",bin={step=0.2},title="OnOff"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
-            @vlplot(mark={:bar,binSpacing=0},x={"opposth",bin={step=0.2},title="Opponency Strength"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"amp",bin={step=0.2},title="OnOff Amplitude"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
            @vlplot(mark={:bar,binSpacing=0},x={"sign",bin={maxbin=3},title="OnOff Sign"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}})]
 
 gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},title="Diameter (Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
@@ -348,7 +350,7 @@ gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},tit
             @vlplot(mark={:bar,binSpacing=0},x={"rd",bin={step=0.1},title="Roundness"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"ori",bin={step=3.6},title="Ori (Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"sf",bin={step=0.1},title="SpatialFreq (Cycle/Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
-            @vlplot(mark={:bar,binSpacing=0},x={"wn",bin={step=0.1},title="Wave Number"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"cyc",bin={step=0.1},title="Cycle"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"phase",bin={step=0.02},title="Phase"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
             @vlplot(mark={:bar,binSpacing=0},x={"onoff",bin={step=0.04},title="OnOff"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
@@ -357,7 +359,6 @@ gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},tit
 gaborcell |> [@vlplot(:bar,x={"ar",bin={maxbins=20},title="Aspect Ratio"},y={"count()",title="Number of Spatial RF"},color={"rc"});
        @vlplot(:bar,x={"nc",bin={maxbins=20},title="Number of Cycle"},y={"count()",title="Number of Spatial RF"},color={"rc"});
        @vlplot(:bar,x={"odd",bin={maxbins=15},title="Oddness"},y={"count()",title="Number of Spatial RF"},color={"rc"})]
-
 
 
 ## UMAP of STA
@@ -370,12 +371,12 @@ end
 function srimg(c,i)
     mapreduce((p,q)->float32.(alphamask(q,color=spectralcm[p])),hcat,c,i)
 end
-dogimg = map(i->float32.(alphamask(i)),dogcell.dogimg)
-gaborimg = map(i->float32.(alphamask(i)),gaborcell.gaborimg)
+dogimg = map(i->float32.(alphamask(i)),dogcell.img)
+gaborimg = map(i->float32.(alphamask(i)),gaborcell.img)
 spectralcm = Dict('A'=>ColorMaps["dkl_mcclumiso"].colors,'L'=>ColorMaps["lms_mccliso"].colors,
                         'M'=>ColorMaps["lms_mccmiso"].colors,'S'=>ColorMaps["lms_mccsiso"].colors)
-dogimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),dogcell.dogimg,dogcell.rc)
-gaborimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),gaborcell.gaborimg,gaborcell.rc)
+dogimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),dogcell.img,dogcell.rc)
+gaborimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),gaborcell.img,gaborcell.rc)
 
 @manipulate for i in 1:length(dogimg)
     dogimg[i]
@@ -386,7 +387,7 @@ end
 end
 
 # DoG
-features = [:cs,:oppo,:opposth,:onoff,:sign]
+features = [:cs,:op,:amp]
 Y = mapfoldl(i->dogcell[:,i],hcat,features)
 foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
 
@@ -395,75 +396,30 @@ foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
     Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
 end
 
-Y2 = umap(permutedims(Y), 2, n_neighbors=15, min_dist=0.12, n_epochs=300,metric=Euclidean(),init=:spectral)
-Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=1.0),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
-savefig(joinpath(resultroot,"sta_dog_shape_umap_clu.png"))
-
+Y2 = umap(permutedims(Y), 2, n_neighbors=30, min_dist=0.4, n_epochs=300,metric=Euclidean(),init=:spectral)
 p = Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
 save(joinpath(resultroot,"sta_dog_shape_umap.png"),p)
 
 p = Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimgc,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
 save(joinpath(resultroot,"sta_dog_shape_umap_c.png"),p)
 
+Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=2.5),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
+savefig(joinpath(resultroot,"sta_dog_shape_umap_clu.png"))
+dogcell.umapclu = d2clu(Y2,r=2.5)
+
+
 save("UMAP_sta.svg",plotunitpositionimage(Y2',dogimg))
 
 
-
-
-dogcell.soppo = dogcell.oppo .> 0.060
-Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=dogcell.soppo,frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
-savefig(joinpath(resultroot,"tt.png"))
-
-dogcell |> [@vlplot(mark={:bar,binSpacing=0},x={"oppo",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Spatial RF"},color={"soppo:n"});
-       @vlplot(mark={:bar,binSpacing=0},x={"opposth",bin={step=0.2},title="Opponency Strength"},y={"count()",title="Number of Spatial RF"},color={"soppo:n"})]
-
-function soppo(s)
-    us = unique(s)
-    length(us) == 1 ? us[1] : -1
-end
-function celltype(so,co)
-    so == -1 && return -1
-    so == 1 ? (co ? 1 : 3) : (co ? 2 : 0)
-end
-dogtypecell = select!(leftjoin(combine(groupby(dogcell,:id),:soppo=>(i->soppo(i))=>:soppo,
-                [:rc,:sign]=>((i,j)->join(map((p,q)->q==1 ? p : "$(p)̲",i,j)))=>:sr,:sign=>(i->[1,-1] ⊆ i)=>:coppo,
-                [:rc,:dogimg]=>((c,i)->[srimg(c,i)])=>:srimg), cell,on=:id),Not(r"\w*!\w*"),[:soppo,:coppo]=>ByRow((i,j)->celltype(i,j))=>:celltype)
-
-
-function plotsrsta(stacell;col=5,dir=nothing,file="")
-    n = nrow(stacell)
-    n==0 && return nothing
-    nc = n < col ? n : col
-    nr = n <= col ? 1 : ceil(Int,n/col)
-    p=Plots.plot(layout=(nr,nc),frame=:none,size=(nc*450,nr*200),leg=false,titlefontsize=16)
-    for i in 1:n
-        Plots.plot!(p[i],stacell.srimg[i],title="$(stacell.id[i]) - $(stacell.sr[i])")
-    end
-    isnothing(dir) ? p : savefig(joinpath(dir,"$file.png"))
-end
-
-
-plotsrsta(filter(r->r.celltype == -1,dogtypecell),col=6,dir=resultroot,file="sta_dog_type-1")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+dogcell |> [@vlplot(mark={:bar,binSpacing=0},x={"op",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
+       @vlplot(mark={:bar,binSpacing=0},x={"amp",bin={step=0.2},title="OnOff Amplitude"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
+dogcell.sop = dogcell.umapclu .< 3
 
 
 
 
 # Gabor
-features = [:rd,:wn,:oddeven]
+features = [:rd,:cyc,:oddeven]
 Y = mapfoldl(i->gaborcell[:,i],hcat,features)
 foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
 
@@ -472,33 +428,26 @@ foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
     Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
 end
 
-
-
-
-Y2 = umap(permutedims(Y), 2, n_neighbors=7, min_dist=0.1, n_epochs=300,metric=Euclidean(),init=:spectral)
-Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=1.2),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
-savefig(joinpath(resultroot,"sta_gabor_shape_umap_clu.png"))
-
+Y2 = umap(permutedims(Y), 2, n_neighbors=16, min_dist=0.05, n_epochs=300,metric=Euclidean(),init=:spectral)
 p = Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
 save(joinpath(resultroot,"sta_gabor_shape_umap.png"),p)
 
 p = Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimgc,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
 save(joinpath(resultroot,"sta_gabor_shape_umap_c.png"),p)
 
-
-
+Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=1.2),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
+savefig(joinpath(resultroot,"sta_gabor_shape_umap_clu.png"))
+gaborcell.umapclu = d2clu(Y2,r=1.2)
 
 save("UMAP_sta.svg",plotunitpositionimage(Y2',gaborimg))
 
 
+gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"cyc",bin={step=0.1},title="Cycle"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
+       @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
+gaborcell.sop = gaborcell.umapclu .< 3
 
-
-
-gaborcell.soppo = gaborcell.wn .> 0.5
-Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=gaborcell.soppo,frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
-
-gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"wn",bin={step=0.1},title="Wave Number"},y={"count()",title="Number of Spatial RF"},color={"soppo:n"});
-       @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Spatial RF"},color={"soppo:n"})]
+save(joinpath(resultroot,"dogcell.jld2"),"dogcell",dogcell)
+save(joinpath(resultroot,"gaborcell.jld2"),"gaborcell",gaborcell)
 
 gaborcell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Linear Filter"},color={"soppo:n",title="Spatial"});
         @vlplot(:bar,y={"depth",bin={step=100},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Linear Filter"},color={"soppo:n",title="Spatial"});
@@ -506,17 +455,48 @@ gaborcell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title=
 
 
 
+## Cell Type
+function cellsop(s)
+    us = unique(s)
+    length(us) == 1 ? us[1] : -1
+end
+function celltype(so,co)
+    so == -1 && return -1
+    so == 1 ? (co ? 1 : 3) : (co ? 2 : 0)
+end
+
+pdogi = doggaborgoodness.dogbic .<= doggaborgoodness.gaborbic
+pgabori = .!pdogi
+doggaborcell = append!(dogcell[pdogi,:],gaborcell[pgabori,:],cols=:union)
+
+
+typecell = select!(leftjoin(combine(groupby(doggaborcell,:id),:sop=>(i->cellsop(i))=>:sop,:sign=>(i->[1,-1] ⊆ i)=>:cop,
+                [:rc,:sign]=>((i,j)->join(map((p,q)->p*(q==1 ? "" : "̲"),i,j)))=>:sr,
+                [:rc,:img]=>((c,i)->[srimg(c,i)])=>:srimg), cell,on=:id),Not(r"\w*!\w*"),[:sop,:cop]=>ByRow((i,j)->celltype(i,j))=>:celltype)
 
 
 
-gabortypecell = select!(leftjoin(combine(groupby(gaborcell,:id),:soppo=>(i->soppo(i))=>:soppo,
-               [:rc,:sign]=>((i,j)->join(map((p,q)->q==1 ? p : "$(p)̲",i,j)))=>:sr,:sign=>(i->[1,-1] ⊆ i)=>:coppo,
-               [:rc,:gaborimg]=>((c,i)->[srimg(c,i)])=>:srimg), cell,on=:id),Not(r"\w*!\w*"),[:soppo,:coppo]=>ByRow((i,j)->celltype(i,j))=>:celltype)
 
-plotsrsta(filter(r->r.celltype == 3,gabortypecell),col=6,dir=resultroot,file="sta_gabor_type3")
+function plotsrsta(stacell;col=5,dir=nothing,file="",bg=:white)
+    n = nrow(stacell)
+    n==0 && return nothing
+    nc = n < col ? n : col
+    nr = n <= col ? 1 : ceil(Int,n/col)
+    p=Plots.plot(layout=(nr,nc),frame=:none,size=(nc*450,nr*200),leg=false,titlefontsize=16)
+    for i in 1:n
+        Plots.plot!(p[i],stacell.srimg[i],title="$(stacell.id[i]) - $(stacell.sr[i])",bginside=bg)
+    end
+    isnothing(dir) ? p : savefig(joinpath(dir,"$file.png"))
+end
+
+t=-1
+plotsrsta(filter(r->r.celltype == t,typecell),col=6,dir=resultroot,file="sta_celltype$t",bg=:gray)
 
 
-gabortypecell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Cells"},color={"celltype:n"});
+
+
+
+typecell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Cells"},color={"celltype:n"});
         @vlplot(:bar,y={"depth",bin={step=200},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Cells"},color={"celltype:n"});
         @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"celltype:n"})]
 
