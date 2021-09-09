@@ -87,7 +87,7 @@ fig = figure()
 art3d = PyObject(PyPlot.art3D)
 
 # I use semicolons instead of commas, becaues I think of these as column
-# vectors.  It doesn't really matter, but I guess I'm a purist.
+# vectors.  It doesn't really matter.
 xc = [0;0;1;1]
 yc = [0;1;1;0]
 zc = [1;1;2;2]

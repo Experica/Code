@@ -1,4 +1,5 @@
-using DataFramesMeta,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
+using DataFramesMeta,Interact,CSV,MAT,Query,DataStructures,HypothesisTests,StatsFuns,Random,LinearAlgebra
+using Statistics,StatsPlots,StatsBase,Mmap,Images,ePPR
 
 function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
 
@@ -12,7 +13,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -32,10 +34,16 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
        scanMode = 1  # unidirectional scanning
     end
     sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-    trialOnLine = sbx["line"][1:2:end]
-    trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-    trialOffLine = sbx["line"][2:2:end]
-    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+
+    if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+        stNum = 2
+    else
+        stNum = 1
+    end
+    trialOnLine = sbx["line"][stNum:2:end]
+    trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+    trialOffLine = sbx["line"][stNum+1:2:end]
+    trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
     # On/off frame indces of trials
     trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -59,24 +67,31 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
     condOfftime = preStim + stim
     preEpoch = [0 preStim-preOffset]
     condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-    preFrame=epoch2samplerange(preEpoch, sbxfs)
-    condFrame=epoch2samplerange(condEpoch, sbxfs)
+    preFrame=epoch2sampleindex(preEpoch, sbxfs)
+    condFrame=epoch2sampleindex(condEpoch, sbxfs)
     # preOn = fill(preFrame.start, trialNum)
     # preOff = fill(preFrame.stop, trialNum)
     # condOn = fill(condFrame.start, trialNum)
     # condOff = fill(condFrame.stop, trialNum)
 
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+    end
+
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
     # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
         # pn=1  # for test
@@ -89,7 +104,11 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
@@ -99,8 +118,8 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig_ot"]["sig"][pn])
-            # spike = transpose(signal["sig_ot"]["spks"][pn])
+            rawF = sig
+            # spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -195,7 +214,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
                     for i=1:size(resp,1)
                         shuffle!(@view resp[i,:])
                     end
-                    resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
+                    resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
                     orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
                     orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                     oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -239,22 +258,37 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
             mseuc[f]=fa[f]
 
             # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-            push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
+            push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
             # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
             # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
         end
 
         tempDF=DataFrame(ufs[:SpatialFreq])
-        result.fitsf = tempDF.osf
+        result.osf = tempDF.osf  # preferred sf from weighted average
+        result.maxsf = tempDF.maxsf
+        result.maxsfr = tempDF.maxr
+        result.fitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+        result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+        result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+        result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.sfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
+        result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+
         tempDF=DataFrame(ufs[:Dir])
         result.cvdir = tempDF.od   # preferred direction from cv
         result.dircv = tempDF.dcv
         result.fitdir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
-        result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.dsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.dsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+        result.dhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+        result.gvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
         result.cvori = tempDF.oo  # preferred orientation from cv
         result.oricv = tempDF.ocv
-        result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from cv
-        result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+        result.osi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.osi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+        result.ohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+        result.vmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
 
         # Plot tuning curve of each factor of each cell
         if plot
@@ -271,7 +305,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
 
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result,"params", param)
     end
 end
 
@@ -293,7 +327,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -313,10 +348,15 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
        scanMode = 1  # unidirectional scanning
     end
     sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-    trialOnLine = sbx["line"][1:2:end]
-    trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-    trialOffLine = sbx["line"][2:2:end]
-    trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+    if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+        stNum = 2
+    else
+        stNum = 1
+    end
+    trialOnLine = sbx["line"][stNum:2:end]
+    trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+    trialOffLine = sbx["line"][stNum+1:2:end]
+    trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
     # On/off frame indces of trials
     trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -341,12 +381,12 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     # replace!(bctc.ColorID, 36 =>Inf)
 
     # Change ColorID ot HueAngle if needed
-    if hueSpace == "DKL"
-        ucid = sort(unique(conditionCond.ColorID))
-        hstep = 360/length(ucid)
-        conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
-        conditionCond=rename(conditionCond, :ColorID => :HueAngle)
-    end
+    # if hueSpace == "DKL"
+    ucid = sort(unique(conditionCond.ColorID))
+    hstep = 360/length(ucid)
+    conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
+    conditionCond=rename(conditionCond, :ColorID => :HueAngle)
+    # end
 
 
     # On/off frame indces of condations/stimuli
@@ -355,25 +395,32 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
     condOfftime = preStim + stim
     preEpoch = [0 preStim-preOffset]
     condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-    preFrame=epoch2samplerange(preEpoch, sbxfs)
-    condFrame=epoch2samplerange(condEpoch, sbxfs)
+    preFrame=epoch2sampleindex(preEpoch, sbxfs)
+    condFrame=epoch2sampleindex(condEpoch, sbxfs)
     # preOn = fill(preFrame.start, trialNum)
     # preOff = fill(preFrame.stop, trialNum)
     # condOn = fill(condFrame.start, trialNum)
     # condOff = fill(condFrame.stop, trialNum)
 
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+    end
+
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-    spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+    # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     planeNum = size(segment["mask"],3)  # how many planes
     # planeNum = 1
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
         # pn=1  # for test
@@ -386,7 +433,11 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
@@ -396,8 +447,8 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            rawF = transpose(signal["sig_ot"]["sig"][pn])
-            # spike = transpose(signal["sig_ot"]["spks"][pn])
+            rawF = sig
+            # spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -490,7 +541,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             mbti = conditionBlank[conditionBlank.SpatialFreq.==ufm[:SpatialFreq][cell], :]
             blankResp = [cellMeanTrial[cell,conditionBlank.i[r][t]] for r in 1:nrow(conditionBlank), t in 1:conditionBlank.n[1]]
             # resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-            # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
+            # resu= [factorresponsefeature(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
             # orivec = reduce(vcat,[resu[t].oov for t in 1:mcti.n[1]])
             # pori=[];pdir=[];pbori=[];pbdir=[];
 
@@ -507,7 +558,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
                     for i=1:size(resp,1)
                         shuffle!(@view resp[i,:])
                     end
-                    resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
+                    resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
                     orivec = reduce(vcat,[resu[t].om for t in 1:mcti[1,:n]])
                     orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                     oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -575,7 +626,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
                         shuffle!(@view resp[i,:])
                     end
 
-                    resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
+                    resu= [factorresponsefeature(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
                     huevec = reduce(vcat,[resu[t].ham for t in 1:mcti.n[1]])  # hue axis
                     # hueaxp = hotellingt2test([real(huevec) imag(huevec)],[0 0],0.05)
                     huevecmean = mean(huevec, dims=1)[1]  # final mean vec
@@ -630,31 +681,54 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
             mseuc[f]=fa[f]
 
             # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-            push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
+            push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
             # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
             # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
         end
 
         tempDF=DataFrame(ufs[:SpatialFreq])
-        result.fithuesf = tempDF.osf
+        result.hueosf = tempDF.osf   # preferred sf from weighted average
+        result.huemaxsf = tempDF.maxsf
+        result.huemaxsfr = tempDF.maxr
+        result.huefitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+        result.huesfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+        result.huesftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+        result.huesfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.huesfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
+        result.huedog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+
         tempDF=DataFrame(ufs[:Dir])
-        result.cvhuedir = tempDF.od   # cv
+        result.cvhuedir = tempDF.od   # preferred direction from cv
         result.huedircv = tempDF.dcv
-        result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
-        result.huedsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
+        result.huedsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+        result.huedsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+        result.huedhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+        result.huegvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
+
         result.cvhueori = tempDF.oo  # cv
         result.hueoricv = tempDF.ocv
-        result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
-        result.hueosi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+        result.hueosi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+        result.hueosi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+        result.hueohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+        result.huevmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
+
         tempDF=DataFrame(ufs[:HueAngle])
         result.cvhueax = tempDF.oha # cv
         result.hueaxcv = tempDF.hacv
         result.fithueax =map(i->isempty(i) ? NaN : :pha in keys(i) ? i.pha : NaN,tempDF.fit)  # fitting
-        result.hueaxsi =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+        result.hueaxsi1 =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+        result.hueaxsi2 =map(i->isempty(i) ? NaN : :hasi2 in keys(i) ? i.hasi2 : NaN,tempDF.fit)
+        result.hueaxhw =map(i->isempty(i) ? NaN : :hahw in keys(i) ? i.hahw : NaN,tempDF.fit)
+        result.hueaxvmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
         result.cvhuedi = tempDF.oh # cv
         result.huedicv = tempDF.hcv
         result.fithuedi =map(i->isempty(i) ? NaN : :ph in keys(i) ? i.ph : NaN,tempDF.fit)  # fitting
-        result.huedisi =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+        result.huedisi1 =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+        result.huedisi2 =map(i->isempty(i) ? NaN : :hsi2 in keys(i) ? i.hsi2 : NaN,tempDF.fit)
+        result.huedihw =map(i->isempty(i) ? NaN : :hhw in keys(i) ? i.hhw : NaN,tempDF.fit)
+        result.huedigvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
         result.maxhue = tempDF.maxh
         result.maxhueresp = tempDF.maxr
 
@@ -674,21 +748,29 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
 
         #Save results
         CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result,"params", param)
         save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
     end
+
 end
 
 function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
+    # files=tests.files[3]  # for testing
+
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
-    delays = -0.1:0.05:0.5
+    hartelyBlkId = haskey(param,:hartelyBlkId) ? param[:hartelyBlkId] : 5641
+    delays = param[:delays]
+    stanorm = param[:stanorm]
+    stawhiten = param[:stawhiten]
+    hartleyscale = param[:hartleyscale]
     print(collect(delays))
 
     # Expt info
     dataset = prepare(files)
-    ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    ex = dataset["ex"];
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -707,17 +789,27 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     # condtable = DataFrame(ex["Cond"])
     condtable =  DataFrame(ex["raw"]["log"]["randlog_T1"]["domains"]["Cond"])
     rename!(condtable, [:oridom, :kx, :ky,:bwdom,:colordom])
+
+    # find out blanks and unique conditions
+    blkidx = condidx .>= hartelyBlkId  # blanks start from 5641
+    cidx = .!blkidx
+    condidx2 = condidx.*cidx + blkidx.* hartelyBlkId   # all blanks now have the same id 5641
+
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+    end
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
     spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     ##
     # Prepare Imageset
-    nscale = haskey(param,:nscale) ? param[:nscale] : 1
     downsample = haskey(param,:downsample) ? param[:downsample] : 2
     sigma = haskey(param,:sigma) ? param[:sigma] : 1.5
     # bgRGB = [getparam(envparam,"backgroundR"),getparam(envparam,"backgroundG"),getparam(envparam,"backgroundB")]
@@ -726,39 +818,40 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
     masktype = getparam(envparam,"mask_type")
     maskradius = getparam(envparam,"mask_radius")
     masksigma = 1#getparam(envparam,"Sigma")
+    hartleyscale = haskey(param,:hartleyscale) ? param[:hartleyscale] : 1
+    hartleynorm = haskey(param, :hartleynorm) ? param[:hartleynorm] : false
     xsize = getparam(envparam,"x_size")
     ysize = getparam(envparam,"y_size")
     stisize = xsize
-    ppd = haskey(param,:ppd) ? param[:ppd] : 46
-    imagesetname = "Hartley_stisize$stisize"
-    maskradius = 0.16 #maskradius/stisize
-    # if coneType == "L"
-    #     maxcolor = RGBA()
-    #     mincolor = RGBA()
-    # elseif coneType == "M"
-    #
-    # elseif coneType == "S"
-    #
-    # end
+    ppd = haskey(param,:ppd) ? param[:ppd] : 52
+    ppd = ppd/downsample
+    imagesetname = "Hartley_stisize$(stisize)_hartleyscalescale$(hartleyscale)_ppd$(ppd)"
+    maskradius = maskradius /stisize + 0.03
 
     if !haskey(param,imagesetname)
-        imageset = map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd)),eachrow(condtable))
-        # imageset = map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable))
-        imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
-        imageset[:imagesize] = map(i->size(i),imageset[:pyramid][1])
+        imageset = Dict{Any,Any}(:image =>map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=hartleynorm,scale=hartleyscale)),eachrow(condtable)))
+        # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=ppd)),eachrow(condtable)))
+        # imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
+        imageset[:sizepx] = size(imageset[:image][1])
         param[imagesetname] = imageset
     end
 
     # Prepare Image Stimuli
     imageset = param[imagesetname]
-    bgcolor = oftype(imageset[:pyramid][1][1][1],bgcolor)
-    unmaskindex = map(i->alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[2],imageset[:pyramid][1])
-    imagestimuli = map(s->map(i->alphablend.(alphamask(i[s],radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imageset[:pyramid]),1:nscale)
-
+    bgcolor = oftype(imageset[:image][1][1],bgcolor)
+    imagestimuliname = "bgcolor$(bgcolor)_masktype$(masktype)_maskradius$(maskradius)_masksigma$(masksigma)" # bgcolor and mask define a unique masking on an image set
+    if !haskey(imageset,imagestimuliname)
+        imagestimuli = Dict{Any,Any}(:stimuli => map(i->alphablend.(alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype)[1],[bgcolor]),imageset[:image]))
+        imagestimuli[:unmaskindex] = alphamask(imageset[:image][1],radius=maskradius,sigma=masksigma,masktype=masktype)[2]
+        imageset[imagestimuliname] = imagestimuli
+    end
+    imagestimuli = imageset[imagestimuliname]
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
 
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
@@ -772,7 +865,11 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
         isdir(dataExportFolder) || mkpath(dataExportFolder)
         isdir(resultFolder) || mkpath(resultFolder)
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("Cell Number: $cellNum")
 
@@ -780,28 +877,31 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig_ot"]["sig"][pn])
-            spike = transpose(signal["sig_ot"]["spks"][pn])
+            # rawF = sig
+            spike = spks
         end
 
-        ## Calculate STA
+        imagesize = imageset[:sizepx]
+        xi = imagestimuli[:unmaskindex]
+
+        # estimate RF using STA
         if :STA in param[:model]
-            scaleindex=1
-            imagesize = imageset[:imagesize][scaleindex]
-            xi = unmaskindex[scaleindex]
-            uci = unique(condidx)
-            ucii = map(i->findall(condidx.==i),uci)  # find the repeats of each unique condition
-            x = Array{Float64}(undef,length(uci),length(xi))
-            foreach(i->x[i,:]=gray.(imagestimuli[scaleindex][uci[i]][xi]),1:size(x,1))
+            uci = unique(condidx2)
+            ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
+            ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
 
             uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
-            usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
-            # uy = Array{Float64}(undef,length(delays),length(ucii))
-            # usta = Array{Float64}(undef,length(delays),length(xi))
+            ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+            uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
+            uŷest = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+            ugof = Array{Any}(undef,cellNum,length(delays))
 
+            usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
+            cx = Array{Float64}(undef,length(ucii),length(xi))
+            foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]),1:size(cx,1))
             for d in eachindex(delays)
                 display("Processing delay: $d")
-                y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+                y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
                 spk=zeros(size(spike,1),length(idx))
                 for i =1:length(idx)
                     spkepo = @view spike[:,idx[i][1]:idx[i][end]]
@@ -809,38 +909,92 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                 end
                 for cell in 1:cellNum
                     # display(cell)
-                    y = map(i->mean(spk[cell,:][i]),ucii)
-                    stas = sta(x,y)
-                    uy[cell,d,:]=y
-                    usta[cell,d,:]=stas
-                    # uy[d,:]=y
-                    # usta[d,:]=stas
-                    if isplot
-                        r = [extrema(stas)...]
-                        title = "$(ugs[cell])Unit_$(unitid[cell])_STA_$(delays[d])"
-                        p = plotsta(stas,imagesize=imagesize,stisize=stisize,index=xi,title=title,r=r)
+                    cy = map(i->mean(spk[cell,:][i]),ucii)  # response to grating
+                    bly = map(i->mean(spk[cell,:][i]),ubii) # response to blank, baseline
+                    ry = cy.-bly  # remove baseline
+                    csta = sta(cx,ry,norm=stanorm,whiten=stawhiten)  # calculate sta
+                    ucy[cell,d,:]=cy
+                    uby[cell,d,:]=bly
+                    uy[cell,d,:]=ry
+                    usta[cell,d,:]=csta
+                    ŷest=cx*csta
+                    uŷest[cell,d,:]=ŷest
+                    ugof[cell,d] = goodnessoffit(ry,ŷest,k=length(xi))
+
+                    if plot
+                        r = [extrema(csta)...]
+                        title = "Unit_$(cell)_STA_$(delays[d])"
+                        p = plotsta(csta,sizepx=imagesize,sizedeg=stisize,ppd=ppd,index=xi,title=title,r=r)
                         foreach(i->save(joinpath(resultFolder,"$title$i"),p),[".png"])
                     end
                 end
             end
-            # uy=DefaultDict();usta = DefaultDict()
-            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"x",x,"xi",xi,"xcond",condtable[uci,:],
-            "uy",uy,"usta",usta,"delays",delays,"stisize",stisize,"color",coneType)
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"uŷest",uŷest,"usta",usta,"uby",uby,"ugof",ugof,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
         end
+
+        # estimate RF using ePPR
+        if :ePPR in param[:model]
+            ucy = Array{Float64}(undef,cellNum,length(condidx))
+            ueppr = Dict()
+            xscale=255
+            bg = xscale*gray(bgcolor)
+            # roicenter = Int64.(imagesize./2)
+            # roiradius = Int64.(floor.(imagesize.*(maskradius)))[1]
+            # roisize = (roiradius*2+1,roiradius*2+1)
+            cx = Array{Float64}(undef,length(condidx),prod(imagesize))
+            # foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][condidx[i]][map(i->(-roiradius:roiradius).+i,roicenter)...]),1:size(cx,1))
+            foreach(i->cx[i,:]=gray.(imagestimuli[:stimuli][condidx[i]]),1:size(cx,1))
+            # for d in eachindex(delays)
+            d = 10
+            display("Processing delay: $d")
+            y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+            spk=zeros(size(spike,1),length(idx))
+            for i =1:length(idx)
+                spkepo = @view spike[:,idx[i][1]:idx[i][end]]
+                spk[:,i]= mean(spkepo, dims=2)
+            end
+            for cell in 1:cellNum
+                # cell = 346
+                display(cell)
+                cy = spk[cell,:]  # response to grating
+                ucy[cell,:] = cy
+                # unitresultdir = joinpath(resultFolder,"Unit_$(cell)_ePPR_$(delays[d])")
+                # rm(unitresultdir,force=true,recursive=true)
+                log = ePPRLog(debug=false,plot=false,dir=resultFolder)
+                hp = ePPRHyperParams(imagesize...,xindex=xi,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
+                model,models = epprhypercv(cx.*xscale,cy,hp,log)
+                ueppr[cell] = Dict()
+                ueppr[cell]["model"] = model
+                ueppr[cell]["models"] = models
+
+                if plot && !isnothing(model)
+                    log(plotmodel(model,hp,color=:bwr,width=400,height=400),file="Unit_$(cell)_Model_Final (λ=$(hp.lambda)).png")
+                end
+                # clean!(model)
+            end
+            # end
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_eppr.jld2"])),"imagesize",imagesize,"cx",cx,"ucy",ucy,
+            "ueppr",ueppr,"delay",delays[d],"maskradius",maskradius,"stisize",stisize,"color",coneType)
+        end
+
     end
+
 end
+
 
 function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
     interpolatedData = haskey(param,:interpolatedData) ? param[:interpolatedData] : true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
-    delays = 0:0.05:0.5
+    hartelyBlkId = haskey(param,:hartelyBlkId) ? param[:hartelyBlkId] : 5641
+    delays = param[:delays]
     ntau = length(collect(delays))
     print(collect(delays))
 
     # Expt info
     dataset = prepare(files)
     ex = dataset["ex"]
-    disk=ex["source"][1:2];subject=ex["Subject_ID"];recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
+    disk=string(param[:dataexportroot][1:2])
+    subject=uppercase(ex["Subject_ID"]);recordSession=uppercasefirst(ex["RecordSite"]);testId=ex["TestID"]
 
     ## Prepare data & result path
     exptId = join(filter(!isempty,[recordSession[2:end], testId]),"_")
@@ -850,6 +1004,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     envparam = ex["EnvParam"]
     coneType = getparam(envparam,"colorspace")
     szhtly_visangle = envparam["x_size"]  # deg
+    maxSF = envparam["max_sf"]  # cyc/deg
     sbx = dataset["sbx"]["info"]
     sbxft = ex["frameTimeSer"]   # time series of sbx frame in whole recording
     # Condition Tests
@@ -865,21 +1020,28 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
     condtable[:ky] = [Int(x) for x in condtable[:ky]]
     max_k = max(abs.(condtable.kx)...)
     # find out blanks and unique conditions
-    blkidx = condidx.>5641  # blanks start from 5641
+    blkidx = condidx.>hartelyBlkId  # blanks start from 5641
     cidx = .!blkidx
-    condidx2 = condidx.*cidx + blkidx.* 5641
+    condidx2 = condidx.*cidx + blkidx.* hartelyBlkId
     conduniq = unique(condidx2)
     ## Load data
-    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+    if interpolatedData
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+    else
+        segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+        signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+    end
     segment = prepare(segmentFile)
-    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
     signal = prepare(signalFile)
     # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
     spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
     ## Load data
     planeNum = size(segment["mask"],3)  # how many planes
-    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    if interpolatedData
+        planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+    end
 
     ## Use for loop process each plane seperately
     for pn in 1:planeNum
@@ -893,7 +1055,11 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         isdir(resultFolder) || mkpath(resultFolder)
         result = DataFrame()
 
-        cellRoi = segment["seg_ot"]["vert"][pn]
+        if interpolatedData
+            cellRoi = segment["seg_ot"]["vert"][pn]
+        else
+            cellRoi = segment["vert"]
+        end
         cellNum = length(cellRoi)
         display("plane: $pn")
         display("Cell Number: $cellNum")
@@ -902,8 +1068,8 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
             # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
             spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         else
-            # rawF = transpose(signal["sig_ot"]["sig"][pn])
-            spike = transpose(signal["sig_ot"]["spks"][pn])
+            # rawF = sig
+            spike = spks
         end
         result.py = 0:cellNum-1
         result.ani = fill(subject, cellNum)
@@ -912,7 +1078,7 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
         ## Chop spk trains according delays
         spk=zeros(nstim,ntau,cellNum)
         for d in eachindex(delays)
-            y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+            y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
             for i =1:nstim
                 spkepo = @view spike[:,idx[i][1]:idx[i][end]]
                 spk[i,d,:]= mean(spkepo, dims=2)
@@ -952,49 +1118,137 @@ function process_2P_hartleyFourier(files,param;uuid="",log=nothing,plot=false)
 
         ## find best kernel and estimate preferred sf and ori
 
-        taumax=[];kur=[];kurmax=[];kernraw=[];kernnor=[];
-        signif=[];sfest=[];oriest=[];
+        taumax=[];kstd=[];kstdmax=[];kernraw=[];kernnor=[];kernest=[];
+        kdelta=[];signif=[];slambda=[];sfmax=[];orimax=[];sfmean=[];orimean=[];
+        sfLevel=[];sfResp=[];oriLevel=[];oriResp=[];
         for i = 1:cellNum
-            # i=15
+            # i=373
             z = r[:,:,:,i]
             q = reshape(z,szhtly^2,:)   # in this case, there are 61^2 pixels in the stimulus.
-            k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+            # k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+            k = [std(q[:,j]) for j in 1:size(q,2)]
             tmax = findall(x->x==max(k...),k)[1]
             kmax = max(k...)
-            sig = kmax>7
-            kernRaw = z[:,:,tmax]  # raw kernel without
-            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])
+            # sig = kmax>7
+            kernRaw = z[:,:,tmax]  # raw kernel without blank normalization
+            kernSub = z[:,:,tmax] .- z[max_k+1,max_k+1,tmax]  # kernal normalized by blank
+            kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])  # kernal normalized by blank
+            replace!(kern, -Inf=>0)
 
-            # estimate ori/sf
+            # separability measure and estimate kernel
+            u,s,v = svd(kernRaw)
+            s = Diagonal(s)
+            lambda = s[1,1]/s[2,2]
+            q = s[1,1]
+            s = zeros(size(s))
+            s[1,1] = q
+            kest = u*s*v'   # estimated kernel
+
+            # energy measure
+            delta = kmax / k[1] - 1
+            sig = delta > 0.25
+
+            # find the maxi/best condition
             # bw = kern .> (max(kern...) .* 0.95)
-            bw = kern .== max(kern...)
+            bwmax = kernSub.== max(kernSub...)
+            idxmax = findall(x->x==1,bwmax)
+            foreach(x->if x[1]>(max_k+1) bwmax[x]=0 end,idxmax)   # choose upper quadrants
+            # estimate ori/sf by max
+            zzm = sum(sum(zz.*bwmax,dims=1),dims=2)[1] / (length(idxmax)/2)
+            sf_max = abs(zzm)/szhtly_visangle  # cyc/deg
+            ori_max = rad2deg(angle(zzm)) # deg
+
+
+            # find the best condition based on thresholding
+            bw = kernSub .>= quantile(kernSub[:], 0.99)
+            # bw = kernSub .>= (max(kernSub...) .* 0.95)
             idx = findall(x->x==1,bw)
-            foreach(x->if x[1]>31 bw[x]=0 end,idx)
-            zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / (length(idx)/2)
+            foreach(x->if x[1]>(max_k+1) bw[x]=0 end,idx)   # choose upper quadrants
+            idx = findall(x->x==1,bw)  # choose upper quadrants
+            # estimate ori/sf by mean
+            zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / length(idx)
+            sf_mean = abs(zzm)/szhtly_visangle  # cyc/deg
+            ori_mean = rad2deg(angle(zzm)) # deg
 
-            sf = abs(zzm)/szhtly_visangle  # cyc/deg
-            ori = rad2deg(angle(zzm)) # deg
+            ## Ori tuning curve
+            # sf_best = max((abs.(zz).*bwmax)...)
+            # idxsf = findall(x->x==sf_best,abs.(zz))
+            # filter!(x->x[1]<=(max_k+1),idxsf)
+            #
+            # ori_idx=rad2deg.(angle.(reverse(zz[idxsf])))
+            # ori_curve=reverse(kern[idxsf])
+            sf_best = extrema(abs.(zz)[idx])
+            idxsf = findall(x->sf_best[1] <= x <= sf_best[2],abs.(zz))
+            filter!(x->x[1]<=(max_k+1),idxsf)  # choose upper quadrants
+            filter!(x-> !((x[1]==(max_k+1)) & (x[2]<max_k+1)),idxsf) # remove 180 deg
 
-            push!(taumax,tmax);push!(kur,k);push!(kurmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
-            push!(signif,sig);push!(oriest,ori); push!(sfest,sf);
+            oriCurve = DataFrame()
+            oriCurve.level=rad2deg.(angle.(zz[idxsf]))
+            oriCurve.resp=kernSub[idxsf]
+            sort!(oriCurve)
+            filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), oriCurve)
+            # averaged over repeated orientation
+            gp=groupby(oriCurve, :level)
+            ori_level=[];ori_resp=[];
+            for g in gp
+                push!(ori_level,mean(g.level))
+                push!(ori_resp,mean(g.resp))
+            end
+
+            ## SF tuning curve
+            ori_best = extrema(angle.(zz)[idx])
+            idxori = findall(x->ori_best[1] <= x <= ori_best[2],angle.(zz))
+            # filter!(x->x[1]<=(max_k+1),idxori)   # choose upper quadrants
+
+            sfCurve = DataFrame()
+            sfCurve.level = (abs.(zz[idxori]))./szhtly_visangle
+            sfCurve.resp = kernSub[idxori]
+            sort!(sfCurve)
+            sfCurve = sfCurve[sfCurve[:level].<=maxSF,:]
+            filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), sfCurve)
+            # averaged over repeated sf
+            gp=groupby(sfCurve, :level)
+            sf_level=[];sf_resp=[];
+            for g in gp
+                push!(sf_level,mean(g.level))
+                push!(sf_resp,mean(g.resp))
+            end
+
+            push!(taumax,tmax);push!(kstd,k);push!(kstdmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
+            push!(kernest,kest);push!(signif,sig);push!(kdelta,delta); push!(slambda,lambda);
+            push!(orimax,ori_max); push!(sfmax,sf_max);push!(orimean,ori_mean); push!(sfmean,sf_mean);
+            push!(oriLevel, ori_level);push!(oriResp,ori_resp); push!(sfLevel,sf_level); push!(sfResp,sf_resp)
+
 
             # if sig == true
-            #     heatmap(kern,yflip=true, aspect_ratio=:equal,color=:coolwarm)
-            #     # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
+                # heatmap(kmask,yflip=true, aspect_ratio=:equal,color=:coolwarm)
+                # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
             # end
         end
-        result.sig = signif
-        result.oriest = oriest
-        result.sfest = sfest
+
+        result.signif = signif
         result.taumax = taumax
+        result.kstdmax = kstdmax
+        result.kdelta = kdelta
+        result.slambda = slambda
+        result.orimax = orimax
+        result.sfmax = sfmax
+        result.orimean = orimean
+        result.sfmean = sfmean
+
+        result1=copy(result)
+
+        result.kstd = kstd
         result.kernnor = kernnor
         result.kernraw = kernraw
-        result.kurmax=kurmax
-        result.kur = kur
+        result.kernest = kernest
+        result.oriLevel = oriLevel
+        result.oriResp = oriResp
+        result.sfLevel = sfLevel
+        result.sfResp = sfResp
 
         #Save results
-        CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result)
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result)
-
+        CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result1)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result,"params",param)
     end
 end

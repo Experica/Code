@@ -2,19 +2,19 @@
 # Peichao's Notes:
 # 1. Code was written for 2P data (Hartley) from Scanbox. Will export results (dataframe and csv) for plotting.
 # 2. If you have multiple planes, it works with splited & interpolated dat. Note results are slightly different.
-# 3. If you have single plane, need to change the code (signal and segmentation) a little bit to make it work.
+# 3. If you have single plane, set interpolatedData as false.
 
-using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random, Plots
+using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,LinearAlgebra,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random, Plots
 
 # Expt info
 disk = "O:"
 subject = "AF4"  # Animal
 recordSession = "004" # Unit
-testId = "002"  # Stimulus test
+testId = "004"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 
-delays = 0:0.05:0.5
+delays = -0.066:0.033:0.4
 ntau = length(collect(delays))
 print(collect(delays))
 isplot = false
@@ -25,12 +25,13 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
 coneType = getparam(envparam,"colorspace")
 szhtly_visangle = envparam["x_size"]  # deg
+maxSF = envparam["max_sf"]  # cyc/deg
 sbx = dataset["sbx"]["info"]
 sbxft = ex["frameTimeSer"]   # time series of sbx frame in whole recording
 # Condition Tests
@@ -51,17 +52,23 @@ cidx = .!blkidx
 condidx2 = condidx.*cidx + blkidx.* 5641
 conduniq = unique(condidx2)
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 # sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
 spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 ## Load data
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=2  # for test
@@ -74,7 +81,11 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
     cellNum = length(cellRoi)
     display("plane: $pn")
     display("Cell Number: $cellNum")
@@ -83,17 +94,17 @@ for pn in 1:planeNum
         # rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        # rawF = transpose(signal["sig_ot"]["sig"][pn])
-        spike = transpose(signal["sig_ot"]["spks"][pn])
+        # rawF = sig
+        spike = spks
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
     result.dataId = fill(siteId, cellNum)
     result.cellId = 1:cellNum
-    ## Chop spk trains according delays
+    ## Chop spk trains according to delays
     spk=zeros(nstim,ntau,cellNum)
     for d in eachindex(delays)
-        y,num,wind,idx = subrv(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
+        y,num,wind,idx = epochspiketrain(sbxft,condon.+delays[d], condoff.+delays[d],isminzero=false,ismaxzero=false,shift=0,israte=false)
         for i =1:nstim
             spkepo = @view spike[:,idx[i][1]:idx[i][end]]
             spk[i,d,:]= mean(spkepo, dims=2)
@@ -109,8 +120,8 @@ for pn in 1:planeNum
     #  Normalize by stim repeats.
     reps = zeros(size(conduniq,1))
     for i in 1:size(conduniq,1)
-         rep = length(findall(x->x==conduniq[i],condidx2))
-         reps[i] = rep
+        rep = length(findall(x->x==conduniq[i],condidx2))
+        reps[i] = rep
         r[-condtable.kx[conduniq[i]]+1+max_k,condtable.ky[conduniq[i]]+1+max_k,:,:] ./= rep
     end
 
@@ -118,7 +129,7 @@ for pn in 1:planeNum
     for t = 1:ntau
         for n = 1:cellNum
             rf = r[:,:,t,n]
-            rf = rf + rot180(rf) # average over phases PL
+            rf = rf + rot180(rf) # average over phases, PL
             r[:,:,t,n] = imfilter(rf,Kernel.gaussian((1,1),(3,3)))
         end
     end
@@ -133,48 +144,137 @@ for pn in 1:planeNum
 
     ## find best kernel and estimate preferred sf and ori
 
-    taumax=[];kur=[];kurmax=[];kernraw=[];kernnor=[];
-    signif=[];sfest=[];oriest=[];
+    taumax=[];kstd=[];kstdmax=[];kernraw=[];kernnor=[];kernest=[];
+    kdelta=[];signif=[];slambda=[];sfmax=[];orimax=[];sfmean=[];orimean=[];
+    sfLevel=[];sfResp=[];oriLevel=[];oriResp=[];
     for i = 1:cellNum
-        # i=15
+        # i=438
+        # print(i)
         z = r[:,:,:,i]
         q = reshape(z,szhtly^2,:)   # in this case, there are 61^2 pixels in the stimulus.
-        k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+        # k = dropdims(mapslices(kurtosis,q;dims=1).-3, dims=1) # The kurtosis of any univariate normal distribution is 3. It is common to compare the kurtosis of a distribution to this value.
+        k = [std(q[:,j]) for j in 1:size(q,2)]
         tmax = findall(x->x==max(k...),k)[1]
         kmax = max(k...)
-        sig = kmax>7
-        kernRaw = z[:,:,tmax]  # raw kernel without
-        kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])
+        # sig = kmax>7
+        kernRaw = z[:,:,tmax]  # raw kernel without blank normalization
+        kernSub = z[:,:,tmax] .- z[max_k+1,max_k+1,tmax]  # kernal normalized by blank
+        kern = log10.(z[:,:,tmax] ./ z[max_k+1,max_k+1,tmax])  # kernal normalized by blank
+        replace!(kern, -Inf=>0)
 
-        # estimate ori/sf
+        # separability measure and estimate kernel
+        u,s,v = svd(kernRaw)
+        s = Diagonal(s)
+        lambda = s[1,1]/s[2,2]
+        q = s[1,1]
+        s = zeros(size(s))
+        s[1,1] = q
+        kest = u*s*v'   # estimated kernel
+
+        # energy measure
+        delta = kmax / k[1] - 1
+        sig = delta > 0.25
+
+        # find the maxi/best condition
         # bw = kern .> (max(kern...) .* 0.95)
-        bw = kern .== max(kern...)
+        bwmax = kernSub.== max(kernSub...)
+        idxmax = findall(x->x==1,bwmax)
+        foreach(x->if x[1]>(max_k+1) bwmax[x]=0 end,idxmax)   # choose upper quadrants
+        # estimate ori/sf by max
+        zzm = sum(sum(zz.*bwmax,dims=1),dims=2)[1] / (length(idxmax)/2)
+        sf_max = abs(zzm)/szhtly_visangle  # cyc/deg
+        ori_max = rad2deg(angle(zzm)) # deg
+
+        # find the best condition based on thresholding
+        bw = kernSub .>= quantile(kernSub[:], 0.99)
+        # bw = kernSub .>= (max(kernSub...) .* 0.95)
         idx = findall(x->x==1,bw)
-        foreach(x->if x[1]>31 bw[x]=0 end,idx)
-        zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / (length(idx)/2)
+        foreach(x->if x[1]>(max_k+1) bw[x]=0 end,idx)   # choose upper quadrants
+        idx = findall(x->x==1,bw)  # choose upper quadrants
+        # estimate ori/sf by mean
+        zzm = sum(sum(zz.*bw,dims=1),dims=2)[1] / length(idx)
+        sf_mean = abs(zzm)/szhtly_visangle  # cyc/deg
+        ori_mean = rad2deg(angle(zzm)) # deg
 
-        sf = abs(zzm)/szhtly_visangle  # cyc/deg
-        ori = rad2deg(angle(zzm)) # deg
+        ## Ori tuning curve
+        # sf_best = max((abs.(zz).*bwmax)...)
+        # idxsf = findall(x->x==sf_best,abs.(zz))
+        # filter!(x->x[1]<=(max_k+1),idxsf)
+        #
+        # ori_idx=rad2deg.(angle.(reverse(zz[idxsf])))
+        # ori_curve=reverse(kern[idxsf])
+        sf_best = extrema(abs.(zz)[idx])
+        idxsf = findall(x->sf_best[1] <= x <= sf_best[2],abs.(zz))
+        filter!(x->x[1]<=(max_k+1),idxsf)  # choose upper quadrants
+        filter!(x-> !((x[1]==(max_k+1)) & (x[2]<max_k+1)),idxsf) # remove 180 deg
 
-        push!(taumax,tmax);push!(kur,k);push!(kurmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
-        push!(signif,sig);push!(oriest,ori); push!(sfest,sf);
+        oriCurve = DataFrame()
+        oriCurve.level=rad2deg.(angle.(zz[idxsf]))
+        oriCurve.resp=kernSub[idxsf]
+        sort!(oriCurve)
+        filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), oriCurve)
+        # averaged over repeated orientation
+        gp=groupby(oriCurve, :level)
+        ori_level=[];ori_resp=[];
+        for g in gp
+            push!(ori_level,mean(g.level))
+            push!(ori_resp,mean(g.resp))
+        end
+        # plot(ori_level,ori_resp)
+        ## SF tuning curve
+        ori_best = extrema(angle.(zz)[idx])
+        idxori = findall(x->ori_best[1] <= x <= ori_best[2],angle.(zz))
+        # filter!(x->x[1]<=(max_k+1),idxori)   # choose upper quadrants
+
+        sfCurve = DataFrame()
+        sfCurve.level = (abs.(zz[idxori]))./szhtly_visangle
+        sfCurve.resp = kernSub[idxori]
+        sort!(sfCurve)
+        sfCurve = sfCurve[sfCurve[:level].<=maxSF,:]
+        filter!(:resp => resp -> !any(f -> f(resp), (ismissing, isnothing, isnan, isinf)), sfCurve)
+        # averaged over repeated sf
+        gp=groupby(sfCurve, :level)
+        sf_level=[];sf_resp=[];
+        for g in gp
+            push!(sf_level,mean(g.level))
+            push!(sf_resp,mean(g.resp))
+        end
+        # plot(sf_level,sf_resp)
+        push!(taumax,tmax);push!(kstd,k);push!(kstdmax, kmax); push!(kernraw,kernRaw);push!(kernnor,kern);
+        push!(kernest,kest);push!(signif,sig);push!(kdelta,delta); push!(slambda,lambda);
+        push!(orimax,ori_max); push!(sfmax,sf_max);push!(orimean,ori_mean); push!(sfmean,sf_mean);
+        push!(oriLevel, ori_level);push!(oriResp,ori_resp); push!(sfLevel,sf_level); push!(sfResp,sf_resp)
+
 
         # if sig == true
-        #     heatmap(kern,yflip=true, aspect_ratio=:equal,color=:coolwarm)
-        #     # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
+            # heatmap(kmask,yflip=true, aspect_ratio=:equal,color=:coolwarm)
+            # plot([0 real(zzm)],[0 imag(zzm)],'wo-','linewidth',3,'markersize',14);
         # end
     end
-    result.sig = signif
-    result.oriest = oriest
-    result.sfest = sfest
+
+    result.signif = signif
     result.taumax = taumax
+    result.kstdmax = kstdmax
+    result.kdelta = kdelta
+    result.slambda = slambda
+    result.orimax = orimax
+    result.sfmax = sfmax
+    result.orimean = orimean
+    result.sfmean = sfmean
+
+    result1=copy(result)
+
+    result.kstd = kstd
     result.kernnor = kernnor
     result.kernraw = kernraw
-    result.kurmax=kurmax
-    result.kur = kur
+    result.kernest = kernest
+    result.oriLevel = oriLevel
+    result.oriResp = oriResp
+    result.sfLevel = sfLevel
+    result.sfResp = sfResp
 
     #Save results
-    CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result)
+    CSV.write(joinpath(resultFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.csv"])), result1)
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_tuning_result.jld2"])), "result",result)
 
 end

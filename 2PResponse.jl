@@ -2,15 +2,14 @@
 # Peichao's Notes:
 # 1. Code was written for 2P data (Direction-Spatial Frequency test) from Scanbox. Will export results (dataframe and csv) for plotting.
 # 2. If you have multiple planes, it works with splited & interpolated dat. Note results are slightly different.
-# 3. If you have single plane, need to change the code (signal and segmentation) a little bit to make it work.
 
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "003" # Unit
-testId = "006"  # Stimulus test
+disk = "F:"
+subject = "AF7"  # Animal
+recordSession = "002" # Unit
+testId = "000"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
@@ -26,7 +25,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
+metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -42,10 +42,20 @@ else
    scanMode = 1  # unidirectional scanning
 end
 sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-trialOnLine = sbx["line"][1:2:end]
-trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][2:2:end]
-trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+    stNum = 2
+else
+    stNum = 1
+end
+# trialOnLine = sbx["line"][stNum:2:end]
+# trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+# trialOffLine = sbx["line"][stNum+1:2:end]
+# trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+
+trialOnLine = sbx["line"][stNum:4:end]
+trialOnFrame = sbx["frame"][stNum:4:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+3:4:end]
+trialOffFrame = sbx["frame"][stNum+3:4:end] + round.(trialOffLine/lineNum)
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -62,31 +72,32 @@ end
 
 condition = condin(ctc)
 condNum = size(condition,1) # including blanks
-
 # On/off frame indces of condations/stimuli
 preStim = ex["PreICI"]; stim = ex["CondDur"]; postStim = ex["SufICI"]
 trialOnTime = fill(0, trialNum)
 condOfftime = preStim + stim
 preEpoch = [0 preStim-preOffset]
 condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-preFrame=epoch2samplerange(preEpoch, sbxfs)
-condFrame=epoch2samplerange(condEpoch, sbxfs)
-# preOn = fill(preFrame.start, trialNum)
-# preOff = fill(preFrame.stop, trialNum)
-# condOn = fill(condFrame.start, trialNum)
-# condOff = fill(condFrame.stop, trialNum)
+preFrame=epoch2sampleindex(preEpoch, sbxfs)
+condFrame=epoch2sampleindex(condEpoch, sbxfs)
 
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
 # spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 planeNum = size(segment["mask"],3)  # how many planes
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
-
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
     # pn=1  # for test
@@ -99,7 +110,12 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
+
     cellNum = length(cellRoi)
     display("plane: $pn")
     display("Cell Number: $cellNum")
@@ -109,8 +125,8 @@ for pn in 1:planeNum
         rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        rawF = transpose(signal["sig_ot"]["sig"][pn])
-        # spike = transpose(signal["sig_ot"]["spks"][pn])
+        rawF = sig
+        # spike = spks
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
@@ -135,6 +151,7 @@ for pn in 1:planeNum
     fms=[];fses=[];  # mean ans sem of each condition of each cell
     ufm = Dict(k=>[] for k in keys(fa))  # maxi factor level of each cell
     for cell in 1:cellNum
+        # display(cell)
         mseuc = condresponse(cellMeanTrial[cell,:],condition)  # condtion response, averaged over repeats
         fm,fse,_  = factorresponse(mseuc)  # put condition response into factor space
         p = Any[Tuple(argmax(coalesce.(fm,-Inf)))...]
@@ -160,7 +177,7 @@ for pn in 1:planeNum
     cti = reduce(append!,condition[1:end-1, :i],init=Int[])   # Drop blank, only choose stim conditions
     for cell in 1:cellNum
         # cell = 1
-        display(cell)
+        # display(cell)
         condResp = cellMeanTrial[cell,cti]
         push!(umodulative,ismodulative([DataFrame(Y=condResp) ctc[cti,:]], alpha=α, interact=true))  # Check molulativeness within stim conditions
         blankResp = cellMeanTrial[cell,condition[end,:i]]  # Choose blank conditions
@@ -186,7 +203,7 @@ for pn in 1:planeNum
     ## Check which cell is significantly tuning by orientation or direction
     oriAUC=[]; dirAUC=[];
     for cell in 1:cellNum
-        # cell=1  # for test
+        # display(cell)
             # Get all trial Id of under maximal sf
             # mcti = @where(condition, :SpatialFreq .== ufm[:SpatialFreq][cell])
         mcti = condition[condition.SpatialFreq.==ufm[:SpatialFreq][cell], :]
@@ -205,7 +222,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
+                resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir,isfit=false) for t in 1:mcti.n[1]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti.n[1]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -249,22 +266,37 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
+        push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=oriAUC[cell]>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
 
     tempDF=DataFrame(ufs[:SpatialFreq])
-    result.fitsf = tempDF.osf
+    result.osf = tempDF.osf  # preferred sf from weighted average
+    result.maxsf = tempDF.maxsf
+    result.maxsfr = tempDF.maxr
+    result.fitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+    result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+    result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+    result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+    result.sfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
+    result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+
     tempDF=DataFrame(ufs[:Dir])
     result.cvdir = tempDF.od   # preferred direction from cv
     result.dircv = tempDF.dcv
     result.fitdir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
-    result.dsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.dsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.dsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+    result.dhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+    result.gvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
     result.cvori = tempDF.oo  # preferred orientation from cv
     result.oricv = tempDF.ocv
-    result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from cv
-    result.osi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.fitori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+    result.osi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.osi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+    result.ohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+    result.vmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
 
     # Plot tuning curve of each factor of each cell
     if isplot
@@ -284,7 +316,7 @@ for pn in 1:planeNum
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
 
 end
-planeStart  #
+display("Processing Is Done!!!!!") #
 
 # Plot Spike Train for all trials of all cells
 # epochext = preicidur

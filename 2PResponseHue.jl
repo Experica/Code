@@ -7,10 +7,10 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
 
 # User input and Expt info
-disk = "O:"
-subject = "AF4"  # Animal
-recordSession = "007" # Unit
-testId = "009"  # Stimulus test
+disk = "F:"
+subject = "AF7"  # Animal
+recordSession = "003" # Unit
+testId = "005"  # Stimulus test
 hueSpace = "DKL"   # Color space used? DKL or HSL
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
@@ -21,8 +21,9 @@ oriaucThres = 0.5
 fitThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
-blankId = 36  # Blank Id
-excId = [27,28,blankId]  # Exclude some condition?
+blankId = 39  # Blank Id  AF3AF4=36; AE6AE7=34; AF7=39(DKL) 52(HSL)
+# excId = [27,28,blankId]  # Exclude some condition? ## for experiment before AF7
+excId = blankId  # Exclude some condition?
 isplot = false  # Plot figures to investigate?
 
 ## Prepare data & result path
@@ -31,7 +32,8 @@ dataFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), exptId
 metaFolder = joinpath(disk,subject, "2P_data", join(["U",recordSession]), "metaFiles")
 
 ## load expt, scanning parameters
-metaFile=matchfile(Regex("[A-Za-z0-9]*$testId[A-Za-z0-9]*_[A-Za-z0-9]*_meta.mat"),dir=metaFolder,adddir=true)[1]
+# metaFile=matchfile(Regex("[A-Za-z0-9]*_[A-Za-z0-9]*_[A-Za-z0-9]*$testId*_meta.mat"),dir=metaFolder,join=true)[1]
+metaFile=matchfile(Regex("$subject*_$recordSession*_$testId*_ot_meta.mat"),dir=metaFolder,join=true)[1]
 dataset = prepare(metaFile)
 ex = dataset["ex"]
 envparam = ex["EnvParam"]
@@ -46,19 +48,32 @@ if haskey(sbx, "recordsPerBuffer_bi")
 else
    scanMode = 1  # unidirectional scanning
 end
-sbxfs = 1/(lineNum/scanFreq/scanMode)   # frame rate
-trialOnLine = sbx["line"][1:2:end]
-trialOnFrame = sbx["frame"][1:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][2:2:end]
-trialOffFrame = sbx["frame"][2:2:end] + round.(trialOnLine/lineNum)    # if process splitted data use frame_split
+sbxfs = 1/(lineNum/scanFreq/scanMode)
+if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is extra pulse at start, need to remove it
+    stNum = 2
+else
+    stNum = 1
+end   # frame rate
+
+# for experiment before AF7
+# trialOnLine = sbx["line"][stNum:2:end]
+# trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+# trialOffLine = sbx["line"][stNum+1:2:end]
+# trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+
+# for experiment of AF7 and after
+trialOnLine = sbx["line"][stNum:4:end]
+trialOnFrame = sbx["frame"][stNum:4:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+3:4:end]
+trialOffFrame = sbx["frame"][stNum+3:4:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
-trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
+trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))[1:end-1,:]
 # minTrialDur = minimum(trialOffFrame-trialOnFrame)
 # histogram(trialOffFrame-trialOnFrame,nbins=20,title="Trial Duration(Set to $minTrialDur)")
 
 # Transform Trials ==> Condition
-ctc = DataFrame(ex["CondTestCond"])
+ctc = DataFrame(ex["CondTestCond"])[1:end-1,:]
 trialNum =  size(ctc,1)
 conditionAll = condin(ctc)
 # Remove extra conditions (only for AF4), and seperate blanks
@@ -75,12 +90,12 @@ conditionBlank = conditionAll[bi,:]
 # replace!(bctc.ColorID, 36 =>Inf)
 
 # Change ColorID ot HueAngle if needed
-if hueSpace == "DKL"
-    ucid = sort(unique(conditionCond.ColorID))
-    hstep = 360/length(ucid)
-    conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
-    conditionCond=rename(conditionCond, :ColorID => :HueAngle)
-end
+# if hueSpace == "DKL"
+ucid = sort(unique(conditionCond.ColorID))
+hstep = 360/length(ucid)
+conditionCond.ColorID = (conditionCond.ColorID.-minimum(ucid)).*hstep
+conditionCond=rename(conditionCond, :ColorID => :HueAngle)
+# end
 
 
 # On/off frame indces of condations/stimuli
@@ -89,24 +104,31 @@ trialOnTime = fill(0, trialNum)
 condOfftime = preStim + stim
 preEpoch = [0 preStim-preOffset]
 condEpoch = [preStim+responseOffset condOfftime-responseOffset]
-preFrame=epoch2samplerange(preEpoch, sbxfs)
-condFrame=epoch2samplerange(condEpoch, sbxfs)
+preFrame=epoch2sampleindex(preEpoch, sbxfs)
+condFrame=epoch2sampleindex(condEpoch, sbxfs)
 # preOn = fill(preFrame.start, trialNum)
 # preOff = fill(preFrame.stop, trialNum)
 # condOn = fill(condFrame.start, trialNum)
 # condOff = fill(condFrame.stop, trialNum)
 
 ## Load data
-segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,adddir=true)[1]
+if interpolatedData
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,join=true)[1]
+else
+    segmentFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*.segment"),dir=dataFolder,join=true)[1]
+    signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9].signals"),dir=dataFolder,join=true)[1]
+end
 segment = prepare(segmentFile)
-signalFile=matchfile(Regex("[A-Za-z0-9]*[A-Za-z0-9]*_merged.signals"),dir=dataFolder,adddir=true)[1]
 signal = prepare(signalFile)
 sig = transpose(signal["sig"])   # 1st dimention is cell roi, 2nd is fluorescence trace
-spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
+# spks = transpose(signal["spks"])  # 1st dimention is cell roi, 2nd is spike train
 
 planeNum = size(segment["mask"],3)  # how many planes
 # planeNum = 1
-planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+if interpolatedData
+    planeStart = vcat(1, length.(segment["seg_ot"]["vert"]).+1)
+end
 
 ## Use for loop process each plane seperately
 for pn in 1:planeNum
@@ -120,7 +142,11 @@ for pn in 1:planeNum
     isdir(resultFolder) || mkpath(resultFolder)
     result = DataFrame()
 
-    cellRoi = segment["seg_ot"]["vert"][pn]
+    if interpolatedData
+        cellRoi = segment["seg_ot"]["vert"][pn]
+    else
+        cellRoi = segment["vert"]
+    end
     cellNum = length(cellRoi)
     display("plane: $pn")
     display("Cell Number: $cellNum")
@@ -130,8 +156,8 @@ for pn in 1:planeNum
         rawF = sig[planeStart[pn]:planeStart[pn]+cellNum-1,:]
         # spike = spks[planeStart[pn]:planeStart[pn]+cellNum-1,:]
     else
-        rawF = transpose(signal["sig_ot"]["sig"][pn])
-        # spike = transpose(signal["sig_ot"]["spks"][pn])
+        rawF = sig
+        # spike = spks
     end
     result.py = 0:cellNum-1
     result.ani = fill(subject, cellNum)
@@ -224,7 +250,7 @@ for pn in 1:planeNum
         mbti = conditionBlank[conditionBlank.SpatialFreq.==ufm[:SpatialFreq][cell], :]
         blankResp = [cellMeanTrial[cell,conditionBlank.i[r][t]] for r in 1:nrow(conditionBlank), t in 1:conditionBlank.n[1]]
         # resp = [cellMeanTrial[cell,mcti.i[r][t]] for r in 1:nrow(mcti), t in 1:mcti.n[1]]
-        # resu= [factorresponsestats(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
+        # resu= [factorresponsefeature(mcti[:dir],resp[:,t],factor=:dir,isfit=false) for t in 1:mcti.n[1]]
         # orivec = reduce(vcat,[resu[t].oov for t in 1:mcti.n[1]])
         # pori=[];pdir=[];pbori=[];pbdir=[];
 
@@ -241,7 +267,7 @@ for pn in 1:planeNum
                 for i=1:size(resp,1)
                     shuffle!(@view resp[i,:])
                 end
-                resu= [factorresponsestats(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
+                resu= [factorresponsefeature(mcti[:Dir],resp[:,t],factor=:Dir, isfit=false) for t in 1:mcti[1,:n]]
                 orivec = reduce(vcat,[resu[t].om for t in 1:mcti[1,:n]])
                 orivecmean = mean(orivec, dims=1)[1]  # final mean vec
                 oridistr = [real(orivec) imag(orivec)] * [real(orivecmean) imag(orivecmean)]'  # Project each vector to the final vector, so now it is 1D distribution
@@ -309,7 +335,7 @@ for pn in 1:planeNum
                     shuffle!(@view resp[i,:])
                 end
 
-                resu= [factorresponsestats(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
+                resu= [factorresponsefeature(mcti[:HueAngle],resp[:,t],factor=:HueAngle,isfit=false) for t in 1:mcti[1,:n]]
                 huevec = reduce(vcat,[resu[t].ham for t in 1:mcti.n[1]])  # hue axis
                 # hueaxp = hotellingt2test([real(huevec) imag(huevec)],[0 0],0.05)
                 huevecmean = mean(huevec, dims=1)[1]  # final mean vec
@@ -364,31 +390,53 @@ for pn in 1:planeNum
         mseuc[f]=fa[f]
 
         # The optimal dir, ori (based on circular variance) and sf (based on log2 fitting)
-        push!(ufs[f],factorresponsestats(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
+        push!(ufs[f],factorresponsefeature(dropmissing(mseuc)[f],dropmissing(mseuc)[:m],factor=f, isfit=max(oriAUC[cell], dirAUC[cell], hueaxAUC[cell], huedirAUC[cell])>fitThres))
         # plotcondresponse(dropmissing(mseuc),colors=[:black],projection=[],responseline=[], responsetype=:ResponseF)
         # foreach(i->savefig(joinpath(resultdir,"Unit_$(unitid[u])_$(f)_Tuning$i")),[".png"]#,".svg"])
     end
 
     tempDF=DataFrame(ufs[:SpatialFreq])
-    result.fithuesf = tempDF.osf
+    result.hueosf = tempDF.osf   # preferred sf from weighted average
+    result.huemaxsf = tempDF.maxsf
+    result.huemaxsfr = tempDF.maxr
+    result.huefitsf =map(i->isempty(i) ? NaN : :psf in keys(i) ? i.psf : NaN,tempDF.fit)  # preferred sf from fitting
+    result.huesfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
+    result.huesftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
+    result.huesfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+    result.huedog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
+
     tempDF=DataFrame(ufs[:Dir])
-    result.cvhuedir = tempDF.od   # cv
+    result.cvhuedir = tempDF.od   # preferred direction from cv
     result.huedircv = tempDF.dcv
-    result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # fitting
-    result.huedsi =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.fithuedir =map(i->isempty(i) ? NaN : :pd in keys(i) ? i.pd : NaN,tempDF.fit)  # preferred direction from fitting
+    result.huedsi1 =map(i->isempty(i) ? NaN : :dsi1 in keys(i) ? i.dsi1 : NaN,tempDF.fit)
+    result.huedsi2 =map(i->isempty(i) ? NaN : :dsi2 in keys(i) ? i.dsi2 : NaN,tempDF.fit)
+    result.huedhw =map(i->isempty(i) ? NaN : :dhw in keys(i) ? i.dhw : NaN,tempDF.fit)
+    result.huegvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
+
     result.cvhueori = tempDF.oo  # cv
     result.hueoricv = tempDF.ocv
-    result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # fitting
-    result.hueosi =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.fithueori =map(i->isempty(i) ? NaN : :po in keys(i) ? i.po : NaN,tempDF.fit)  # preferred orientation from fitting
+    result.hueosi1 =map(i->isempty(i) ? NaN : :osi1 in keys(i) ? i.osi1 : NaN,tempDF.fit)
+    result.hueosi2 =map(i->isempty(i) ? NaN : :osi2 in keys(i) ? i.osi2 : NaN,tempDF.fit)
+    result.hueohw =map(i->isempty(i) ? NaN : :ohw in keys(i) ? i.ohw : NaN,tempDF.fit)
+    result.huevmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
+
     tempDF=DataFrame(ufs[:HueAngle])
     result.cvhueax = tempDF.oha # cv
     result.hueaxcv = tempDF.hacv
     result.fithueax =map(i->isempty(i) ? NaN : :pha in keys(i) ? i.pha : NaN,tempDF.fit)  # fitting
-    result.hueaxsi =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+    result.hueaxsi1 =map(i->isempty(i) ? NaN : :hasi1 in keys(i) ? i.hasi1 : NaN,tempDF.fit)
+    result.hueaxsi2 =map(i->isempty(i) ? NaN : :hasi2 in keys(i) ? i.hasi2 : NaN,tempDF.fit)
+    result.hueaxhw =map(i->isempty(i) ? NaN : :hahw in keys(i) ? i.hahw : NaN,tempDF.fit)
+    result.hueaxvmn2 =map(i->isempty(i) ? NaN : :vmn2 in keys(i) ? i.vmn2 : NaN,tempDF.fit)
     result.cvhuedi = tempDF.oh # cv
     result.huedicv = tempDF.hcv
     result.fithuedi =map(i->isempty(i) ? NaN : :ph in keys(i) ? i.ph : NaN,tempDF.fit)  # fitting
-    result.huedisi =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+    result.huedisi1 =map(i->isempty(i) ? NaN : :hsi1 in keys(i) ? i.hsi1 : NaN,tempDF.fit)
+    result.huedisi2 =map(i->isempty(i) ? NaN : :hsi2 in keys(i) ? i.hsi2 : NaN,tempDF.fit)
+    result.huedihw =map(i->isempty(i) ? NaN : :hhw in keys(i) ? i.hhw : NaN,tempDF.fit)
+    result.huedigvm =map(i->isempty(i) ? NaN : :gvm in keys(i) ? i.gvm : NaN,tempDF.fit)
     result.maxhue = tempDF.maxh
     result.maxhueresp = tempDF.maxr
 
@@ -411,4 +459,6 @@ for pn in 1:planeNum
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_result.jld2"])), "result",result)
     save(joinpath(dataExportFolder,join([subject,"_",siteId,"_tuning.jld2"])), "tuning",tempDF)
 end
+display("Processing is Done !!!! ")
+
 planeStart = 1  # no clear function like Matab, reset it mannually
