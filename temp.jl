@@ -81,9 +81,7 @@ dataset = prepare("Y:\\AF5\\AF5_HLV1_ODL3_Flash2Color_2.mat")
 
 
 using Interact,Plots,VegaLite,DataFrames,Distances,LinearAlgebra
-@vlplot(:point,rand(10),rand(10))
 
-Dict(Pair.(1:3,2:4))
 
 using Interact,Plots
 @manipulate for i in 1:10
@@ -311,3 +309,186 @@ plot(depths,log10.(amp[:,f3i]))
 plot(depths,pha[:,f1i])
 plot(depths,pha[:,f2i])
 plot(depths,pha[:,f3i])
+
+
+
+## getnerate DKL plane
+using MAT,ColorLab
+
+fn = "StaticAdelson"
+bodata = matread("C:\\Users\\fff00\\DownLoads\\$fn.mat")
+
+imgs = map(i->(bodata["data"][:,:,i].+1)./2,1:size(bodata["data"],3))
+
+saveunityrawtexture("C:\\Users\\fff00\\DownLoads\\$fn",imgs)
+
+heatmap(bodata["data"][:,:,1])
+heatmap(imgs[1])
+
+
+##
+files = tests[1,:files]
+
+
+
+Gray.(clampscale(responses[:,:,4],1.5))
+maps = complexmap(responses,angles,filter=nothing,presdfactor=1.5,sufsdfactor=nothing)
+
+
+
+## od
+
+lod = load("Z:\\AF9\\AF9_V1V2_Full\\AF9_V1V2_Full_ISICycleOri_4\\isi.jld2")
+rod = load("Z:\\AF9\\AF9_V1V2_Full\\AF9_V1V2_Full_ISICycleOri_3\\isi.jld2")
+coneiso = load("Z:\\AF9\\AF9_V1V2_Full\\AF9_V1V2_Full_ISICycle2Color_0\\isi.jld2")
+
+f1 = coneiso["F1"]
+f1p = angle.(f1)
+
+Gray.(clampscale(f1p,-π,π))
+Gray.(clampscale(abs.(f1p),0,π))
+Gray.(clampscale(-abs.(f1p),3))
+isoimg = adjust_histogram(f1p, AdaptiveEqualization(nbins = 256,
+minval=-π,maxval=π, rblocks = 8, cblocks = 8, clip = 0.1))
+
+isoimg = adjust_histogram(abs.(f1p), AdaptiveEqualization(nbins = 64,
+minval=0,maxval=π, rblocks = 4, cblocks = 4, clip = 0.5))
+
+isoimg = adjust_histogram(clampscale(f1p,1.5), AdaptiveEqualization(nbins = 64,
+minval=0,maxval=1, rblocks = 4, cblocks = 4, clip = 0.04))
+
+Gray.(clampscale(isoimg))
+Gray.(f1p./(2π))
+
+f1pp = copy(f1p)
+f1pp[f1pp.>π] = 2π .- f1pp[f1pp.>π]
+Gray.(f1pp./π)
+
+f1ppimg = adjust_histogram(f1pp, AdaptiveEqualization(nbins = 64,
+minval=0,maxval=π, rblocks = 4, cblocks = 4, clip = 0.7))
+
+Gray.(clampscale(f1ppimg))
+
+od1 = lod["F1mag"] .- rod["F1mag"]
+od2 = lod["F2mag"] .- rod["F2mag"]
+
+
+od1 = clampscale(lod["F1mag"],1.5) .- clampscale(rod["F1mag"],1.5)
+od2 = clampscale(lod["F2mag"]) .- clampscale(rod["F2mag"])
+
+histogram(vec(od1))
+
+Gray.(clampscale(od1,1.5))
+
+Gray.(clampscale(od2,1.5))
+
+img = adjust_histogram(od1, AdaptiveEqualization(nbins = 256, rblocks = 4, cblocks = 4, clip = 0.2))
+Gray.(clampscale(img))
+
+## delay
+ncycle=9
+responsedelay = 500
+
+
+
+
+
+using  Combinatorics
+
+
+a=[1,2,3]
+
+filter!(i->issorted(i)&&all(j->j==1,diff(i)),collect(permutations(1:3,3)))
+
+
+
+function segmentpermutations(r,l::Integer)
+    n = length(r)
+    l<1 && error("Segment length smaller than 1.")
+    l>n && error("Segment length larger than whole data length.")
+    s = 1:l
+    [s.+i for i in 0:(n-l)]
+end
+
+
+segmentpermutations(1:10,1)
+
+function osp(ns,l)
+    ci = filter!(i->issorted(i)&&all(j->j==1,diff(i)),collect(permutations(ns,l)))
+end
+
+osp(1:10,9)
+
+fis = [epoch2sampleindex([c[1]-1 1000*c[end]/modulatefreq].+(preicidur+responsedelay),framerate,maxsampleindex=nframe) for c in osp(1:10,1)]
+
+fis=[]
+append!(fis, [epoch2sampleindex([c[begin]-1 c[end]].*1000 ./modulatefreq.+(preicidur+responsedelay),framerate,maxsampleindex=nframe) for c in segmentpermutations(1:10,1)])
+
+frameindex=fis[5]
+
+Gray.(F1polarityce)
+
+
+ifs = [dft_imager(imagefile[fi],w,h,framerate,baseimg,modulatefreq) for fi in fis]
+
+ips = map(i->angle.(i[1]),ifs)
+ims = map(i->abs.(i[1]),ifs)
+
+rightips = ips
+rightims = ims
+
+leftips = ips
+leftims = ims
+
+F1ps = foreach(i->begin
+    F1phase = angle.(ifs[i][1])
+    F1polarity = (π .- abs.(F1phase)) ./ π
+    # filter
+    F1polarityce = adjust_histogram(F1polarity, AdaptiveEqualization(nbins = 256, rblocks = 8, cblocks = 8, clip = 0.1))
+    F1polarityce = clampscale(F1polarityce,0,1)
+    foreach(ext->save(joinpath(resultdir,"F1Polarity_ContrastEnhanced_$i$ext"),F1polarityce),figfmt)
+end,eachindex(ifs))
+
+
+
+tt = [circmean(map(p->p[i,j],ips)) for i=1:h,j=1:w]
+
+tt = [circmean(map(p->p[i,j],ips),map(p->p[i,j],ims)) for i=1:h,j=1:w]
+
+
+tt = sum(first.(ifs))
+
+F1phase = angle.(tt)
+
+
+
+
+
+t = [UnequalVarianceTTest(map(p->p[i,j],leftims),map(p->p[i,j],rightims)).t for i = 1:h,j=1:w]
+t[isnan.(t)].=0
+
+Gray.(clampscale(t,1.5))
+
+
+##
+
+ori = clampscale(F2phase01,2)
+
+ori = imfilter(F2phase01,Kernel.gaussian(5))
+ori = adjust_histogram(F2phase01, LinearStretching())
+clamp01!(ori)
+
+Gray.(ori)
+
+map(a->HSV(360a,1,1),ori)
+
+map((a,m)->HSV(360a,1,0.5+m/2),F2phase01,clampscale( F2mag01))
+
+
+t = F2phase01[1200:1300,1200:1300]
+tt = adjust_histogram(t, LinearStretching())
+Gray.(tt)
+
+
+extrema(t)
+extrema(tt)

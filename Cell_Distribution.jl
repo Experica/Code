@@ -1,5 +1,5 @@
 using NeuroAnalysis,DataFrames,VegaLite,DataVoyager,StatsBase,StatsPlots,LightGraphs,MetaGraphs,GraphRecipes,Combinatorics,
-Interact,Images,UMAP,Clustering,Distances,Makie
+Interact,Images,UMAP,Clustering,Distances,Makie,HCubature
 
 ## Load Cell database
 resultroot = "../Result"
@@ -263,7 +263,7 @@ function fitpredict(fit;ppd=45,tight=false)
        param = deepcopy(fit.param)
        if fit.model == :dog
            param[[2,4]].=0
-           radius = 3*(param[6] < param[3] ? param[3] : param[6])
+           radius = 3*maximum(param[[6,3]])
            fit = (;fit.model,fit.fun,param,radius)
        elseif fit.model == :gabor
            param[[2,4]].=0
@@ -274,10 +274,21 @@ function fitpredict(fit;ppd=45,tight=false)
    x=y= -fit.radius:1/ppd:fit.radius
    predict(fit,x,y,yflip=true)
 end
+function fitnorm(fit;sdfactor=3)
+    param = deepcopy(fit.param)
+    if fit.model == :dog
+        param[[2,4]].=0
+        radius = sdfactor*maximum(param[[6,3]])
+    elseif fit.model == :gabor
+        param[[2,4]].=0
+        radius = sdfactor*maximum(param[[3,5]])
+    end
+    sqrt(hcubature(x->fit.fun(x...,param)^2,[-radius,-radius],[radius,radius])[1])
+end
 
 function stadogcell(cell;model=:dog,imgsize=(48,48))
-    df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
-        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img",
+    df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),"sta!$model"=>ByRow(i->i.model)=>:model,
+        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img","sta!$model"=>ByRow(i->fitnorm(i))=>:W,
         "sta!$model"=>ByRow(i->i.r)=>:r,"sta!$model"=>ByRow(i->i.bic)=>:bic,"sta!$model"=>ByRow(i->1-i.r2)=>:fvu,
         "sta!$model"=>ByRow(i->i.param[1])=>:ampe,"sta!$model"=>ByRow(i->i.param[5])=>:ampi,
         "sta!$model"=>ByRow(i->i.param[2])=>:cx,"sta!$model"=>ByRow(i->i.param[4])=>:cy,"sta!$model"=>ByRow(i->4*maximum(i.param[[6,3]]))=>:diameter,
@@ -287,8 +298,8 @@ function stadogcell(cell;model=:dog,imgsize=(48,48))
 end
 
 function stagaborcell(cell;model=:gabor,imgsize=(48,48))
-    df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
-        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img",
+    df = select!(dropmissing!(flatten(dropmissing(cell,:rc),["rc","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),"sta!$model"=>ByRow(i->i.model)=>:model,
+        "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img","sta!$model"=>ByRow(i->fitnorm(i))=>:W,
         "sta!$model"=>ByRow(i->i.r)=>:r,"sta!$model"=>ByRow(i->i.bic)=>:bic,"sta!$model"=>ByRow(i->1-i.r2)=>:fvu,
         "sta!$model"=>ByRow(i->i.param[1])=>:amp,"sta!$model"=>ByRow(i->i.param[2])=>:cx,"sta!$model"=>ByRow(i->i.param[4])=>:cy,
         "sta!$model"=>ByRow(i->rad2deg(i.param[6]))=>:ori,"sta!$model"=>ByRow(i->i.param[7])=>:sf,"sta!$model"=>ByRow(i->i.param[8])=>:phase,
@@ -408,13 +419,14 @@ savefig(joinpath(resultroot,"sta_dog_shape_umap_clu.png"))
 dogcell.umapclu = d2clu(Y2,r=2.5)
 
 
+
 save("UMAP_sta.svg",plotunitpositionimage(Y2',dogimg))
 
 
 dogcell |> [@vlplot(mark={:bar,binSpacing=0},x={"op",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
        @vlplot(mark={:bar,binSpacing=0},x={"amp",bin={step=0.2},title="OnOff Amplitude"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
 dogcell.sop = dogcell.umapclu .< 3
-
+dogcell.spatial = ["dog-"*(i ? "op" : "nop") for i in dogcell.sop]
 
 
 
@@ -445,13 +457,12 @@ save("UMAP_sta.svg",plotunitpositionimage(Y2',gaborimg))
 gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"cyc",bin={step=0.1},title="Cycle"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
        @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
 gaborcell.sop = gaborcell.umapclu .< 3
+gaborcell.spatial = ["gabor-"*(i == 3 ? "nop" : i == 2 ? "op_odd" : "op_even") for i in gaborcell.umapclu]
+
+
 
 save(joinpath(resultroot,"dogcell.jld2"),"dogcell",dogcell)
 save(joinpath(resultroot,"gaborcell.jld2"),"gaborcell",gaborcell)
-
-gaborcell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Linear Filter"},color={"soppo:n",title="Spatial"});
-        @vlplot(:bar,y={"depth",bin={step=100},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Linear Filter"},color={"soppo:n",title="Spatial"});
-        @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Linear Filter"},color={"soppo:n",title="Spatial"})]
 
 
 
@@ -464,16 +475,49 @@ function celltype(so,co)
     so == -1 && return -1
     so == 1 ? (co ? 1 : 3) : (co ? 2 : 0)
 end
+function rcw(c,w,s;cone='L')
+    lmsi = 1:length(c)
+    ai = findfirst(c.=='A')
+    isnothing(ai) || (lmsi = setdiff(lmsi,ai))
+    ci = findfirst(c.==cone)
+    isnothing(ci) ? 0 : s[ci]*w[ci]/sum(w[lmsi])
+end
 
 pdogi = doggaborgoodness.dogbic .<= doggaborgoodness.gaborbic
 pgabori = .!pdogi
-doggaborcell = append!(dogcell[pdogi,:],gaborcell[pgabori,:],cols=:union)
+doggaborcell = sort!(append!(dogcell[pdogi,:],gaborcell[pgabori,:],cols=:union),:rc)
+
+
+doggaborcell |> [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Linear Filter"},color={"spatial:n"});
+        @vlplot(:bar,y={"depth",bin={step=100},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Linear Filter"},color={"spatial:n"});
+        @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Linear Filter"},color={"spatial:n"})]
+
 
 
 typecell = select!(leftjoin(combine(groupby(doggaborcell,:id),:sop=>(i->cellsop(i))=>:sop,:sign=>(i->[1,-1] ⊆ i)=>:cop,
+                [:rc,:W,:sign]=>((c,w,s)->rcw(c,w,s,cone='L'))=>:wl,
+                [:rc,:W,:sign]=>((c,w,s)->rcw(c,w,s,cone='M'))=>:wm,
+                [:rc,:W,:sign]=>((c,w,s)->rcw(c,w,s,cone='S'))=>:ws,
                 [:rc,:sign]=>((i,j)->join(map((p,q)->p*(q==1 ? "" : "̲"),i,j)))=>:sr,
                 [:rc,:img]=>((c,i)->[srimg(c,i)])=>:srimg), cell,on=:id),Not(r"\w*!\w*"),[:sop,:cop]=>ByRow((i,j)->celltype(i,j))=>:celltype)
 
+# Cone Weights
+filter(r->!(r.sr in ["A","A̲"]),typecell) |>
+typecell |>
+    @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0,y=1},{x=1,y=0}]},x=:x,y=:y},
+    {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=1}]},x=:x,y=:y},
+    {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=-1}]},x=:x,y=:y},
+    {mark={:line,size=1,color="black"},data={values=[{x=0,y=-1},{x=1,y=0}]},x=:x,y=:y},
+    {:point,x={:wl,title="L Cone Weight"},y={:wm,title="M Cone Weight"},color={"layer",scale={scheme=:category10}}}])
+
+select(typecell,:layer,:wl,:wm=>ByRow(abs)=>:wm) |>
+    @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0,y=1},{x=1,y=0}]},x=:x,y=:y},
+    {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=1}]},x=:x,y=:y},
+    {:point,x={:wl,title="L Cone Weight"},y={:wm,title="M Cone Weight"},color={"layer",scale={scheme=:category10}}}],width=300,height=150)
+
+select(typecell,:layer,:wl=>ByRow(abs)=>:wl,:wm=>ByRow(abs)=>:wm) |>
+    @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0,y=1},{x=1,y=0}]},x=:x,y=:y},
+    {:point,x={:wl,title="L Cone Weight"},y={:wm,title="M Cone Weight"},color={"layer",scale={scheme=:category10}}}])
 
 
 
@@ -489,7 +533,7 @@ function plotsrsta(stacell;col=5,dir=nothing,file="",bg=:white)
     isnothing(dir) ? p : savefig(joinpath(dir,"$file.png"))
 end
 
-t=-1
+t=3
 plotsrsta(filter(r->r.celltype == t,typecell),col=6,dir=resultroot,file="sta_celltype$t",bg=:gray)
 
 
@@ -547,26 +591,6 @@ end
 
 plotdogpair(dogcell,'A','L')
 plotgaborpair(gaborcell,'M','S')
-
-
-## Cone Weights
-function rcw(c,a,s;cone='L')
-    lmsi = 1:length(a)
-    ai = findfirst(c.=='A')
-    isnothing(ai) || (lmsi = setdiff(lmsi,ai))
-    ci = findfirst(c.==cone)
-    isnothing(ci) ? 0 : s[ci]*a[ci]/sum(a[lmsi])
-end
-
-cwcell = select!(leftjoin(combine(groupby(filter(r->r.rc != 'A',gaborcell),:id),[:rc,:amp,:sign]=>((c,a,s)->rcw(c,a,s,cone='L'))=>:wl,
-                [:rc,:amp,:sign]=>((c,a,s)->rcw(c,a,s,cone='M'))=>:wm, [:rc,:amp,:sign]=>((c,a,s)->rcw(c,a,s,cone='S'))=>:ws),
-                cell,on=:id),Not(r"\w*!\w*"))
-
-cwcell |> @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0,y=1},{x=1,y=0}]},x=:x,y=:y},
-                            {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=1}]},x=:x,y=:y},
-                            {mark={:line,size=1,color="black"},data={values=[{x=-1,y=0},{x=0,y=-1}]},x=:x,y=:y},
-                            {mark={:line,size=1,color="black"},data={values=[{x=0,y=-1},{x=1,y=0}]},x=:x,y=:y},
-                            {:point,x={:wl,title="L Cone Weight"},y={:wm,title="M Cone Weight"},color={"layer",scale={scheme=:category10}}}])
 
 
 ## Spectral Weights

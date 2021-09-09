@@ -426,7 +426,8 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     factors = finalfactor(ctc)
     blank = :SpatialFreq=>0
     if ex["ID"] == "Color"
-        factors = [:HueAngle]
+        # factors = [:HueAngle]
+        factors = [:Angle]
         blank = :Color=>36
     end
     haskey(param,:blank) && (blank = param[:blank])
@@ -544,7 +545,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
             srdf[:,f]=fa[f]
             push!(ufrf[f],umodulative[i] ? factorresponsefeature(rdf[!,f],rdf[!,:m],factor=f) : missing)
             if plot
-                proj = f in [:Ori,:Ori_Final,:HueAngle] ? :polar : :cartesian
+                proj = f in [:Ori,:Ori_Final,:HueAngle,:Angle] ? :polar : :cartesian
                 df = [rdf;prdf;srdf]
                 plotcondresponse(dropmissing(df),color=[:black,:gray70,:gray35],linewidth=[3,1,3],grid=true,projection=proj,response=isblank ? ubr[i:i] : [])
                 foreach(ext->savefig(joinpath(resultdir,"Single-Unit_$(unitid[sui[i]])_$(f)_Tuning$ext")),figfmt)

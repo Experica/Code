@@ -10,18 +10,21 @@ meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
 tests = select!(filter(meta) do r
-                    startswith(r.Subject_ID, "AF5") &&
-                    r.RecordSite == "ODL1" &&
-                    r.ID == "HartleySubspace" &&
-                    r.sourceformat == "SpikeGLX"
+                    startswith(r.Subject_ID, "AG1") &&
+                    r.RecordSite == "Full" &&
+                    r.ID == "ISICycleOri" &&
+                    r.sourceformat == "Imager"
                     end,
                 [:ID,:UUID,:files,:sourceformat])
+
+## Batch ISI Tests
+# param[:responsedelay] = 0
+batchtests(tests,param,plot=true)
 
 
 
 ## Batch Condition Tests
 batchtests(tests,param,plot=true)
-
 ## Batch HartleySubspace Tests
 param[:model] = [:STA]
 batchtests(tests,param,plot=true)

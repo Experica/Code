@@ -110,7 +110,7 @@ end
 
 ## process all stas
 resultroot = "../Result"
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL5"
+subject = "AF8";recordsession = "HLV1";recordsite = "ODR6"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 

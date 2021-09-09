@@ -1,8 +1,9 @@
-using NeuroAnalysis,FileIO,DataFrames,ProgressMeter,Logging
+using NeuroAnalysis,FileIO,JLD2,DataFrames,ProgressMeter,Logging
 import Base: close
 
 # includet("Batch_Ripple.jl")
 includet("Batch_SpikeGLX.jl")
+includet("Batch_Imager.jl")
 # includet("Batch_Scanbox.jl")
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),plot::Bool=true)
@@ -31,6 +32,12 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif t.ID in ["Hartley"] && t.sourceformat=="Scanbox"
                 # process_2P_hartleySTA(t.files,param,uuid=t.UUID,log=log,plot=plot)
                 process_2P_hartleyFourier(t.files,param,uuid=t.UUID,log=log,plot=plot)
+            elseif t.ID in ["ISICycle2Color","ISICycleOri"] && t.sourceformat=="Imager"
+                process_cycle_imager(t.files,param;uuid=t.UUID,log,plot)
+            elseif t.ID in ["ISIEpochOri8"] && t.sourceformat=="Imager"
+                process_epoch_imager(t.files,param;uuid=t.UUID,log,plot)
+            else
+                display("Skip `$(t.ID)` from `$(t.sourceformat)`, no corresonding process function.")
             end
         catch exc
             display("============================================")
