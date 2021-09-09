@@ -10,8 +10,8 @@ subject = "AF4"
 # recordSession = "003"  #AF2
 # testId = ["004", "005","006","003"]
 
-recordSession = "004"  #AF2
-testId = [ "005","006","007","004"]
+# recordSession = "004"  #AF2
+# testId = [ "005","006","007","004"]
 
 # recordSession = "005"  #AF2
 # testId = ["003","004", "005","002"]
@@ -30,8 +30,8 @@ testId = [ "005","006","007","004"]
 # recordSession = "003"  #AF4
 # testId = ["000","001","002", "004"]
 
-# recordSession = "004"  #AF4
-# testId = ["001","002","003","004"]
+recordSession = "004"  #AF4
+testId = ["001","002","003","004"]
 
 # recordSession = "005"  #AF4
 # testId = ["000","001","003","004"]

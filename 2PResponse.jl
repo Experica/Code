@@ -6,10 +6,10 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT, DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "J:"
-subject = "AF3"  # Animal
-recordSession = "004" # Unit
-testId = "002"  # Stimulus test
+disk = "F:"
+subject = "AF7"  # Animal
+recordSession = "002" # Unit
+testId = "000"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1
@@ -47,10 +47,15 @@ if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is ex
 else
     stNum = 1
 end
-trialOnLine = sbx["line"][stNum:2:end]
-trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][stNum+1:2:end]
-trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+# trialOnLine = sbx["line"][stNum:2:end]
+# trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+# trialOffLine = sbx["line"][stNum+1:2:end]
+# trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+
+trialOnLine = sbx["line"][stNum:4:end]
+trialOnFrame = sbx["frame"][stNum:4:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+3:4:end]
+trialOffFrame = sbx["frame"][stNum+3:4:end] + round.(trialOffLine/lineNum)
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))
@@ -274,6 +279,7 @@ for pn in 1:planeNum
     result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
     result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
     result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+    result.sfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
     result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
 
     tempDF=DataFrame(ufs[:Dir])

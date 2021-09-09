@@ -5,8 +5,8 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact, CSV,MAT,Query,DataStructures, HypothesisTests, StatsFuns, Random
 
 # Expt info
-disk = "O:"
-subject = "AF4"  # Animal
+disk = "F:"
+subject = "AF7"  # Animal
 # recordSession = ["002","003","004", "005", "006", "007", "008"] # Unit
 recordPlane = ["000", "001"]
 
@@ -27,7 +27,7 @@ numberofColor = 12
 colorSpace = "DKL"   # DKL, # HSL
 
 addSTA = false
-addFourier = true
+addFourier = false
 staThres = 0.25
 
 ## Make folders and path
@@ -49,7 +49,7 @@ tests = @from i in meta begin
     end
 sort!(tests, [:RecordSite, :filename])
 oritests = @from i in tests begin
-    @where i.RecordSite == "u004"
+    @where i.RecordSite == "u002"
     # @where i.RecordSite != "u008"
     @where i.ID == "DirSF"
     @select {i.ID,i.RecordSite,i.filename}
@@ -58,20 +58,20 @@ oritests = @from i in tests begin
 # deleterows!(oritests, [2,3,4,5,6,8,9,11,12,13,14,15,16,17,19,20,21,22,24,25,26,27])
 # deleterows!(oritests, [2,4,5,8,10])
 deleterows!(oritests, [2,3,4,5,6])
-deleterows!(oritests, [2])
+deleterows!(oritests, [1,2, 4])
 huetests = @from i in tests begin
     # @where i.RecordSite != "u005"
-    @where i.RecordSite == "u004"
+    @where i.RecordSite == "u002"
     @where i.ID == "DirSFColor"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
     end
 # deleterows!(huetests, [2,3,6,7,9])
-deleterows!(huetests, [2])
+deleterows!(huetests, [1])
 
 hartleytests = @from i in tests begin
     # @where i.RecordSite != "u005"
-    @where i.RecordSite == "u004"
+    @where i.RecordSite == "u003"
     @where i.ID == "Hartley"
     @select {i.ID,i.RecordSite,i.filename}
     @collect DataFrame
@@ -321,6 +321,7 @@ if addFourier
             lpsf=[];mpsf=[];spsf=[];apsf=[];   # Preferred SF from fitting
             lsfhw=[];msfhw=[];ssfhw=[];asfhw=[];   # half-width of sf tuning.
             lsfbw=[];msfbw=[];ssfbw=[];asfbw=[];   # half-width of sf tuning.
+            lsfpw=[];msfpw=[];ssfpw=[];asfpw=[];   # half-width of sf tuning.
             lsft=[];msft=[];ssft=[];asft=[];   # SF type
 
             signif=fdata["signif"]
@@ -422,6 +423,11 @@ if addFourier
                 push!(ssfbw,sffit[cellId[k]][3].sfbw)
                 push!(asfbw,sffit[cellId[k]][4].sfbw)
 
+                push!(lsfpw,sffit[cellId[k]][1].sfpw)
+                push!(msfpw,sffit[cellId[k]][2].sfpw)
+                push!(ssfpw,sffit[cellId[k]][3].sfpw)
+                push!(asfpw,sffit[cellId[k]][4].sfpw)
+
                 push!(lsft,sffit[cellId[k]][1].sftype)
                 push!(msft,sffit[cellId[k]][2].sftype)
                 push!(ssft,sffit[cellId[k]][3].sftype)
@@ -517,6 +523,11 @@ if addFourier
             result.msfbw=msfbw
             result.ssfbw=ssfbw
             result.asfbw=asfbw
+
+            result.lsfpw=lsfpw
+            result.msfpw=msfpw
+            result.ssfpw=ssfpw
+            result.asfpw=asfpw
 
             result.lsft=lsft
             result.msft=msft

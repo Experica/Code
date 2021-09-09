@@ -8,10 +8,10 @@ using NeuroAnalysis,Statistics,StatsBase,StatsPlots,DataFrames,DataFramesMeta,Mm
 using CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random,Plots, ePPR
 
 # Expt info
-disk = "F:"
-subject = "AF2"  # Animal
-recordSession = "005" # Unit
-testId = "002"  # Stimulus test
+disk = "O:"
+subject = "AF4"  # Animal
+recordSession = "002" # Unit
+testId = "008"  # Stimulus test
 
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 hartelyBlkId = 5641
@@ -20,7 +20,7 @@ stawhiten = nothing
 
 delays = -0.066:0.033:0.4
 print(collect(delays))
-isplot = true
+isplot = false
 
 ## Prepare data & result path
 exptId = join(filter(!isempty,[recordSession, testId]),"_")
@@ -94,7 +94,7 @@ maskradius = maskradius /stisize + 0.03
 
 if !haskey(param,imagesetname)
     imageset = Dict{Any,Any}(:image =>map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=hartleynorm,scale=hartleyscale)),eachrow(condtable)))
-    # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable)))
+    # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=ppd)),eachrow(condtable)))
     # imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
     imageset[:sizepx] = size(imageset[:image][1])
     param[imagesetname] = imageset
@@ -156,6 +156,8 @@ for pn in 1:planeNum
         uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
         ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
         uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
+        uŷest = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+        ugof = Array{Any}(undef,cellNum,length(delays))
 
         usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
         cx = Array{Float64}(undef,length(ucii),length(xi))
@@ -178,6 +180,9 @@ for pn in 1:planeNum
                 uby[cell,d,:]=bly
                 uy[cell,d,:]=ry
                 usta[cell,d,:]=csta
+                ŷest=cx*csta
+                uŷest[cell,d,:]=ŷest
+                ugof[cell,d] = goodnessoffit(ry,ŷest,k=length(xi))
 
                 if isplot
                     r = [extrema(csta)...]
@@ -187,7 +192,7 @@ for pn in 1:planeNum
                 end
             end
         end
-        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"usta",usta,"uby",uby,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
+        save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"uŷest",uŷest,"usta",usta,"uby",uby,"ugof",ugof,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
     end
 
     # estimate RF using ePPR

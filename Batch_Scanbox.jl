@@ -271,6 +271,7 @@ function process_2P_dirsf(files,param;uuid="",log=nothing,plot=false)
         result.sfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
         result.sftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
         result.sfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.sfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
         result.dog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
 
         tempDF=DataFrame(ufs[:Dir])
@@ -693,6 +694,7 @@ function process_2P_dirsfcolor(files,param;uuid="",log=nothing,plot=false)
         result.huesfhw =map(i->isempty(i) ? NaN : :sfhw in keys(i) ? i.sfhw : NaN,tempDF.fit)
         result.huesftype =map(i->isempty(i) ? NaN : :sftype in keys(i) ? i.sftype : NaN,tempDF.fit)
         result.huesfbw =map(i->isempty(i) ? NaN : :sfbw in keys(i) ? i.sfbw : NaN,tempDF.fit)
+        result.huesfpw =map(i->isempty(i) ? NaN : :sfpw in keys(i) ? i.sfpw : NaN,tempDF.fit)
         result.huedog =map(i->isempty(i) ? NaN : :dog in keys(i) ? i.dog : NaN,tempDF.fit)
 
         tempDF=DataFrame(ufs[:Dir])
@@ -828,7 +830,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
 
     if !haskey(param,imagesetname)
         imageset = Dict{Any,Any}(:image =>map(i->GrayA.(hartley(kx=i.kx,ky=i.ky,bw=i.bwdom,stisize=stisize, ppd=ppd,norm=hartleynorm,scale=hartleyscale)),eachrow(condtable)))
-        # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=23)),eachrow(condtable)))
+        # imageset = Dict{Any,Any}(:image =>map(i->GrayA.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=rem(i.SpatialPhase+1,1)+0.02,stisize=stisize,ppd=ppd)),eachrow(condtable)))
         # imageset = Dict{Symbol,Any}(:pyramid => map(i->gaussian_pyramid(i, nscale-1, downsample, sigma),imageset))
         imageset[:sizepx] = size(imageset[:image][1])
         param[imagesetname] = imageset
@@ -887,9 +889,12 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
             uci = unique(condidx2)
             ucii = map(i->findall(condidx2.==i),deleteat!(uci,findall(isequal(hartelyBlkId),uci)))   # find the repeats of each unique condition
             ubii = map(i->findall(condidx2.==i), [hartelyBlkId])
+
             uy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
             ucy = Array{Float64}(undef,cellNum,length(delays),length(ucii))
             uby = Array{Float64}(undef,cellNum,length(delays),length(ubii))
+            uŷest = Array{Float64}(undef,cellNum,length(delays),length(ucii))
+            ugof = Array{Any}(undef,cellNum,length(delays))
 
             usta = Array{Float64}(undef,cellNum,length(delays),length(xi))
             cx = Array{Float64}(undef,length(ucii),length(xi))
@@ -912,6 +917,9 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                     uby[cell,d,:]=bly
                     uy[cell,d,:]=ry
                     usta[cell,d,:]=csta
+                    ŷest=cx*csta
+                    uŷest[cell,d,:]=ŷest
+                    ugof[cell,d] = goodnessoffit(ry,ŷest,k=length(xi))
 
                     if plot
                         r = [extrema(csta)...]
@@ -921,7 +929,7 @@ function process_2P_hartleySTA(files,param;uuid="",log=nothing,plot=false)
                     end
                 end
             end
-            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"usta",usta,"uby",uby,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
+            save(joinpath(dataExportFolder,join([subject,"_",siteId,"_",coneType,"_sta.jld2"])),"imagesize",imagesize,"cx",cx,"xi",xi,"xcond",condtable[uci,:],"uy",uy,"ucy",ucy,"uŷest",uŷest,"usta",usta,"uby",uby,"ugof",ugof,"delays",delays,"maskradius",maskradius,"stisize",stisize,"color",coneType)
         end
 
         # estimate RF using ePPR

@@ -25,10 +25,10 @@ end
 tests = @from i in meta begin
         # @where startswith(get(i.Subject_ID), "AF4")
         @where i.Subject_ID == "AF4"
-        # @where (i.RecordSite == "u003" || i.RecordSite == "u004")
-        # @where i.RecordSite == "u002"
-        # @where i.RecordSite != "u010"
-        @where i.ID == "Hartley"
+        # @where (i.RecordSite != "u003" || i.RecordSite != "u004")
+        @where i.RecordSite != "u004"
+        @where i.RecordSite != "u003"
+        @where i.ID == "DirSF"
         @where i.sourceformat == "Scanbox"
         @select {i.sourceformat,i.ID,i.files,i.RecordSite,i.filename,i.UUID}
         @collect DataFrame
@@ -50,7 +50,7 @@ param[:hartleyscale] = 1
 param[:hartelyBlkId]=5641
 param[:delayLB] = -0.066  # in sec; Usually do not need to change it
 param[:delayUB] = 0.4   # in sec; Usually do not need to change it
-param[:delayStep] = 0.033  # Bidirectional = 0.033 sec, Unidirectional = 0.066 sec
+param[:delayStep] = 0.066  # Bidirectional = 0.033 sec, Unidirectional = 0.066 sec
 param[:delays] = param[:delayLB]:param[:delayStep]:param[:delayUB]
 # param[:maskradius] = 1 #AE6=0.75 AE7=0.24 AF2=1 AF3=0.6 AF4=0.65
 

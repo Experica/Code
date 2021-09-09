@@ -7,11 +7,11 @@
 using NeuroAnalysis,Statistics,DataFrames,DataFramesMeta,StatsPlots,Mmap,Images,StatsBase,Interact,CSV,MAT,DataStructures,HypothesisTests,StatsFuns,Random
 
 # User input and Expt info
-disk = "J:"
-subject = "AF3"  # Animal
-recordSession = "008" # Unit
-testId = "002"  # Stimulus test
-hueSpace = "HSL"   # Color space used? DKL or HSL
+disk = "F:"
+subject = "AF7"  # Animal
+recordSession = "003" # Unit
+testId = "005"  # Stimulus test
+hueSpace = "DKL"   # Color space used? DKL or HSL
 interpolatedData = true   # If you have multiplanes. True: use interpolated data; false: use uniterpolated data. Results are slightly different.
 preOffset = 0.1  # in sec
 responseOffset = 0.05  # in sec
@@ -21,8 +21,9 @@ oriaucThres = 0.5
 fitThres = 0.5
 # Respthres = 0.1  # Set a response threshold to filter out low response cells?
 sampnum = 100   # random sampling 100 times
-blankId = 36  # Blank Id  AF3AF4=36; AE6AE7=34
-excId = [27,28,blankId]  # Exclude some condition?
+blankId = 39  # Blank Id  AF3AF4=36; AE6AE7=34; AF7=39(DKL) 52(HSL)
+# excId = [27,28,blankId]  # Exclude some condition? ## for experiment before AF7
+excId = blankId  # Exclude some condition?
 isplot = false  # Plot figures to investigate?
 
 ## Prepare data & result path
@@ -53,10 +54,18 @@ if (sbx["line"][1] == 0.00) | (sbx["frame"][1] == 0.00)  # Sometimes there is ex
 else
     stNum = 1
 end   # frame rate
-trialOnLine = sbx["line"][stNum:2:end]
-trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
-trialOffLine = sbx["line"][stNum+1:2:end]
-trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+
+# for experiment before AF7
+# trialOnLine = sbx["line"][stNum:2:end]
+# trialOnFrame = sbx["frame"][stNum:2:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+# trialOffLine = sbx["line"][stNum+1:2:end]
+# trialOffFrame = sbx["frame"][stNum+1:2:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
+
+# for experiment of AF7 and after
+trialOnLine = sbx["line"][stNum:4:end]
+trialOnFrame = sbx["frame"][stNum:4:end] + round.(trialOnLine/lineNum)        # if process splitted data use frame_split
+trialOffLine = sbx["line"][stNum+3:4:end]
+trialOffFrame = sbx["frame"][stNum+3:4:end] + round.(trialOffLine/lineNum)    # if process splitted data use frame_split
 
 # On/off frame indces of trials
 trialEpoch = Int.(hcat(trialOnFrame, trialOffFrame))[1:end-1,:]
