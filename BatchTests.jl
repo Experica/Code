@@ -2,17 +2,17 @@ includet("Batch.jl")
 
 ## Prepare Param and Metadata
 param = Dict{Any,Any}(
-    :dataroot => "../Data",
-    :dataexportroot => "../DataExport",
-    :resultroot => "../Result",
-    :stimuliroot => "../NaturalStimuli")
+    :dataroot => "X:/",
+    :dataexportroot => "Y:/",
+    :resultroot => "Z:/",
+    :stimuliroot => "X:/NaturalStimuli")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
 tests = select!(filter(meta) do r
                     startswith(r.Subject_ID, "AG1") &&
                     r.RecordSite == "Full" &&
-                    r.ID == "ISICycleOri" &&
+                    r.ID == "ISIEpochOri8" &&
                     r.sourceformat == "Imager"
                     end,
                 [:ID,:UUID,:files,:sourceformat])
