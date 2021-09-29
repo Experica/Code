@@ -1,4 +1,4 @@
-using Statistics,StatsBase,StatsPlots,Mmap,Images
+using Images
 
 function dft_imager(files,w,h,fs,baseimg,f...)
     N = length(files)
@@ -36,9 +36,9 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
     condoff = ex["CondTest"]["CondOff"]
     modulatefreq = envparam["ModulateTemporalFreq"]
     modulatetype = envparam["ModulateType"]
+    modulateduty = envparam["ModulateDuty"]
     ncycle = ex["CondRepeat"]
     eye = ex["Eye"]
-
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
 
     # Prepare Frame
@@ -114,13 +114,22 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
             foreach(ext->save(joinpath(resultdir,"F1Polarity$ext"),F1polarity),figfmt)
             foreach(ext->save(joinpath(resultdir,"F1Polarity_Enhanced$ext"),F1polaritye),figfmt)
 
+            F2polarity = (π .- abs.(F2phase)) ./ π
+            F2polaritye = adjust_histogram(F2polarity, AdaptiveEqualization(nbins = 256, rblocks = 20, cblocks = 20, clip = 0.1))
+            clamp01!(F2polaritye)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity$ext"),F2polarity),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity_Enhanced$ext"),F2polaritye),figfmt)
+
             color = "$(exparam["ColorSpace"])_$(exparam["Color"])"
             mincolor = RGBA(envparam["MinColor"]...)
             maxcolor = RGBA(envparam["MaxColor"]...)
             colordist = maxcolor-mincolor
             if modulatetype == "Sinusoidal"
                 # Cos modulation between MinColor and MaxColor
-                cmfun(a;f=1,p=0) = mincolor + colordist * ((cos(2π*(f*a+p))+1)/2)
+                cmfun = (a;f=1,p=0) -> mincolor + colordist * ((cos(2π*(f*a+p))+1)/2)
+            elseif modulatetype == "Square"
+                # Cos Sign modulation between MinColor and MaxColor
+                cmfun = (a;f=1,p=0) -> mincolor + colordist * ((sign(modulateduty-mod(f*a+p+0.25,1))+1)/2)
             end
             F1polaritycolor = map(a->HSV(cmfun(a/2,p=0.5)),F1polaritye)
             F1polaritycolormag = map((a,m)->HSV(a.h,a.s,m),F1polaritycolor,F1mag01)
@@ -129,7 +138,7 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
         end
     end
 
-    jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1polarity,color,mincolor,maxcolor,eye,siteid)
+    jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1polarity,F2polarity,color,mincolor,maxcolor,eye,siteid)
 end
 
 function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
@@ -149,10 +158,9 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     condoff = ex["CondTest"]["CondOff"]
     ctc = condtestcond(ex["CondTestCond"])
     cond = condin(ctc)
-    isbalance = length(levels(cond.n)) == 1
+    isbalance = length(unique(cond.n)) == 1
     factors = finalfactor(ctc)
     eye = ex["Eye"]
-
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
 
     # Prepare Frame
@@ -179,29 +187,29 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
         next!(p)
     end
 
-    if ex["ID"] == "ISIEpochOri8"
-        factors = factors[1]
-        if isbalance
-            responses = epochresponse
-            angles = deg2rad.(ctc[!,factors])
-        else
-            responses = condimageresponse(epochresponse,cond.i)
-            angles = deg2rad.(cond[!,factors])
-        end
-        maps = complexmap(responses,angles)
-    end
-
-    if plot
-        normmmap = maps.mmap/maximum(maps.mmap)
-        oriamap = mod.(maps.amap,π)
-        diranglemap = map(a->HSV(rad2deg(a),1,1),maps.amap)
-        dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),maps.amap,normmmap)
-        orianglemap = map(a->HSV(rad2deg(2a),1,1),oriamap)
-        oripolarmap = map((a,m)->HSV(rad2deg(2a),1,m),oriamap,normmmap)
-        foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
-    end
+    # if ex["ID"] == "ISIEpochOri8"
+    #     factors = factors[1]
+    #     if isbalance
+    #         responses = epochresponse
+    #         angles = deg2rad.(ctc[!,factors])
+    #     else
+    #         responses = condimageresponse(epochresponse,cond.i)
+    #         angles = deg2rad.(cond[!,factors])
+    #     end
+    #     maps = complexmap(responses,angles)
+    # end
+    #
+    # if plot
+    #     normmmap = maps.mmap/maximum(maps.mmap)
+    #     oriamap = mod.(maps.amap,π)
+    #     diranglemap = map(a->HSV(rad2deg(a),1,1),maps.amap)
+    #     dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),maps.amap,normmmap)
+    #     orianglemap = map(a->HSV(rad2deg(2a),1,1),oriamap)
+    #     oripolarmap = map((a,m)->HSV(rad2deg(2a),1,m),oriamap,normmmap)
+    #     foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
+    #     foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
+    #     foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
+    #     foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
+    # end
     jldsave(joinpath(resultdir,"isi.jld2");epochresponse,eye,siteid)
 end

@@ -1,9 +1,9 @@
-using NeuroAnalysis,FileIO,JLD2,DataFrames,ProgressMeter,Logging
+using NeuroAnalysis,FileIO,JLD2,Mmap,DataFrames,Statistics,ProgressMeter,Logging
 import Base: close
 
 # includet("Batch_Ripple.jl")
-includet("Batch_SpikeGLX.jl")
 includet("Batch_Imager.jl")
+includet("Batch_SpikeGLX.jl")
 # includet("Batch_Scanbox.jl")
 
 function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::Dict{Any,AbstractLogger}=Dict{Any,AbstractLogger}(),plot::Bool=true)

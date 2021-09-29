@@ -327,9 +327,8 @@ heatmap(imgs[1])
 
 
 ##
-files = tests[1,:files]
-
-
+files = tests[4,:files]
+plot(condoff-condon)
 
 Gray.(clampscale(responses[:,:,4],1.5))
 maps = complexmap(responses,angles,filter=nothing,presdfactor=1.5,sufsdfactor=nothing)

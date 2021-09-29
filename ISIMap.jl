@@ -1,7 +1,7 @@
 using NeuroAnalysis,FileIO,HypothesisTests,Images,ImageEdgeDetection,ImageBinarization,Contour,PyCall
 
-resultroot = "../Result"
-subject = "AG1";recordsession = "V1V2";recordsite = "Full"
+resultroot = "Z:/"
+subject = "AG2";recordsession = "";recordsite = ""
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -34,7 +34,7 @@ end
 ## blood vessel
 h = 2080
 w = 2080
-bv1 = clampscale(readrawim_Mono12Packed("I:\\AG1\\blood_vessel\\blood_vessel-Epoch0-Frame2.Raw",w,h))
+bv1 = clampscale(readrawim_Mono12Packed("I:\\AG2\\blood_vessel_before\\blood_vessel_before-Epoch0-Frame1.Raw",w,h))
 save(joinpath(siteresultdir,"bloodvessel1.png"),bv1)
 bv2 = clampscale(readrawim_Mono12Packed("I:\\AG1\\blood_vessel\\blood_vessel-Epoch0-Frame4.Raw",w,h))
 save(joinpath(siteresultdir,"bloodvessel2.png"),bv2)
@@ -59,8 +59,8 @@ save(joinpath(siteresultdir,"bloodvessel2_mask.png"),bv2m)
 
 
 ## ocular dominence
-eye1,epochresponse1 = load(joinpath(siteresultdir,"AG1_V1V2_Full_ISIEpochOri8_0","isi.jld2"),"eye","epochresponse")
-eye2,epochresponse2 = load(joinpath(siteresultdir,"AG1_V1V2_Full_ISIEpochOri8_1","isi.jld2"),"eye","epochresponse")
+eye1,epochresponse1 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_3","isi.jld2"),"eye","epochresponse")
+eye2,epochresponse2 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_4","isi.jld2"),"eye","epochresponse")
 h,w = size(epochresponse1)
 
 ht = [@views UnequalVarianceTTest(epochresponse1[i,j,:],epochresponse2[i,j,:]) for i = 1:h,j=1:w] # Welch's t-test
@@ -81,15 +81,17 @@ save(joinpath(siteresultdir,"OD_inpaint.png"),od)
 od = Gray.(load(joinpath(siteresultdir, "OD_nvidia_inpaint.png")))
 od = imresize(gray.(od),h,w)
 
+
+Gray.(odc1)
 ## OD border
 od = imfilter(od,Kernel.gaussian(5))
-od = adjust_histogram(od, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.4))
-odb = detect_edges(od, Canny(spatial_scale=15, high=ImageEdgeDetection.Percentile(80),low=ImageEdgeDetection.Percentile(50)))
+od = adjust_histogram(od, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.5))
+odb = detect_edges(od, Canny(spatial_scale=15, high=ImageEdgeDetection.Percentile(80),low=ImageEdgeDetection.Percentile(70)))
 save(joinpath(siteresultdir,"OD_border.png"),odb)
 odbm = map(i->GrayA(i,i),odb)
 save(joinpath(siteresultdir,"OD_border_mask.png"),odbm)
 
-odct = contours(1:h,1:w,od,[0.3,0.7])
+odct = contours(1:h,1:w,od,[0.25,0.75])
 odc1 = drawcontour!(similar(od),Contour.levels(odct)[1])
 odc2 = drawcontour!(similar(od),Contour.levels(odct)[2])
 save(joinpath(siteresultdir,"OD_contour_left.png"),odc1)
