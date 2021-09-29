@@ -1,11 +1,18 @@
 includet("Batch.jl")
 
 ## Prepare Param and Metadata
+# param = Dict{Any,Any}(
+#     :dataroot => "../Data",
+#     :dataexportroot => "../DataExport",
+#     :resultroot => "../Result",
+#     :stimuliroot => "../NaturalStimuli")
+
 param = Dict{Any,Any}(
-    :dataroot => "X:/",
-    :dataexportroot => "Y:/",
-    :resultroot => "Z:/",
-    :stimuliroot => "X:/NaturalStimuli")
+    :dataroot => "I:\\AG1\\AG1_V1V2_Full",
+    :dataexportroot => "I:\\",
+    :resultroot => "I:\\ISI_analysis")
+    # :stimuliroot => "../NaturalStimuli")
+
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
@@ -16,11 +23,11 @@ tests = select!(filter(meta) do r
                     r.ID == "HartleySubspace" &&
                     r.sourceformat == "SpikeGLX"
                     end,
-                [:ID,:files,:UUID,:sourceformat])
+                [:ID,:UUID,:files,:sourceformat])
+show(tests, allrows = true, allcols = true)
 
 ## Batch ISI Tests
 batchtests(tests[3:6,:],param)
-
 
 
 ## Batch Condition Tests
