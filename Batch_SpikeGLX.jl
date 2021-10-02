@@ -19,7 +19,8 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     condidx = ex["CondTest"]["CondIndex"]
     minconddur=minimum(condoff-condon)
 
-    spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"];unitgood=spike["unitgood"];unitposition=spike["unitposition"]
+    spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"]
+    unitgood=spike["unitgood"];unitposition=spike["unitposition"];unitsync=spike["unitsync"]
     ugs = map(i->i ? "Single-" : "Multi-",unitgood)
     layer = haskey(param,:layer) ? param[:layer] : nothing
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
@@ -115,6 +116,41 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
         save(joinpath(resultdir,"lfp$(ii).jld2"),"cmlfp",cmys,"cmcsd",cmdcsd,"cmpc",cmpcs,"freq",freq,"time",x,"depth",depths,"fs",fs,
         "siteid",siteid,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
+
+        # Depth PSTH
+        epochdur = timetounit(150)
+        epoch = [0 epochdur]
+        epochs = ref2sync(condon.+epoch,dataset,ii)
+        bw = timetounit(5)
+        psthbins = epoch[1]:bw:epoch[2]
+
+        baseindex = epoch2sampleindex([0 basedur],1/(bw*SecondPerUnit))
+        normfun = x->x.-mean(x[baseindex])
+        # Single Unit
+        ui = unitgood .& (unitsync.==ii)
+        unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,ismean=false),unitspike[ui])
+        scmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(vmeanse(pm.mat[r.i,:],normfun=normfun)...,pm.x),unitepochpsth),unitposition[ui,:],hy*(0:pnrow).-(hy/2)) for r in eachrow(cond))
+        if plot
+            fcdp = Dict(k=>imfilter(scmdepthpsth[k].psth,Kernel.gaussian((1,1))) for k in keys(scmdepthpsth))
+            lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcdp))
+            for k in keys(scmdepthpsth)
+                plotanalog(fcdp[k];scmdepthpsth[k].x,scmdepthpsth[k].y,scmdepthpsth[k].n,timeline=[],clims=(-lim,lim))
+                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_Single-Unit_$(k)_DepthPSTH$ext")),figfmt)
+            end
+        end
+        # All Unit
+        ui = unitsync.==ii
+        unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,ismean=false),unitspike[ui])
+        acmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(vmeanse(pm.mat[r.i,:],normfun=normfun)...,pm.x),unitepochpsth),unitposition[ui,:],hy*(0:pnrow).-(hy/2)) for r in eachrow(cond))
+        if plot
+            fcdp = Dict(k=>imfilter(acmdepthpsth[k].psth,Kernel.gaussian((1,1))) for k in keys(acmdepthpsth))
+            lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcdp))
+            for k in keys(acmdepthpsth)
+                plotanalog(fcdp[k];acmdepthpsth[k].x,acmdepthpsth[k].y,acmdepthpsth[k].n,timeline=[],clims=(-lim,lim))
+                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_All-Unit_$(k)_DepthPSTH$ext")),figfmt)
+            end
+        end
+        jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");scmdepthpsth,acmdepthpsth,siteid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
     end
 
     # Unit Position
@@ -127,53 +163,21 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     # Unit Spike Trian of Condition Epochs
     if plot
         epochext = max(preicidur,suficidur)
+        epochs = [condon.-epochext condoff.+epochext]
         for u in eachindex(unitspike)
-            ys,ns,ws,is = epochspiketrain(unitspike[u],ref2sync([condon.-epochext condoff.+epochext],dataset,ii),isminzero=true,shift=epochext)
+            ys,ns,ws,is = epochspiketrain(unitspike[u],ref2sync(epochs,dataset,unitsync[u]),isminzero=true,shift=epochext)
             title = "$(ugs[u])Unit_$(unitid[u])_SpikeTrian"
             plotspiketrain(ys,timeline=[0,conddur],title=title)
             foreach(ext->savefig(joinpath(resultdir,"$title$ext")),figfmt)
         end
     end
 
-    # Depth PSTH
-    epochdur = timetounit(150)
-    epoch = [0 epochdur]
-    epochs = ref2sync(condon.+epoch,dataset,ii)
-    bw = timetounit(5)
-    psthbins = epoch[1]:bw:epoch[2]
-
-    baseindex = epoch2sampleindex([0 basedur],1/(bw*SecondPerUnit))
-    normfun = x->x.-mean(x[baseindex])
-    # Single Unit
-    unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,ismean=false),unitspike[unitgood])
-    scmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(vmeanse(pm.mat[r.i,:],normfun=normfun)...,pm.x),unitepochpsth),unitposition[unitgood,:],hy*(0:pnrow).-(hy/2)) for r in eachrow(cond))
-    if plot
-        fcdp = Dict(k=>imfilter(scmdepthpsth[k].psth,Kernel.gaussian((1,1))) for k in keys(scmdepthpsth))
-        lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcdp))
-        for k in keys(scmdepthpsth)
-            plotanalog(fcdp[k];scmdepthpsth[k].x,scmdepthpsth[k].y,scmdepthpsth[k].n,timeline=[],clims=(-lim,lim))
-            foreach(ext->savefig(joinpath(resultdir,"Single-Unit_$(k)_DepthPSTH$ext")),figfmt)
-        end
-    end
-    # All Unit
-    unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true).y,psthbins,israte=true,ismean=false),unitspike)
-    acmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(vmeanse(pm.mat[r.i,:],normfun=normfun)...,pm.x),unitepochpsth),unitposition,hy*(0:pnrow).-(hy/2)) for r in eachrow(cond))
-    if plot
-        fcdp = Dict(k=>imfilter(acmdepthpsth[k].psth,Kernel.gaussian((1,1))) for k in keys(acmdepthpsth))
-        lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcdp))
-        for k in keys(acmdepthpsth)
-            plotanalog(fcdp[k];acmdepthpsth[k].x,acmdepthpsth[k].y,acmdepthpsth[k].n,timeline=[],clims=(-lim,lim))
-            foreach(ext->savefig(joinpath(resultdir,"All-Unit_$(k)_DepthPSTH$ext")),figfmt)
-        end
-    end
-    jldsave(joinpath(resultdir,"depthpsth.jld2");scmdepthpsth,acmdepthpsth,siteid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
-
     # Single Unit Binary Spike Train of Condition Tests
     bepochext = timetounit(-300)
     bepoch = [-bepochext minconddur]
-    bepochs = ref2sync(condon.+bepoch,dataset,ii)
+    bepochs = condon.+bepoch
     spikebins = bepoch[1]:timetounit(1):bepoch[2] # 1ms bin histogram will convert spike times to binary spike train
-    bst = map(st->permutedims(psthspiketrains(epochspiketrain(st,bepochs,isminzero=true,shift=bepochext).y,spikebins,israte=false,ismean=false).mat),unitspike[unitgood]) # nSpikeBin x nEpoch for each unit
+    bst = map((st,si)->permutedims(psthspiketrains(epochspiketrain(st,ref2sync(bepochs,dataset,si),isminzero=true,shift=bepochext).y,spikebins,israte=false,ismean=false).mat),unitspike[unitgood],unitsync[unitgood]) # nSpikeBin x nEpoch for each unit
     # Single Unit Correlogram and Circuit
     lag=50
     ccgs,x,ccgis,projs,eunits,iunits,projweights = circuitestimate(bst,lag=lag,unitid=unitid[unitgood],condis=cond.i)
@@ -244,19 +248,18 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     jldsave(joinpath(resultdir,"spike.jld2");spike,siteid)
 
     # Prepare Imageset
-    bgcolor = RGBA(getparam(envparam,"BGColor")...)
-    maxcolor = RGBA(getparam(envparam,"MaxColor")...)
-    mincolor = RGBA(getparam(envparam,"MinColor")...)
-    masktype = getparam(envparam,"MaskType")
-    maskradius = getparam(envparam,"MaskRadius")
-    masksigma = getparam(envparam,"Sigma")
-    diameter = getparam(envparam,"Diameter")
-    # diameter = 5
+    bgcolor = RGBA(envparam["BGColor"]...)
+    maxcolor = RGBA(envparam["MaxColor"]...)
+    mincolor = RGBA(envparam["MinColor"]...)
+    masktype = envparam["MaskType"]
+    maskradius = envparam["MaskRadius"]
+    masksigma = envparam["MaskSigma"]
+    diameter = envparam["Diameter"]
     ppd = haskey(param,:ppd) ? param[:ppd] : 45
+    # diameter = 5
     # ii = round(Int,4.5ppd):round(Int,8.5ppd)
     # jj = range(round(Int,5.5ppd),length=length(ii))
     # d=round(length(ii)/ppd,digits=1)
-
 
     sizedeg = (diameter,diameter)
     imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_size$(sizedeg)_ppd$ppd" # hartley subspace, degree size and ppd define a unique image set
@@ -267,6 +270,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         param[imagesetname] = imageset
     end
     # sizedeg=(d,d)
+
     # Prepare Image Stimuli
     imageset = param[imagesetname]
     bgcolor = oftype(imageset[:image][1][1],bgcolor)
@@ -277,8 +281,6 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         imageset[imagestimuliname] = imagestimuli
     end
     imagestimuli = imageset[imagestimuliname]
-
-
 
 
     # imgfile = joinpath(param[:dataroot],"$(testid)_image.mat")
@@ -294,12 +296,12 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     # foreach(i->x[i,:]=vec(imageset[ccondidx[i]]),1:size(x,1))
 
 
-
     if :STA in param[:model]
         sizepx = imageset[:sizepx]
         xi = imagestimuli[:unmaskindex]
         xin = length(xi)
         uy=Dict();usta = Dict();uŷ=Dict();ugof=Dict()
+        epochs = [condon condoff]
         delays = -40:5:200
 
         if isblank
@@ -317,7 +319,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                 ŷs = Array{Float64}(undef,length(delays),length(uci))
                 stas = Array{Float64}(undef,length(delays),xin)
                 for d in eachindex(delays)
-                    depochs = ref2sync([condon condoff].+delays[d], dataset,unitsync[u])
+                    depochs = ref2sync(epochs.+delays[d],dataset,unitsync[u])
                     y = epochspiketrainresponse_ono(unitspike[u],depochs,israte=true,isnan2zero=true)
                     by = mean(y[bucii])
                     y = map(i->mean(y[i])-by,ucii)
@@ -343,7 +345,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                 ŷs = Array{Float64}(undef,length(delays),length(uci))
                 stas = Array{Float64}(undef,length(delays),xin)
                 for d in eachindex(delays)
-                    depochs = ref2sync([condon condoff].+delays[d], dataset,unitsync[u])
+                    depochs = ref2sync(epochs.+delays[d],dataset,unitsync[u])
                     y = epochspiketrainresponse_ono(unitspike[u],depochs,israte=true,isnan2zero=true)
                     y = map(i->mean(y[i]),ucii)
                     ys[d,:] = y
@@ -560,6 +562,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     for u in eachindex(fms)
         oi = Any[Tuple(argmax(replace(fms[u],missing=>-Inf)))...]
         push!(uenoughresponse,fms[u][oi...]>=minresponse)
+        ut = "$(ugs[u][1])U"
         for f in keys(fa)
             fd = findfirst(f.==keys(fa))
             push!(uoptf[f],fa[f][oi[fd]])
@@ -567,7 +570,6 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
             fi = deepcopy(oi)
             fi[fd]=1:fdn
             push!(uoptfri[f],fi)
-            ut = "$(ugs[u][1])U"
             rdf=DataFrame(m=fms[u][fi...],se=fses[u][fi...],u=fill(unitid[u],fdn),ug=fill(ut,fdn))
             rdf[:,f]=fa[f]
             prdf=DataFrame(m=pfms[u][fi...],se=pfses[u][fi...],u=fill(unitid[u],fdn),ug=fill("Pre_$ut",fdn))
@@ -586,7 +588,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
     # Simple and Complex Cell
     f1f0=[];tf = getparam(envparam,"TemporalFreq")
-    if getparam(envparam,"GratingType") == "Sinusoidal" && tf > 0 && getparam(envparam,"Drifting")
+    if getparam(envparam,"GratingType") == "Sinusoidal" && tf > 0
         epoch = [0 minconddur]
         bw = 15;fs = 1/(bw/1000)
         binedges = epoch[1]:timetounit(bw):epoch[2]
@@ -596,15 +598,18 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
             pepochs = [epochs[:,1].-preicidur epochs[:,1]]
             m = psthspiketrains(epochspiketrain(unitspike[u],ref2sync(epochs,dataset,unitsync[u]),isminzero=true).y,binedges,israte=true,ismean=true).m
             bm = mean(epochspiketrainresponse_ono(unitspike[u],ref2sync(pepochs,dataset,unitsync[u]),israte=true))
-            ps,freq = powerspectrum(m.-bm,fs,freqrange=[0,2tf],nw=2)
-            f0 = ps[1]
-            f1 = ps[argmin(abs.(freq[2:end].-tf))+1]
-            push!(f1f0,sqrt(f1/f0))
+            Fs = dft(m.-bm,fs,tf,0)
+            push!(f1f0,mapreduce(abs,/,Fs))
+
+            # ps,freq = powerspectrum(m.-bm,fs,freqrange=[0,2tf],nw=2)
+            # f0 = ps[1]
+            # f1 = ps[argmin(abs.(freq[2:end].-tf))+1]
+            # push!(f1f0,sqrt(f1/f0))
         end
     end
-    save(joinpath(resultdir,"factorresponse.jld2"),"fms",fms,"fses",fses,"pfms",pfms,"pfses",pfses,"sfms",sfms,"sfses",sfses,"fa",fa,
-    "responsive",uresponsive,"modulative",umodulative,"enoughresponse",uenoughresponse,"optf",uoptf,"optfri",uoptfri,"factorresponsefeature",ufrf,
-    "f1f0",f1f0,"siteid",siteid,"unitid",unitid,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
+    jldsave(joinpath(resultdir,"factorresponse.jld2");fms,fses,pfms,pfses,sfms,sfses,fa,
+    responsive=uresponsive,modulative=umodulative,enoughresponse=uenoughresponse,optf=uoptf,optfri=uoptfri,factorresponsefeature=ufrf,
+    f1f0,siteid,unitid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
 
     # Single Unit Binary Spike Trian of Condition Tests
     bepochext = timetounit(-300)
@@ -626,6 +631,6 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
             plotcircuit(unitposition,unitid,projs,unitgood=unitgood,eunits=eunits,iunits=iunits,layer=layer)
             foreach(ext->savefig(joinpath(resultdir,"UnitPosition_Circuit$ext")),figfmt)
         end
-        jldsave(joinpath(resultdir,"circuit.jld2"),projs,eunits,iunits,projweights,siteid)
+        jldsave(joinpath(resultdir,"circuit.jld2");projs,eunits,iunits,projweights,siteid)
     end
 end
