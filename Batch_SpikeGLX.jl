@@ -18,6 +18,11 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     condoff = ex["CondTest"]["CondOff"]
     condidx = ex["CondTest"]["CondIndex"]
     minconddur=minimum(condoff-condon)
+    if haskey(ex,"Eye")
+        eye = ex["Eye"]
+    else
+        eye = ex["Log"]
+    end
 
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"]
     unitgood=spike["unitgood"];unitposition=spike["unitposition"];unitsync=spike["unitsync"]
@@ -115,7 +120,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
             end
         end
         save(joinpath(resultdir,"lfp$(ii).jld2"),"cmlfp",cmys,"cmcsd",cmdcsd,"cmpc",cmpcs,"freq",freq,"time",x,"depth",depths,"fs",fs,
-        "siteid",siteid,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
+        "siteid",siteid,"eye",eye,"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
 
         # Depth PSTH
         epochdur = timetounit(150)
@@ -150,7 +155,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_All-Unit_$(k)_DepthPSTH$ext")),figfmt)
             end
         end
-        jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");scmdepthpsth,acmdepthpsth,siteid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
+        jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");scmdepthpsth,acmdepthpsth,siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])")
     end
 
     # Unit Position
@@ -213,6 +218,11 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     condon = ex["CondTest"]["CondOn"]
     condoff = ex["CondTest"]["CondOff"]
     condidx = ex["CondTest"]["CondIndex"]
+    if haskey(ex,"Eye")
+        eye = ex["Eye"]
+    else
+        eye = ex["Log"]
+    end
 
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"]
     unitgood=spike["unitgood"];unitposition=spike["unitposition"];unitsync=spike["unitsync"]
@@ -361,7 +371,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
 
         jldsave(joinpath(resultdir,"sta.jld2");sizepx,x,xi,xcond=condtable[uci,:],uy,uŷ,usta,ugof,delays,
-        siteid,sizedeg,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])",maxcolor,mincolor)
+        siteid,sizedeg,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])",maxcolor,mincolor)
     end
 
     if :ePPR in param[:model]
@@ -415,8 +425,8 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
             umodels[unitid[u]] = clean!.(models)
             uhp[unitid[u]] = hp
         end
-        save(joinpath(resultdir,"eppr.jld2"),"umodel",umodel,"umodels",umodels,"uhp",uhp,"delay",d,
-        "siteid",siteid,"log",ex["Log"],"color","$(exparam["ColorSpace"])_$(exparam["Color"])","maxcolor",maxcolor,"mincolor",mincolor)
+        jldsave(joinpath(resultdir,"eppr.jld2");umodel,umodels,uhp,delay=d,
+        siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])",maxcolor,mincolor)
     end
 end
 
@@ -438,6 +448,11 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     condoff = ex["CondTest"]["CondOff"]
     condidx = ex["CondTest"]["CondIndex"]
     minconddur=minimum(condoff-condon)
+    if haskey(ex,"Eye")
+        eye = ex["Eye"]
+    else
+        eye = ex["Log"]
+    end
 
     spike = dataset["spike"];unitspike = spike["unitspike"];unitid = spike["unitid"]
     unitgood = spike["unitgood"];unitposition=spike["unitposition"];unitsync=spike["unitsync"]
@@ -507,7 +522,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_PowerContrast$ext")),figfmt)
             end
         end
-        jldsave(joinpath(resultdir,"lfp$(ii).jld2");cmpcs,depth=depths,freq,siteid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
+        jldsave(joinpath(resultdir,"lfp$(ii).jld2");cmpcs,depth=depths,freq,siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])")
     end
 
     # Unit Position
@@ -609,7 +624,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     end
     jldsave(joinpath(resultdir,"factorresponse.jld2");fms,fses,pfms,pfses,sfms,sfses,fa,
     responsive=uresponsive,modulative=umodulative,enoughresponse=uenoughresponse,optf=uoptf,optfri=uoptfri,factorresponsefeature=ufrf,
-    f1f0,siteid,unitid,log=ex["Log"],color="$(exparam["ColorSpace"])_$(exparam["Color"])")
+    f1f0,siteid,unitid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])")
 
     # Single Unit Binary Spike Trian of Condition Tests
     bepochext = timetounit(-300)

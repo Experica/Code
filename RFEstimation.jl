@@ -1,4 +1,4 @@
-using NeuroAnalysis,StatsBase,FileIO,Images,StatsPlots,Interact,ProgressMeter
+using NeuroAnalysis,FileIO,JLD2,Images,StatsBase,StatsPlots,Interact,ProgressMeter
 
 ccode = Dict("DKL_X"=>'A',"DKL_Y"=>'Y',"DKL_Z"=>'S',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S',
              "LMS_X"=>'L',"LMS_Y"=>'M',"LMS_Z"=>'S',"DKL_Hue_L0"=>"DKL_L0","HSL_Hue_Ym"=>"HSL_Ym")
@@ -26,7 +26,7 @@ function joinsta(indir;ccode=ccode,btw=-100:0,datafile="sta.jld2")
     corder = sortperm(colorcodes)
     dataset["color"] = colors[corder]
     dataset["ccode"] = colorcodes[corder]
-    dataset["log"] = [stas[i]["log"] for i in corder]
+    dataset["eye"] = [stas[i]["eye"] for i in corder]
     dataset["minmaxcolor"] = [(stas[i]["mincolor"],stas[i]["maxcolor"]) for i in corder]
     usta = Dict();uresponsive=Dict()
 
@@ -109,8 +109,8 @@ function fitsta!(dataset;model=[:gabor,:dog])
 end
 
 ## process all stas
-resultroot = "../Result"
-subject = "AF8";recordsession = "HLV1";recordsite = "ODR6"
+resultroot = "Z:/"
+subject = "AG2";recordsession = "V1";recordsite = "ODR2"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -118,7 +118,7 @@ dataset = joinsta(siteresultdir)
 dataset = responsivesta!(dataset)
 dataset = fitsta!(dataset,model=[:dog,:gabor])
 
-save(joinpath(siteresultdir,"stadataset.jld2"),"dataset",dataset)
+jldsave(joinpath(siteresultdir,"stadataset.jld2");dataset)
 dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
 
 ## stas
