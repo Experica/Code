@@ -55,7 +55,8 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         epochdur = timetounit(150)
         epoch = [0 epochdur]
         epochs = ref2sync(condon.+epoch,dataset,ii)
-        # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered, in the same shape of probe where excluded channels are replaced with local average
+        # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered,
+        # in the same shape of probe where excluded channels are replaced with local average
         ys = reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
 
         if plot

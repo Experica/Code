@@ -110,7 +110,7 @@ end
 
 ## process all stas
 resultroot = "Z:/"
-subject = "AG2";recordsession = "V1";recordsite = "ODR2"
+subject = "AG2";recordsession = "V1";recordsite = "ODR6"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -119,7 +119,7 @@ dataset = responsivesta!(dataset)
 dataset = fitsta!(dataset,model=[:dog,:gabor])
 
 jldsave(joinpath(siteresultdir,"stadataset.jld2");dataset)
-dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
+# dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
 
 ## stas
 plotstas=(u,d;dir=nothing)->begin

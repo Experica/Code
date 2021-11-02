@@ -325,10 +325,219 @@ saveunityrawtexture("C:\\Users\\fff00\\DownLoads\\$fn",imgs)
 heatmap(bodata["data"][:,:,1])
 heatmap(imgs[1])
 
+## cell Density
+using KernelDensity,Distributions
+
+muc=1.2
+r=100
+w = replace(unitgood,0=>muc)
+
+# n,y = unitdensity(unitposition[:,2];w,lim=(0,3820),bw=80,step=10)
+
+n,y = unitdensity(unitposition[:,2];w,bw=80,step=40,r)
+plot(n*1e9,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(400,700),
+    lw=2,left_margin=4Plots.mm,title="Count(MU)=$muc, r=$(r)μm")
+
+
+
+u = kde(unitposition[:,2],bandwidth=20,kernel=Biweight)
+
+plot(u.density,u.x,leg=false,size=(400,700))
+
+h = ash(unitposition[:,2],kernel=Kernels.epanechnikov,m=10)
+plot(h)
+
+## cell response
+function tresponseness(mat,bindex)
+    b = vec(mat[:,bindex])
+    ht = [@views UnequalVarianceTTest(b,mat[:,i]) for i = 1:size(mat,2)] # Welch's t-test
+    t = map(i->i.t,ht)
+    replace!(t,NaN=>0)
+    return (;m=abs.(t))
+end
+
+
+
+mfun = x->abs.(x.-mean(x[baseindex]))
+uw = replace(unitgood,0=>1.5)
+acmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(;vmeanse(pm.mat[r.i,:];mfun).m,pm.x),unitepochpsth),unitposition,w=uw,lim=(0,3840),bw=100,step=50) for r in eachrow(cond))
+
+
+acmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(;tresponseness(pm.mat[r.i,:],baseindex).m,pm.x),unitepochpsth),unitposition,w=uw,lim=(0,3840),bw=100,step=50) for r in eachrow(cond))
+
+
+dr = first(values(acmdepthpsth))
+plotanalog(dr.psth)
+
+## cell spike feature
+
+uwave = spike["unitwaveform"]
+uf = spike["unitfeature"]
+uta = spike["unittemplateamplitude"]
+
+un,wn = size(uwave)
+wx = range(-wn/2,step=1,length=wn)
+
+uwpy = [30*uwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
+# uwpy = [1.5*uwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
+uwpx = [0.05*wx[j]+unitposition[i,1] for i in 1:un,j in 1:wn]
+
+
+plot(uwpx',uwpy',leg=false,size=(400,700),xlabel="X (μm)",ylabel="Y (μm)",grid=false,lw=2,left_margin=4Plots.mm,
+    color=permutedims(map(i->i ? :darkgreen : :gray30,unitgood)))
+
+
+ks = ["upspread" "downspread" "leftspread" "rightspread"]
+vs = hcat(map(k->uf[k],ks)...)
+cs = permutedims(palette(:default).colors.colors[1:4])
+p=scatter(vs,unitposition[:,2],label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,size=(400,700),
+    xlabel="Spread (μm)",ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
+
+yms = [unitdensity(unitposition[:,2],w=vs[:,i],wfun=mean,bw=80,step=40) for i in 1:4]
+y = yms[1].y
+yms = hcat(map(i->i.n,yms)...)
+
+plot!(p,[zeros(1,4);yms;zeros(1,4)],[minimum(y);y;maximum(y)], st=:shape,lw=0,label=false,alpha=0.2,color=cs)
+plot!(p,yms,y;label=false,lw=2,color=cs)
+
+scatter(hcat(values(uf)...),unitposition[:,2],label=hcat(keys(uf)...))
+
+
+scatter(uf["duration"],uf["halfpeakwidth"] )
+scatter(uf["duration"],uf["halftroughwidth"] )
+
+scatter(uf["uppvinv"],unitposition[:,2])
+scatter([uf["uppvinv"] uf["downpvinv"]],unitposition[:,2])
+scatter(uf["amplitude"],unitposition[:,2])
+scatter(uf["ttrough"],unitposition[:,2])
+scatter(uta,unitposition[:,2])
+scatter(uf["upspread"].+abs.(uf["downspread"]),unitposition[:,2])
+scatter(uf["upspread"].-uf["downspread"],unitposition[:,2])
+
+scatter(uf["peaktroughratio"],unitposition[:,2])
+
+
+
+u = kde((float.(uf["upspread"]),unitposition[:,2]))
+
+plot(u.y,u.x,u.density,leg=false,size=(400,700))
+
+
+h = ash(float.(uf["upspread"]),unitposition[:,2],mx=10,my=10)
+plot(h)
+## lfp plot
+using StatsBase,Plots
+clfp = ys[:,1,:,4]
+
+clfp = first(values(cmcys))
+cmcysse = Dict(condstring(r)=>dropdims(std(ys[:,c,:,r.i],dims=3)/sqrt(length(r.i)),dims=3) for r in eachrow(cond))
+clfpse = first(values(cmcysse))
+
+
+offset = 0.00001
+y = [clfp[i,j]+offset*(i-1) for i=1:192,j=1:374]
+
+plot(y',leg=false,frame=:grid,grid=false,color=:black,size=(600,750),fillrange=range(0,length=192,step=offset)',fillalpha=0.03,
+ ylabel="Depth (μm)",xlabel="Time (ms)",xticks=[],yticks=[],left_margin=4mm,
+ annotations=[(1,-1e-4,Plots.text("0",10,:gray20,:center)),
+            (374,-1e-4,Plots.text("150",10,:gray20,:center)),
+            (-5,-0.5e-4,Plots.text("0",10,:gray20,:right)),
+            (-5,1.9e-3,Plots.text("3840",10,:gray20,:right))])
+
+
+
+plot(y',ribbon=clfpse',leg=false,frame=:grid,grid=false,color=:black,size=(600,750),fillalpha=0.2,
+ ylabel="Depth (μm)",xlabel="Time (ms)",xticks=[],yticks=[],left_margin=4mm,
+ annotations=[(1,-1e-4,Plots.text("0",10,:gray20,:center)),
+            (374,-1e-4,Plots.text("150",10,:gray20,:center)),
+            (-5,-0.5e-4,Plots.text("0",10,:gray20,:right)),
+            (-5,1.9e-3,Plots.text("3840",10,:gray20,:right))])
+
+
+
+
+
+
+
+
+
+savefig("test.svg")
+
+
+cmcys = Dict(condstring(r)=>dropdims(mean(ys[:,c,:,r.i],dims=3),dims=3) for r in eachrow(cond))
+cmccsd = Dict(condstring(r)=>dropdims(mean(csd(ys[:,c,:,r.i],:CSD,h=hy),dims=3),dims=3) for r in eachrow(cond))
+
+lfp = first(values(cmcys))
+csdcsd = first(values(cmccsd))
+csdlfp = csd(lfp,h=hy)
+iclll = csd(lll,h=hy)
+
+nlfp = stfilter(lfp,temporaltype=:sub,ti=baseindex)
+ncsdlfp = stfilter(csdlfp,temporaltype=:sub,ti=baseindex)
+ncsdlfp = csd(nlfp,h=hy)
+
+plotanalog(lfp)
+plotanalog(nlfp)
+plotanalog(csdcsd)
+plotanalog(csdlfp)
+plotanalog(iclll)
+
+
+plotanalog((iclll.-clll)[2:end-1,:])
+
+extrema((iclll.-clll)[2:end-1,:])
+
+
+## kCSD
+using PyCall
+
+d = permutedims(permutedims(collect(depths)))
+t =  permutedims(permutedims((collect((0:373)/fs))))
+
+kcsd = pyimport("kcsd")
+
+
+k = kcsd.KCSD1D(d,lfp,
+    h=hy,sigma=0.3,n_src_init=20000,
+    gdx=20,
+    src_type="gauss",R_init=1,lambd=0)
+
+k.cross_validate(Rs=np.linspace(0.01, 0.15, 15))
+rs = permutedims(permutedims(collect(0.01:0.01:0.15)))
+rs = collect(0.01:0.01:0.15)
+k.cross_validate(Rs=rs)
+
+
+
+plotanalog(    k.values("CSD"))
+
+
+
+ktt = zeros(192,374)
+for i=1:374
+k = kcsd.KCSD1D(d,lfp[:,i:i],
+    h=hy,sigma=0.3,n_src_init=1000,
+    src_type="gauss",R_init=1,lambd=0)
+    k.values("CSD")
+ktt[:,i] = k.values("CSD")
+end
+## gpcsd
+gcsd = pyimport("gpcsd.gpcsd1d")
+g = gcsd.GPCSD1D(ys[:,1,:,1:2:end],d,t)
+
+g.fit(n_restarts=5)
+gtt = g.sample_prior(100)
+gtt = g.predict(d,t)
+
+plotanalog(dropdims(mean(gtt,dims=3),dims=3))
 
 ##
-files = tests[1,:files]
-plot(condoff-condon)
+title = "From Photodiode Real-Time Detected Digital Signal\n(VSync=On, GSync=On, RefreshRate=144Hz)"
+ylabel = "Condition Duration ($(round(Int,conddur))ms)"
+plot(condoff-condon;xlabel="Condition Tests",ylabel,title,leg=false)
+
+savefig("$ylabel.svg")
+
 
 Gray.(clampscale(responses[:,:,4],1.5))
 maps = complexmap(responses,angles,filter=nothing,presdfactor=1.5,sufsdfactor=nothing)
@@ -489,3 +698,10 @@ Gray.(tt)
 
 extrema(t)
 extrema(tt)
+
+
+
+##
+penetration = unique(meta[:,["Subject_ID","RecordSession","RecordSite"]])
+
+jldsave("Z:/penetration.jld2";penetration)

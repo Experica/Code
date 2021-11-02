@@ -50,7 +50,7 @@
 
 Here **Command** is used without **Environment**, it should be set FullScreen (`Alt + F`) and FullViewport (`Alt + V`) to present stimulus, and other visual guides (Grid, Eye Fixation, etc.) turned off (`Alt + G`).
 
-0. Based on cortical maps, insert the probe at a chosen location, test probe signals and mark the penetration site on the cortical maps.
+0. Based on cortical maps, insert probe perpendicular to cortex at a chosen location, test probe signals and mark the penetration site on the cortical maps.
 
 0. In **ConditionTest**, manually refine stimulus, so that most of the electrodes showing maximum response.
     - LeftStick = Position
