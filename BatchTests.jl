@@ -6,7 +6,7 @@ param = Dict{Any,Any}(
     :dataroot => "X:/",
     :dataexportroot => "Y:/",
     :resultroot => "Z:/",
-    :stimuliroot => "D:/NaturalStimuli")
+    :stimuliroot => "S:/")
 # param = Dict{Any,Any}(
 #     :dataroot => "I:\\AG1\\AG1_V1V2_Full",
 #     :dataexportroot => "I:\\",
@@ -16,15 +16,15 @@ meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
 tests = select!(filter(meta) do r
-                    r.Subject_ID == "AG2" &&
-                    r.RecordSession == "V1" &&
-                    r.RecordSite == "ODL3" &&
-                    r.ID != "OriSF" &&
+                    r.Subject_ID in ["AG1", "AG2"] &&
+                    # r.RecordSession == "V1" &&
+                    # r.RecordSite == "ODR1" &&
+                    r.ID == "OriSF" &&
                     r.sourceformat == "SpikeGLX"
                     end,
                 [:files,:ID,:UUID,:sourceformat])
-# show(tests, allrows = true, allcols = true)
-files = tests[9,:files]
+files = ".\\AG2\\AG2_V1_ODR1_OriSF_4.mat"
+pyplot()
 
 ## Setup Param
 param[:model] = [:STA]

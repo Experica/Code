@@ -1,71 +1,57 @@
-using NeuroAnalysis,Statistics,FileIO,Plots,Images,Interact
+using NeuroAnalysis,Statistics,FileIO,JLD2,Plots,Images,Interact
 
-# Combine all layer tests of one recording site
-dataroot = "../Data"
-dataexportroot = "../DataExport"
-resultroot = "../Result"
+# Combine all layer tests of one RecordSite
+dataroot = "X:/"
+dataexportroot = "Y:/"
+resultroot = "Z:/"
 
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL3"
-siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+subject = "AG2";recordsession = "V1";recordsite = "ODR1"
+siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
-figfmt = [".png",".svg"]
-
-layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
-layer = Dict("WM"=>[0,0],"Out"=>[3800,3800])
-layer["1"]=[2160,1800]
-layer["23"]=[2670,1800]
-layer["2"]=[2550,1800]
-layer["3"]=[2550,1800]
-layer["4AB"]=[2575,1800]
-layer["4A"]=[2575,1800]
-layer["4B"]=[2430,1800]
-layer["4C"]=[1800,1800]
-layer["4Ca"]=[2170,1800]
-layer["4Cb"]=[1870,1300]
-layer["56"]=[1510,1800]
-layer["5"]=[1300,1800]
-layer["6"]=[1500,1800]
+figfmt = [".png"]
 
 
-df=DataFrame(power=[405.5,239.0,92.8,410.5,115.2,493.6],hue=repeat(["180","0"],outer=3),location=repeat(["P5","P4","P3"],inner=2))
-
-df |> @vlplot(:bar,x={:hue,axis={labelAngle=0}},y={:power,axis={grid=false}},column=:location,color={:hue,scale={range=["#FF5A81","#00A57E"]}})
-
-
-# P5
-mm=405.5
-lm=239.0
-# P4
-mm=92.8
-lm=410.5
-# P3
-mm = 115.2
-lm = 493.6
-
-lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_2","lfp.jld2"))
-freq=lfp["freq"]
-depths = -lfp["depth"].+layer["Out"][1]
-pc = lfp["cmpc"]
-mpc = pc["Color=[0.0, 0.6462, 0.4939, 1.0]"]
-lpc = pc["Color=[1.0, 0.3538, 0.5061, 1.0]"]
-li = 0 .<=depths.<=300
-fi = 30 .<=freq.<=100
-
-mm = sum(mpc[li,fi])
-lm = sum(lpc[li,fi])
+# df=DataFrame(power=[405.5,239.0,92.8,410.5,115.2,493.6],hue=repeat(["180","0"],outer=3),location=repeat(["P5","P4","P3"],inner=2))
+#
+# df |> @vlplot(:bar,x={:hue,axis={labelAngle=0}},y={:power,axis={grid=false}},column=:location,color={:hue,scale={range=["#FF5A81","#00A57E"]}})
+#
+#
+# # P5
+# mm=405.5
+# lm=239.0
+# # P4
+# mm=92.8
+# lm=410.5
+# # P3
+# mm = 115.2
+# lm = 493.6
 
 
-lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_3","lfp.jld2"))
-freq=lfp["freq"]
-depths = -lfp["depth"].+layer["Out"][1]
-pc = lfp["cmpc"]
-lmpc = pc["Color=[0.3672, 0.6168, 0.0, 1.0]"]
-spc = pc["Color=[0.6328, 0.3832, 1.0, 1.0]"]
-li = 100 .<=depths.<=400
-fi = 30 .<=freq.<=100
-
-lmm = mean(lmpc[li,fi])
-sm = mean(spc[li,fi])
+# lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_2","lfp.jld2"))
+# freq=lfp["freq"]
+# depths = -lfp["depth"].+layer["Out"][1]
+# pc = lfp["cmpc"]
+# mpc = pc["Color=[0.0, 0.6462, 0.4939, 1.0]"]
+# lpc = pc["Color=[1.0, 0.3538, 0.5061, 1.0]"]
+# li = 0 .<=depths.<=300
+# fi = 30 .<=freq.<=100
+#
+# mm = sum(mpc[li,fi])
+# lm = sum(lpc[li,fi])
+#
+#
+#
+# lfp=load(joinpath(siteresultdir,"$(siteid)_Flash2Color_3","lfp.jld2"))
+# freq=lfp["freq"]
+# depths = -lfp["depth"].+layer["Out"][1]
+# pc = lfp["cmpc"]
+# lmpc = pc["Color=[0.3672, 0.6168, 0.0, 1.0]"]
+# spc = pc["Color=[0.6328, 0.3832, 1.0, 1.0]"]
+# li = 100 .<=depths.<=400
+# fi = 30 .<=freq.<=100
+#
+# lmm = mean(lmpc[li,fi])
+# sm = mean(spc[li,fi])
 
 # testids = ["$(siteid)_00$i" for i in 0:3]
 # testn=length(testids)
@@ -73,42 +59,90 @@ sm = mean(spc[li,fi])
 # csds = load.(joinpath.(sitedir,testids,"csd.jld2"),"csd","depth","fs")
 # depths=csds[1][2];fs=csds[1][3]
 
-testids = ["$(siteid)_Flash2Color_$i" for i in 1:4]
+
+flashdepth = (siteid,siteresultdir) -> begin
+
+ii = '0'
+testids = ["$(siteid)_Flash2Color_$i" for i in 0:3]
 testn=length(testids)
-## All CSD and Power Contrast from LFP
-tlfps = load.(joinpath.(siteresultdir,testids,"lfp.jld2"))
-testlogs = ["$(i["log"])_$(i["color"])" for i in tlfps]
-fs=tlfps[1]["fs"]
-freq=tlfps[1]["freq"]
-lfpdepths=tlfps[1]["depth"]
-lfptimes = tlfps[1]["time"]
+## AP dRMS
+aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
+titles = repeat(["$(i["eye"])_$(i["color"])" for i in aps],inner=2)
+colors = mapreduce(i->[RGBA(parse.(Float64,split(match(r".*Color=\[(.*)\]",k).captures[1],", "))...) for k in keys(i["cdrms"])],append!,aps)
+drms = mapreduce(i->[1e6v for v in values(i["cdrms"])],append!,aps)
+time = mapreduce(i->[i["time"],i["time"]],append!,aps)
+depths = mapreduce(i->[i["depths"],i["depths"]],append!,aps)
+rmslim=absmax(drms)
 
-csdb = [0 15]
-csdr = [15 100]
-csdbi = epoch2sampleindex(csdb,fs)
-csdri = epoch2sampleindex(csdr,fs)
-csdx = lfptimes[csdri]
-csds = mapreduce((l,i)->["$(l)_$k"=>imfilter(stfilter(v,temporaltype=:sub,ti=csdbi,hbordervalue=0),Kernel.gaussian((1,1)))[:,csdri] for (k,v) in i["cmcsd"]],
-append!,testlogs,tlfps)
-absmax(x) = mapreduce(i->maximum(abs.(i.second)),max,x)
-csdclim=absmax(csds)
+plotdepthresponse(drms,rmslim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"dRMS$ext")),figfmt)
 
-pcs = mapreduce((l,i)->["$(l)_$k"=>imfilter(v,Kernel.gaussian((1,1))) for (k,v) in i["cmpc"]],
-append!,testlogs,tlfps)
-pcclim=absmax(pcs)
-## All PSTH
-tpsths = load.(joinpath.(siteresultdir,testids,"depthpsth.jld2"))
-ffpsth = first(values(tpsths[1]["cmdepthpsth"]))
-psthtimes=ffpsth.x;bw = psthtimes[2]-psthtimes[1];psthdepths = ffpsth.y;psthdn=ffpsth.n
+## Unit dPSTH
+dpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
+dpsth = mapreduce(i->[v.psth for v in values(i["cdpsth"])],append!,dpsths)
+time = mapreduce(i->[v.x for v in values(i["cdpsth"])],append!,dpsths)
+depths = mapreduce(i->[v.y for v in values(i["cdpsth"])],append!,dpsths)
+psthlim=absmax(dpsth)
 
-psthb = [0 15]
-psthr = [15 100]
-psthbi = epoch2sampleindex(psthb,1/(bw*SecondPerUnit))
-psthri = epoch2sampleindex(psthr,1/(bw*SecondPerUnit))
-psthx = psthtimes[psthri]
-psths = mapreduce((l,i)->["$(l)_$k"=>imfilter(stfilter(v.psth,temporaltype=:sub,ti=psthbi),Kernel.gaussian((1,1)))[:,psthri] for (k,v) in i["cmdepthpsth"]],
-append!,testlogs,tpsths)
-psthclim=absmax(psths)
+plotdepthresponse(dpsth,psthlim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"dPSTH$ext")),figfmt)
+
+## LFP and CSD
+lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
+lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
+dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
+time = mapreduce(i->[i["time"],i["time"]],append!,lfps)
+depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
+lfplim=absmax(lfp)
+csdlim=absmax(dcsd)
+
+plotdepthresponse(lfp,lfplim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"LFP$ext")),figfmt)
+
+plotdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"dCSD$ext")),figfmt)
+
+# 5x1 gaussian kernal(80μm)
+fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
+plotdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"fdCSD$ext")),figfmt)
+end
+
+
+absmax(x) = mapreduce(i->maximum(abs.(i)),max,x)
+plotdepthresponse=(resp,lim,time,depths,colors,titles;w=140,h=600,color=:coolwarm)->begin
+    n = length(resp)
+    p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
+    for i in 1:n
+        yticks = i==1 ? (0:500:depths[i][end]) : false
+        xticks = (0:50:time[i][end])
+        lmargin = i==1 ? 4mm : -4mm
+        xlabel = i==1 ? "Time (ms)" : ""
+        ylabel = i==1 ? "Depth (μm)" : ""
+
+        heatmap!(p[i],time[i],depths[i],resp[i];color=color,clims=(-lim,lim),
+        title=titles[i],titlefontsize=10,yticks,xticks,tickor=:out,xlabel,ylabel,
+        annotation=[(5,50,Plots.text("■",15,colors[i],:left,:bottom))],
+        left_margin=lmargin,bottom_margin=3mm)
+    end
+    p
+end
+
+## Batch Penetration Sites
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
+@showprogress "Batch FlashDepth ... " for r in eachrow(penetration)
+    flashdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid))
+end
+
+
+dcsd = mapreduce(i->[mapwindow(mean,v,(11,11),border=Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
+dcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,1)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
+
+dcsd = mapreduce(i->[csd(v[1:2:end,:],h=hy) for v in values(i["cmlfp"])],append!,lfps)
+dcsd = mapreduce(i->[imfilter(csd(v[1:2:end,:],h=hy),Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cmlfp"])],append!,lfps)
+depths = mapreduce(i->[i["depths"][1:2:end],i["depths"][1:2:end]],append!,lfps)
+
+
 
 ## Set Layers
 plotlayer=(o...;w=230,h=510)->begin
@@ -159,8 +193,6 @@ vbox(values(lw)...,lp)
 plotlayer()
 foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
 
-## Finalize Layer
-save(joinpath(siteresultdir,"layer.jld2"),"layer",checklayer!(layer),"siteid",siteid)
 
 # # earliest response should be due to LGN M,P input to 4Ca,4Cb
 # ln = ["4Cb","4Ca","4B","4A","2/3","Out"]

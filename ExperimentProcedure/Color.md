@@ -4,7 +4,7 @@
 
 - Start Host(`Alt + H`) in **Command**, if **Environment** is used to present stimuli, check **Command** IP address, and connect to **Command**.
 
-- Initialize Parameters in **ConditionTest**, which should be the first one in the experiment list when started. This special experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will inherite proper parameters. 
+- Initialize Parameters in **ConditionTest**, which should be the first one in the experiment list when started. This special experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will inherite proper parameters.
 
   Check in Experimennt Panel:
     - Experimenter, Subject Info, DataDir, Hemisphere, Eye,  RecordSession, RecordSite, Display_ID, NotifyExperimenter
@@ -12,7 +12,7 @@
   Check in Environment Panel:
     - ScreenToEye, ScreenHeight, ScreenAspect, CLUT, MarkerSize, MarkerCorner, Marker On/Off Colors.
 
-- Start Experiment(`Alt + E`) of **ConditionTest**, which will flip marker periodicly. Power/Reset the photodiode logic board. In 5 seconds, the maximun and minimun of photodiode signal will be learned and used to set appropriate threshold to convert analog signal to digital signal in real time. 
+- Start Experiment(`Alt + E`) of **ConditionTest**, which will flip marker periodicly. Power/Reset the photodiode logic board. In 5 seconds, the maximun and minimun of photodiode signal will be learned and used to set appropriate threshold to convert analog signal to digital signal in real time.
 
   Measure the `RiseLag` and `FallLag` of the digital signal relative to photodiode analog signal(need to re-learn and re-measure every power/reset). Digital IO is connected to **SpikeGLX** `Channel 0` and Photodiode Logic Board to **SpikeGLX** `Channel 1`. These two Channels are identical, to provide extra robustness if any channel is corrupted.
 
@@ -66,7 +66,7 @@ Here **Command** is used without **Environment**, it should be set FullScreen (`
     - Achromatic(non-dominent eye, ColorSpace=DKL, Color=X)
     - Achromatic(dominent eye, ColorSpace=DKL, Color=X)
     - DKL L-M axis(dominent eye, ColorSpace=DKL, Color=Y)
-    - DKL S-(L+M) axis(dominent eye, ColorSpace=DKL, Color=Z) 
+    - DKL S-(L+M) axis(dominent eye, ColorSpace=DKL, Color=Z)
 
 0. **Color**, this is hue onset/offset against a background.
     - HSL hues/wps with equal physical luminence(ColorSpace=HSL, Color=HueYm)
@@ -105,14 +105,11 @@ There are experiment sessions **ColorEPhys/ColorEPhysLite** to automate sequence
     - mannually switch to non-doniment eye
     - set `Eye` to non-dominent
     - `ColorSpace` = DKL, `Color` = X
-    - click `FullViewportSize` to make stimulus cover full viewport 
+    - click `FullViewportSize` to make stimulus cover full viewport
 
 0. Switch back to dominent eye, then start **ColorEPhys/ColorEPhysLite** experiment session (`Alt + S`).
 
 # Problems
 - joystick need to add color bottons
-- find ways to get HSL Same Physical luminance hue automatically for each display
-
-
 
 scanbox recorder

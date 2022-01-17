@@ -325,27 +325,6 @@ saveunityrawtexture("C:\\Users\\fff00\\DownLoads\\$fn",imgs)
 heatmap(bodata["data"][:,:,1])
 heatmap(imgs[1])
 
-## cell Density
-using KernelDensity,Distributions
-
-muc=1.2
-r=100
-w = replace(unitgood,0=>muc)
-
-# n,y = unitdensity(unitposition[:,2];w,lim=(0,3820),bw=80,step=10)
-
-n,y = unitdensity(unitposition[:,2];w,bw=80,step=40,r)
-plot(n*1e9,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(400,700),
-    lw=2,left_margin=4Plots.mm,title="Count(MU)=$muc, r=$(r)μm")
-
-
-
-u = kde(unitposition[:,2],bandwidth=20,kernel=Biweight)
-
-plot(u.density,u.x,leg=false,size=(400,700))
-
-h = ash(unitposition[:,2],kernel=Kernels.epanechnikov,m=10)
-plot(h)
 
 ## cell response
 function tresponseness(mat,bindex)
@@ -356,7 +335,7 @@ function tresponseness(mat,bindex)
     return (;m=abs.(t))
 end
 
-
+pnrow*hy
 
 mfun = x->abs.(x.-mean(x[baseindex]))
 uw = replace(unitgood,0=>1.5)
@@ -369,62 +348,12 @@ acmdepthpsth = Dict(condstring(r)=>spacepsth(map(pm->(;tresponseness(pm.mat[r.i,
 dr = first(values(acmdepthpsth))
 plotanalog(dr.psth)
 
-## cell spike feature
-
-uwave = spike["unitwaveform"]
-uf = spike["unitfeature"]
-uta = spike["unittemplateamplitude"]
-
-un,wn = size(uwave)
-wx = range(-wn/2,step=1,length=wn)
-
-uwpy = [30*uwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
-# uwpy = [1.5*uwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
-uwpx = [0.05*wx[j]+unitposition[i,1] for i in 1:un,j in 1:wn]
 
 
-plot(uwpx',uwpy',leg=false,size=(400,700),xlabel="X (μm)",ylabel="Y (μm)",grid=false,lw=2,left_margin=4Plots.mm,
-    color=permutedims(map(i->i ? :darkgreen : :gray30,unitgood)))
+ks = collect(keys(cmdepthpsth))
+k=ks[2]
 
 
-ks = ["upspread" "downspread" "leftspread" "rightspread"]
-vs = hcat(map(k->uf[k],ks)...)
-cs = permutedims(palette(:default).colors.colors[1:4])
-p=scatter(vs,unitposition[:,2],label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,size=(400,700),
-    xlabel="Spread (μm)",ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
-
-yms = [unitdensity(unitposition[:,2],w=vs[:,i],wfun=mean,bw=80,step=40) for i in 1:4]
-y = yms[1].y
-yms = hcat(map(i->i.n,yms)...)
-
-plot!(p,[zeros(1,4);yms;zeros(1,4)],[minimum(y);y;maximum(y)], st=:shape,lw=0,label=false,alpha=0.2,color=cs)
-plot!(p,yms,y;label=false,lw=2,color=cs)
-
-scatter(hcat(values(uf)...),unitposition[:,2],label=hcat(keys(uf)...))
-
-
-scatter(uf["duration"],uf["halfpeakwidth"] )
-scatter(uf["duration"],uf["halftroughwidth"] )
-
-scatter(uf["uppvinv"],unitposition[:,2])
-scatter([uf["uppvinv"] uf["downpvinv"]],unitposition[:,2])
-scatter(uf["amplitude"],unitposition[:,2])
-scatter(uf["ttrough"],unitposition[:,2])
-scatter(uta,unitposition[:,2])
-scatter(uf["upspread"].+abs.(uf["downspread"]),unitposition[:,2])
-scatter(uf["upspread"].-uf["downspread"],unitposition[:,2])
-
-scatter(uf["peaktroughratio"],unitposition[:,2])
-
-
-
-u = kde((float.(uf["upspread"]),unitposition[:,2]))
-
-plot(u.y,u.x,u.density,leg=false,size=(400,700))
-
-
-h = ash(float.(uf["upspread"]),unitposition[:,2],mx=10,my=10)
-plot(h)
 ## lfp plot
 using StatsBase,Plots
 clfp = ys[:,1,:,4]
@@ -532,11 +461,7 @@ gtt = g.predict(d,t)
 plotanalog(dropdims(mean(gtt,dims=3),dims=3))
 
 ##
-title = "From Photodiode Real-Time Detected Digital Signal\n(VSync=On, GSync=On, RefreshRate=144Hz)"
-ylabel = "Condition Duration ($(round(Int,conddur))ms)"
-plot(condoff-condon;xlabel="Condition Tests",ylabel,title,leg=false)
 
-savefig("$ylabel.svg")
 
 
 Gray.(clampscale(responses[:,:,4],1.5))
@@ -701,7 +626,158 @@ extrema(tt)
 
 
 
-##
-penetration = unique(meta[:,["Subject_ID","RecordSession","RecordSite"]])
 
-jldsave("Z:/penetration.jld2";penetration)
+## ap plot
+yy = pys[:,:,2]
+yn,xn = size(yy)
+offset = 7e-5
+y = yy .+ range(start=0,step=offset,length=yn)
+
+
+plot(y',leg=false,frame=:grid,grid=false,color=:black,size=(600,750),
+ ylabel="Depth (μm)",xlabel="Time (ms)",xticks=[],yticks=[],left_margin=4mm,
+ annotations=[(1,-4offset,Plots.text("0",10,:gray20,:center)),
+            (xn,-4offset,Plots.text("150",10,:gray20,:center)),
+            (-20,0,Plots.text("0",10,:gray20,:right)),
+            (-20,(yn-1)*offset,Plots.text("3840",10,:gray20,:right))])
+
+savefig("test.svg")
+
+
+a=unitepochpsth[1]
+
+typeof(a.x)
+
+map(p->(;vmeanse(p.mat[1:2:end,:])...,p.x),unitepochpsth)
+
+
+##
+umodulative[144]
+
+
+mfit = fitmodel(:gvm,mod2pi.(deg2rad.(fa[f])),fms[u][fi...])
+
+plot!(x->t.fit.gvm.fun(x,t.fit.gvm.param),0,2π)
+
+
+plot!(x->mfit.fun(x,mfit.param),color=:dodgerblue,0,2π)
+
+
+plot!(x->t.fit.dog.fun(x,t.fit.dog.param),0:0.1:6.4)
+
+
+
+
+fa[f]
+
+rs=urs[u]
+
+frs,fms,fses,fa=factorresponse(rs,ccond,fa)
+
+frs[fi...]
+
+
+sfrs[u][fi...]
+
+factorresponsefeature(fa[f],frs[u][fi...],fmr=fms[u][fi...],factor=f)
+
+
+nothing != 0
+plot(fa[f])
+
+
+a=[missing,missing]
+
+mean(a)
+
+pm = pfms[u][umaxi[1]...]
+
+fis[u][umaxi[1]...]
+
+epochs = ccondon[fis[u][umaxi[1]...]] .+ epoch .+ responsedelay
+
+optcond = findcond(ccond;(;(k=>uoptf[k][1] for k in keys(uoptf))...)...)
+
+plot(m)
+
+abs(Fs[1])
+
+
+spl = Spline1D(deg2rad.(fa[f]),fms[u][fi...],bc="nearest",k=1,s=0)
+
+spl = Spline1D(fa[f],fms[u][fi...],bc="nearest",k=3,s=100)
+
+x = 0:0.02:2π
+x = 0.2:0.01:6.4
+plot!(x,spl(x),lw=2)
+
+plot!(x,fill(60,315),lw=3)
+
+
+projection =  :cartesian
+
+plot!(x->frf.fit.mfit.fun(deg2rad(x),frf.fit.mfit.param),0:360,lw=2)
+
+log2.(1:10)
+
+
+plot(x->x,0:2π)
+plot(x->x,0:0.02:2π,projection=:polar)
+
+x = 0:2π
+y = x
+plot(rad2deg.(x),y,yerror = 0:0.5:π,projection=:polar)
+plot(x,y,ribbon = 0:0.5:π,projection=:polar,xticks=0:0.25π:1.75π,xformatter=x->round(Int,rad2deg(x)))
+
+
+plot(0:2π,ribbon = 0:0.5:π)
+
+pyplot()
+gr()
+
+backend_name()
+
+
+
+ls=fa[f]
+rs=fms[u][fi...]
+
+α = mod2pi.(deg2rad.(ls))
+d = mean(diff(sort(unique(α))))
+circ_otest(α,w=rs)
+
+cv, = circ_var(α;w=rs,d)
+cm, = circ_mean(α,w=rs)
+cm = rad2deg(mod2pi(cm))
+cm+90
+
+using PyCall,HypothesisTests
+
+pg = pyimport("statsmodels.stats.oneway")
+
+function ismodulative1(response,gi,r;alpha=0.05)
+    r.anova_oneway(map(i->response[i],gi),use_var="unequal")
+end
+
+pg.anova_oneway(map(i->rs[i],ccond.i),use_var="unequal")
+
+tt.pvalue
+
+pvalue(KruskalWallisTest(map(i->rs[i],ccond.i)...))
+
+pvalue(OneWayANOVATest(map(i->rs[i],ccond.i)...))
+
+count(uresponsive)
+
+count(umodulative)
+
+count(uenoughresponse)
+
+count((uresponsive .| umodulative) .& uenoughresponse)
+
+NaN < 0.05
+
+OneWayANOVATest()
+
+
+ismodulative(rs,ccond.i)
