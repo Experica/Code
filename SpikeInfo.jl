@@ -1,4 +1,4 @@
-using NeuroAnalysis,FileIO,Statistics,Plots,ProgressMeter,XLSX
+using NeuroAnalysis,FileIO,Statistics,StatsPlots,Plots,StatsBase,ProgressMeter,XLSX
 
 function mergespike!(indir;unit=Dict(),datafile="spike.jld2")
     for (root,dirs,files) in walkdir(indir)
@@ -172,24 +172,174 @@ unitposition=allunit["unitposition"];unitfeature = allunit["unitfeature"]
 unittempfeature=allunit["unittemplatefeature"];unittempamp = allunit["unittemplateamplitude"]
 siteid = allunit["siteid"];figfmt = [".png"]
 
+f1 = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","ttrough","amplitude"]
+f2 = ["upspread","downspread","leftspread","rightspread","uppvinv","downpvinv"]
+f = [f1;f2]
+F = Float64[hcat(map(k->unitfeature[k],f1)...);;hcat(map(k->unittempfeature[k],f2)...)][unitgood,:]
+replace!(F,NaN=>0,Inf=>0,-Inf=>0)
 
-f1 = ["duration" "peaktroughratio" "halftroughwidth" "halfpeakwidth" "repolarrate" "recoverrate"]
-f2 = ["upspread" "downspread" "leftspread" "rightspread" "uppvinv" "downpvinv"]
-Y = Float64[abs.(unitfeature[f1[1]]);;hcat(map(k->unitfeature[k],f1[2:end])...);;
-     hcat(map(k->replace(unittempfeature[k],NaN=>0,Inf=>0,-Inf=>0),f2)...)][unitgood,:]
-fs = [f1 f2]
+# Y = Float64[abs.(unitfeature[f1[1]]);;hcat(map(k->unitfeature[k],f1[2:end])...);;
+#   hcat(map(k->replace(unittempfeature[k],NaN=>0,Inf=>0,-Inf=>0),f2)...)][unitgood,:]
+
+foreach(i->F[:,i]=zscore(F[:,i]),1:size(F,2))
+dotplot(permutedims(f),F,leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0)),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+foreach(ext->savefig(joinpath(resultroot,"SpikeFeature$ext")),figfmt)
 
 
-using StatsPlots,StatsBase,Interact,UMAP
+using Interact,UMAP,Clustering,Distances,PyCall
 
-foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
-violin(fs,Y,leg=false,ylabel="Z Score",xrotation=20,xlabel="Spike Feature")
-foreach(ext->savefig(joinpath(indir,"UnitFeature_dist$ext")),figfmt)
+ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","upspread","downspread","uppvinv","downpvinv"]
+ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","upspread","downspread"]
+ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","upspread","downspread"]
+Ft = F[:,indexin(ft,f)]
 
 
-cm = cgrad(:fire)
+scatter(Ft[:,1],Ft[:,3],marker=(1,stroke(0)))
 
-@manipulate for i in 100:500, n in 5:50, d in 0.001:0.001:3, c in 1:length(fs)
-    Y2 = umap(Y', 2, n_neighbors=n, min_dist=d, n_epochs=i)
-    scatter(Y2[1,:], Y2[2,:],leg=false,color=cm[clampscale(Y[:,c],3)],markerstrokewidth=0)
+
+
+D = pairwise(Euclidean(),Ft,dims=1)
+
+cr = hclust(D,branchorder=:optimal)
+cid = cutree(cr,k=4)
+
+cr = kmeans(Ft',4)
+
+
+cr = kmeans(Ft5,6)
+cid = assignments(cr)
+
+
+crs = [kmeans(Ft',i) for i in 1:12]
+
+mi = [mutualinfo(crs[i],crs[end]) for i in 1:11]
+ri = [randindex(crs[i],crs[end])[1] for i in 1:11]
+vi = [vmeasure(crs[i],crs[end]) for i in 1:11]
+si = [mean(silhouettes(crs[i],D)) for i in 2:11]
+
+
+plot(mi,leg=false)
+plot(ri,leg=false)
+plot(vi,leg=false)
+plot(si,leg=false)
+
+D = pairwise(Euclidean(),Ft,dims=1)
+cr = dbscan(D,0.4,20)
+cid = cr.assignments
+
+
+pc = pyimport("pyclustering")
+
+op = pyimport("sklearn.cluster")
+
+Ft5 = umap(Ft', 5, n_neighbors=20, min_dist=1e-6,n_epochs=150)
+scatter(Ft5[2,:],Ft5[1,:],marker=(1,stroke(0)))
+D = pairwise(Euclidean(),Ft5,dims=2)
+
+
+cr = dbscan(D,0.75,150)
+cid = cr.assignments
+
+
+clust = op.OPTICS(min_samples=15,xi=0.05,max_eps=1)
+cid = clust.fit_predict(Ft)
+
+
+
+
+unique(cid)
+
+plot(cr)
+
+
+
+
+
+
+D = rand(10, 10)
+D += D' # symmetric distance matrix (optional)
+result = hclust(D, linkage=:single)
+
+plot(result)
+
+
+
+
+
+
+
+
+
+cm = cgrad(:turbo)
+
+@manipulate for i in 100:300, n in 5:50, d in 0.001:0.001:3
+    Ft2 = umap(Ft', 2, n_neighbors=n, min_dist=d, n_epochs=i)
+    # scatter(Ft2[2,:], Ft2[1,:],leg=false,grid=false,marker=(1,stroke(0)),size=(600,600),
+    #         xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
+    scatter(Ft2[2,:], Ft2[1,:],group=cid,leg=true,grid=false,marker=(1,stroke(0)),size=(600,600),palette=:tab10,
+            xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
 end
+
+
+
+Ft2 = umap(Ft', 2, n_neighbors=15, min_dist=0.05, n_epochs=150)
+scatter(Ft2[2,:], Ft2[1,:],group=cid,leg=false,grid=false,marker=(2,stroke(0)),size=(500,450),palette=:tab10,
+        xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
+foreach(ext->savefig(joinpath(resultroot,"UnitCluster$ext")),figfmt)
+
+
+groupedhist(Ft[:,3],group=cid,bar_position = :stack)
+
+dotplot(permutedims(ft),Ft[cid.==1,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:blue),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+# dotplot!(permutedims(ft),Ft[cid.==2,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:orange),
+#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),Ft[cid.==3,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:green),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),Ft[cid.==4,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:purple),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+
+
+
+clim=4;ms=0.1
+dotplot(permutedims(ft),clamp!(Ft[cid.==1,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[1]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),clamp!(Ft[cid.==2,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[2]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),clamp!(Ft[cid.==3,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[3]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),clamp!(Ft[cid.==4,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[4]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),clamp!(Ft[cid.==5,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[5]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+dotplot!(permutedims(ft),clamp!(Ft[cid.==6,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[6]),
+        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+foreach(ext->savefig(joinpath(resultroot,"SpikeFeature_UnitCluster$ext")),figfmt)
+
+cidx = [findall(cid.==i) for i in 1:length(unique(cid))]
+
+cws = map(i->unitwave[unitgood,:][sample(i,200,replace=false),:],cidx)
+ncws = map(i->0.8i./map(j->max(abs.(j)...),extrema(i,dims=2)),cws)
+
+cmws = map(i->dropdims(mean(i,dims=1),dims=1),cws)
+csews = map(i->dropdims(std(i,dims=1)/sqrt(200),dims=1),cws)
+ncmws = map(i->0.8i./max(abs.(extrema(i))...),cmws)
+
+
+cs = permutedims(coloralpha.(palette(:tab10).colors.colors[1:6],0.9))
+p=plot(leg=false)
+foreach(i->plot!(ncws[i]',color=cs[i],lw=3),[2,4])
+p
+
+
+p=plot(leg=false)
+foreach(i->plot!(ncmws[i],color=cs[i],lw=3),1:6)
+p
+foreach(ext->savefig(joinpath(resultroot,"SpikeWave_UnitCluster$ext")),figfmt)
+
+
+
+p=plot(cws,group=repeat(1:5,inner=100))
+p=plot(cws,group=1:81,leg=false)
+repeat([1 2 3 4 5],inner=(1,100))

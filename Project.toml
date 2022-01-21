@@ -1,6 +1,6 @@
 [deps]
 ANOVA = "0825541b-7374-5e1e-93bd-72e337c8a986"
-CircStat = "2f6764a1-d620-4564-9394-76eb7c776766"
+CircStats = "2f6764a1-d620-4564-9394-76eb7c776766"
 Contour = "d38c429a-6771-53c6-b99e-75d170b6e991"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"

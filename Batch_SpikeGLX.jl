@@ -601,7 +601,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         push!(umaxi,oi)
         push!(uenoughresponse,fms[u][oi...]>=minresponse)
         ut = "$(ugs[u][1])U"
-        # max slice responses for each factor
+        # max response slice for each factor
         for f in keys(fa)
             fdi = findfirst(f.==keys(fa))
             push!(umaxf[f],fa[f][oi[fdi]])
