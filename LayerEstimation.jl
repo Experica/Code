@@ -1,6 +1,6 @@
-using NeuroAnalysis,Statistics,FileIO,JLD2,Plots,Images,Interact
+using NeuroAnalysis,Statistics,FileIO,JLD2,Plots,Images,Interact,ProgressMeter,XLSX
 
-# Combine all layer tests of one RecordSite
+## Combine all layer tests of one RecordSite
 dataroot = "X:/"
 dataexportroot = "Y:/"
 resultroot = "Z:/"
@@ -60,12 +60,14 @@ figfmt = [".png"]
 # depths=csds[1][2];fs=csds[1][3]
 
 
+## Flash2Color
 flashdepth = (siteid,siteresultdir) -> begin
 
 ii = '0'
-testids = ["$(siteid)_Flash2Color_$i" for i in 0:3]
+test = "Flash2Color"
+testids = ["$(siteid)_$(test)_$i" for i in 0:3]
 testn=length(testids)
-## AP dRMS
+# AP dRMS
 aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
 titles = repeat(["$(i["eye"])_$(i["color"])" for i in aps],inner=2)
 colors = mapreduce(i->[RGBA(parse.(Float64,split(match(r".*Color=\[(.*)\]",k).captures[1],", "))...) for k in keys(i["cdrms"])],append!,aps)
@@ -74,20 +76,20 @@ time = mapreduce(i->[i["time"],i["time"]],append!,aps)
 depths = mapreduce(i->[i["depths"],i["depths"]],append!,aps)
 rmslim=absmax(drms)
 
-plotdepthresponse(drms,rmslim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"dRMS$ext")),figfmt)
+plotflashdepthresponse(drms,rmslim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dRMS$ext")),figfmt)
 
-## Unit dPSTH
+# Unit dPSTH
 dpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
 dpsth = mapreduce(i->[v.psth for v in values(i["cdpsth"])],append!,dpsths)
 time = mapreduce(i->[v.x for v in values(i["cdpsth"])],append!,dpsths)
 depths = mapreduce(i->[v.y for v in values(i["cdpsth"])],append!,dpsths)
 psthlim=absmax(dpsth)
 
-plotdepthresponse(dpsth,psthlim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"dPSTH$ext")),figfmt)
+plotflashdepthresponse(dpsth,psthlim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dPSTH$ext")),figfmt)
 
-## LFP and CSD
+# LFP and CSD
 lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
 lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
 dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
@@ -96,21 +98,21 @@ depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
 lfplim=absmax(lfp)
 csdlim=absmax(dcsd)
 
-plotdepthresponse(lfp,lfplim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"LFP$ext")),figfmt)
+plotflashdepthresponse(lfp,lfplim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LFP$ext")),figfmt)
 
-plotdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"dCSD$ext")),figfmt)
+plotflashdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dCSD$ext")),figfmt)
 
 # 5x1 gaussian kernal(80μm)
 fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
-plotdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"fdCSD$ext")),figfmt)
+plotflashdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_fdCSD$ext")),figfmt)
 end
 
 
 absmax(x) = mapreduce(i->maximum(abs.(i)),max,x)
-plotdepthresponse=(resp,lim,time,depths,colors,titles;w=140,h=600,color=:coolwarm)->begin
+plotflashdepthresponse=(resp,lim,time,depths,colors,titles;w=140,h=600,color=:coolwarm)->begin
     n = length(resp)
     p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
     for i in 1:n
@@ -128,10 +130,91 @@ plotdepthresponse=(resp,lim,time,depths,colors,titles;w=140,h=600,color=:coolwar
     p
 end
 
+
+## OriSF
+orisfdepth = (siteid,siteresultdir) -> begin
+
+ii = '0'
+test = "OriSF"
+testids = ["$(siteid)_$(test)_$i" for i in 0:3]
+testn=length(testids)
+# AP dRMS
+aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
+titles = repeat(["$(i["eye"])_$(i["color"])" for i in aps],inner=2)
+colors = mapreduce(i->[RGBA(parse.(Float64,split(match(r".*Color=\[(.*)\]",k).captures[1],", "))...) for k in keys(i["cdrms"])],append!,aps)
+drms = mapreduce(i->[1e6v for v in values(i["cdrms"])],append!,aps)
+time = mapreduce(i->[i["time"],i["time"]],append!,aps)
+depths = mapreduce(i->[i["depths"],i["depths"]],append!,aps)
+rmslim=absmax(drms)
+
+cmdrms = map(i->mapreduce(v->1e6v,.+, values(i["cdrms"])),aps)
+
+p=plot(layout=(1,4),link=:y,legend=false,grid=false)
+for i in 1:4
+    yticks = i==1 ? (0:500:depths[i][end]) : false
+    xticks = (0:50:time[i][end])
+    lmargin = i==1 ? 4mm : -4mm
+    xlabel = i==1 ? "Time (ms)" : ""
+    ylabel = i==1 ? "Depth (μm)" : ""
+
+    lim = maximum(abs.(cmdrms[i]))
+    clims = (-lim,lim)
+    heatmap!(p[i],time[i],depths[i],cmdrms[i];yticks,xticks,color=:coolwarm,clims)
+    anno = [(time[i][1]+3,mean(layer[k]),text(k,6,:gray10,:center,:left)) for k in keys(layer)]
+    hline!(p[i],[l[2] for l in values(layer)],linecolor=:gray25,legend=false,lw=0.5,annotations=anno)
+end
+
+p
+
+
+plotflashdepthresponse(drms,rmslim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dRMS$ext")),figfmt)
+
+# Unit dPSTH
+dpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
+dpsth = mapreduce(i->[v.psth for v in values(i["cdpsth"])],append!,dpsths)
+time = mapreduce(i->[v.x for v in values(i["cdpsth"])],append!,dpsths)
+depths = mapreduce(i->[v.y for v in values(i["cdpsth"])],append!,dpsths)
+psthlim=absmax(dpsth)
+
+plotflashdepthresponse(dpsth,psthlim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dPSTH$ext")),figfmt)
+
+# LFP and CSD
+lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
+lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
+dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
+time = mapreduce(i->[i["time"],i["time"]],append!,lfps)
+depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
+lfplim=absmax(lfp)
+csdlim=absmax(dcsd)
+
+plotflashdepthresponse(lfp,lfplim,time,depths,colors,titles)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LFP$ext")),figfmt)
+
+plotflashdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dCSD$ext")),figfmt)
+
+# 5x1 gaussian kernal(80μm)
+fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
+plotflashdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_fdCSD$ext")),figfmt)
+end
+
+
+
+
+
+
+
+
+
+
 ## Batch Penetration Sites
 penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
 @showprogress "Batch FlashDepth ... " for r in eachrow(penetration)
     flashdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid))
+    orisfdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid))
 end
 
 
@@ -144,57 +227,61 @@ depths = mapreduce(i->[i["depths"][1:2:end],i["depths"][1:2:end]],append!,lfps)
 
 
 
+
+
+
+
 ## Set Layers
-plotlayer=(o...;w=230,h=510)->begin
-    cn = length(csds)
-    p=plot(layout=(3,cn),link=:y,legend=false,grid=false,size=(cn*w,3h))
-    for i in 1:cn
-        yticks = i==1 ? true : false
-        xlabel = i==1 ? "Time (ms)" : ""
-        ylabel = i==1 ? "Depth (um)" : ""
-        heatmap!(p,subplot=i,csdx,lfpdepths,csds[i].second,color=:RdBu,clims=(-csdclim,csdclim),title=csds[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-        if !isnothing(layer)
-            hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-            annotations=[(csdx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-        end
-    end
-    for i in 1:cn
-        yticks = i==1 ? true : false
-        xlabel = i==1 ? "Time (ms)" : ""
-        ylabel = i==1 ? "Depth (um)" : ""
-        heatmap!(p,subplot=cn+i,psthx,psthdepths,psths[i].second,color=:coolwarm,clims=(-psthclim,psthclim),title=psths[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-        if i==1
-            pn = maximum(psthx) .- psthdn./maximum(psthdn) .* maximum(psthx) .* 0.2
-            plot!(p,subplot=cn+i,pn,psthdepths,label="Number of Units",color=:seagreen,lw=0.5)
-        end
-        if !isnothing(layer)
-            hline!(p,subplot=cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-            annotations=[(psthx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-        end
-    end
-    for i in 1:cn
-        yticks = i==1 ? true : false
-        xlabel = i==1 ? "Frequency (Hz)" : ""
-        ylabel = i==1 ? "Depth (um)" : ""
-        heatmap!(p,subplot=2cn+i,freq,lfpdepths,pcs[i].second,color=:vik,clims=(-pcclim,pcclim),title=pcs[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-        if !isnothing(layer)
-            hline!(p,subplot=2cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-            annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-        end
-    end
-    p
-end
+# plotlayer=(o...;w=230,h=510)->begin
+#     cn = length(csds)
+#     p=plot(layout=(3,cn),link=:y,legend=false,grid=false,size=(cn*w,3h))
+#     for i in 1:cn
+#         yticks = i==1 ? true : false
+#         xlabel = i==1 ? "Time (ms)" : ""
+#         ylabel = i==1 ? "Depth (um)" : ""
+#         heatmap!(p,subplot=i,csdx,lfpdepths,csds[i].second,color=:RdBu,clims=(-csdclim,csdclim),title=csds[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+#         if !isnothing(layer)
+#             hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
+#             annotations=[(csdx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
+#         end
+#     end
+#     for i in 1:cn
+#         yticks = i==1 ? true : false
+#         xlabel = i==1 ? "Time (ms)" : ""
+#         ylabel = i==1 ? "Depth (um)" : ""
+#         heatmap!(p,subplot=cn+i,psthx,psthdepths,psths[i].second,color=:coolwarm,clims=(-psthclim,psthclim),title=psths[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+#         if i==1
+#             pn = maximum(psthx) .- psthdn./maximum(psthdn) .* maximum(psthx) .* 0.2
+#             plot!(p,subplot=cn+i,pn,psthdepths,label="Number of Units",color=:seagreen,lw=0.5)
+#         end
+#         if !isnothing(layer)
+#             hline!(p,subplot=cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
+#             annotations=[(psthx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
+#         end
+#     end
+#     for i in 1:cn
+#         yticks = i==1 ? true : false
+#         xlabel = i==1 ? "Frequency (Hz)" : ""
+#         ylabel = i==1 ? "Depth (um)" : ""
+#         heatmap!(p,subplot=2cn+i,freq,lfpdepths,pcs[i].second,color=:vik,clims=(-pcclim,pcclim),title=pcs[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
+#         if !isnothing(layer)
+#             hline!(p,subplot=2cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
+#             annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
+#         end
+#     end
+#     p
+# end
+#
+# lw = Dict(k=>widget(0:3800,label=k,value=layer[k][1]) for k in keys(layer))
+# foreach(k->on(v->layer[k][1]=v,lw[k]),keys(lw))
+# lp = map(plotlayer,values(lw)...)
+# vbox(values(lw)...,lp)
+#
+# plotlayer()
+# foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
 
-lw = Dict(k=>widget(0:3800,label=k,value=layer[k][1]) for k in keys(layer))
-foreach(k->on(v->layer[k][1]=v,lw[k]),keys(lw))
-lp = map(plotlayer,values(lw)...)
-vbox(values(lw)...,lp)
 
-plotlayer()
-foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
-
-
-# # earliest response should be due to LGN M,P input to 4Ca,4Cb
+# earliest response should be due to LGN M,P input to 4Ca,4Cb
 # ln = ["4Cb","4Ca","4B","4A","2/3","Out"]
 # lcsd = dropdims(mean(mncsd[:,epoch2samplerange([0.045 0.055],fs)],dims=2),dims=2)
 # ldepths = depths[1]:depths[end]

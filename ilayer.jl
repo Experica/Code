@@ -1,18 +1,19 @@
-using Statistics,FileIO,JLD2,Plots
+using Statistics,FileIO,JLD2,Images,Plots
 
 # Manual Layer Assignment
 dataroot = "X:/"
 dataexportroot = "Y:/"
 resultroot = "Z:/"
 
-subject = "AG2";recordsession = "V1";recordsite = "ODR5"
+subject = "AG2";recordsession = "V1";recordsite = "ODR1"
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 figfmt = [".png"]
 
 
 ii = '0'
-testids = ["$(siteid)_Flash2Color_$i" for i in 0:3]
+test = "Flash2Color"
+testids = ["$(siteid)_$(test)_$i" for i in 0:3]
 absmax(x) = mapreduce(i->maximum(abs.(i)),max,x)
 ## AP dRMS
 aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
@@ -44,9 +45,9 @@ uf = load(joinpath(siteresultdir,"unitdepthfeature.jld2"),"df")
 ufy = uf["depth"]
 udf = (;(Symbol(k)=>uf["depthfeature"][:,k.==uf["feature"][:]] for k in uf["feature"])...)
 
-plotdepthinfo=(;w=150,h=500,r=4,layer=nothing)->begin
+plotflashdepthinfo=(;w=150,h=500,r=4,layer=nothing,clim=:absmax)->begin
     n = length(drms)
-	cs = permutedims(palette(:default).colors.colors[1:4])
+	cs = permutedims(palette(:tab10).colors.colors[1:4])
     p=plot(layout=(r,n),link=:y,legend=false,grid=false,size=(n*w,r*h))
     for i in 1:n, j in 1:r
 		if j == 1
@@ -54,7 +55,7 @@ plotdepthinfo=(;w=150,h=500,r=4,layer=nothing)->begin
 		elseif j == 2
 			resp = dpsth;time = psthtime;depths = psthdepths;lim = psthlim;color=:coolwarm;title=fill("",n)
 		elseif j == 3
-			resp = dcsd;time = lfptime;depths = lfpdepths;lim = csdlim;color=:RdBu;title=fill("",n)
+			resp = dcsd;time = lfptime;depths = lfpdepths;lim = csdlim;color=cgrad(:coolwarm,rev=true);title=fill("",n)
 		end
 		if j==4
 			lmargin = i==1 ? 12Plots.mm : -4Plots.mm
@@ -95,11 +96,20 @@ plotdepthinfo=(;w=150,h=500,r=4,layer=nothing)->begin
 	        xlabel = (j==3 && i==1) ? "Time (ms)" : ""
 	        ylabel = i==1 ? "Depth (μm)" : ""
 			canno = [(5,25,Plots.text("■",15,colors[i],:left,:bottom))]
-	        heatmap!(p[j,i],time[i],depths[i],resp[i];color,clims=(-lim,lim),
+			if clim == :link
+				clims = (-lim,lim)
+			elseif clim == :absmax
+				lim = maximum(abs.(resp[i]))
+				clims = (-lim,lim)
+			else
+				clims = :auto
+			end
+	        heatmap!(p[j,i],time[i],depths[i],resp[i];color,clims,
 	        title=title[i],titlefontsize=10,yticks,xticks,tickor=:out,xlabel,ylabel,
 	        annotation=canno,left_margin=lmargin)
 			if !isnothing(layer)
-				anno = i==1 ? [(time[i][1]+3,mean(layer[k]),text(k,6,:gray10,:center,:left)) for k in keys(layer)] : []
+				# anno = i==1 ? [(time[i][1]+3,mean(layer[k]),text(k,6,:gray10,:center,:left)) for k in keys(layer)] : []
+				anno = [(time[i][1]+3,mean(layer[k]),text(k,6,:gray10,:center,:left)) for k in keys(layer)]
 	            hline!(p[j,i],[l[2] for l in values(layer)],linecolor=:gray25,legend=false,lw=0.5,annotations=anno)
 	        end
 		end
@@ -111,19 +121,19 @@ end
 layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
 layer = Dict()
 
-layer["1"] = [3500,3700]
-layer["2"] = [3380,3500]
-layer["3"] = [2930,3380]
-layer["4A"] = [2850,2930]
-layer["4B"] = [2750,2850]
-layer["4Cα"] = [2650,2750]
-layer["4Cβ"] = [2550,2650]
-layer["5"] = [2380,2550]
-layer["6"] = [2030,2380]
-layer["WM"] = [0,2030]
+layer["1"] = [1800,1900]
+layer["2"] = [1700,1800]
+layer["3"] = [1350,1700]
+layer["4A"] = [1300,2550]
+layer["4B"] = [1150,1300]
+layer["4Cα"] = [2150,2280]
+layer["4Cβ"] = [950,2150]
+layer["5"] = [750,2030]
+layer["6"] = [500,750]
+layer["WM"] = [0,500]
 
-plotdepthinfo(;layer)
-foreach(ext->savefig(joinpath(siteresultdir,"LayerAssignment$ext")),figfmt)
+plotflashdepthinfo(;layer,clim=:absmax)
+foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LayerAssignment$ext")),figfmt)
 
 ## Finalize Layer
 layer = checklayer!(layer)

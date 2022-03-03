@@ -19,11 +19,11 @@ tests = select!(filter(meta) do r
                     r.Subject_ID in ["AG1", "AG2"] &&
                     # r.RecordSession == "V1" &&
                     # r.RecordSite == "ODR1" &&
-                    r.ID == "OriSF" &&
+                    r.ID == "Color" &&
                     r.sourceformat == "SpikeGLX"
                     end,
                 [:files,:ID,:UUID,:sourceformat])
-files = ".\\AG2\\AG2_V1_ODR1_OriSF_4.mat"
+files = ".\\AG2\\AG2_V1_ODR1_Color_0.mat"
 pyplot()
 
 ## Setup Param

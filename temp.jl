@@ -652,3 +652,75 @@ map(p->(;vmeanse(p.mat[1:2:end,:])...,p.x),unitepochpsth)
 
 
 ##
+
+x=-4:0.1:4
+tv = 100*dogf.(x)
+ob = 100*dogf.(x) .+ 10*randn(length(x))
+
+chi2count(x)= round.(Int,x.-minimum(x))
+function chi2p(x)
+    t = x.-minimum(x)
+    t ./= sum(t)
+end
+
+pvalue(ChisqTest(chi2count(ob),chi2p(tv)))
+pvalue(ChisqTest(chi2count(ob)))
+
+
+Plots.plot(chi2count(ob))
+Plots.plot(chi2p(tv))
+
+Plots.plot(ob)
+Plots.plot(tv)
+
+
+pvalue(ApproximateTwoSampleKSTest(tv,ob))
+
+
+
+
+
+
+p=plot(layout=(3,3),leg=false,frame=:origin,yticks=[],xticks=[],lw=2,link=:y)
+plot!(p[2,1],x->dogf(x,aₑ=1,σₑ=2,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[2,2],x->dogf(x,aₑ=1,σₑ=1,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[2,3],x->dogf(x,aₑ=1,σₑ=1,aᵢ=1,σᵢ=2),-4:0.01:4,lw=2)
+
+plot!(p[1,1],x->dogf(x,aₑ=1,σₑ=2,aᵢ=2,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[1,2],x->dogf(x,aₑ=1,σₑ=1,aᵢ=2,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[1,3],x->dogf(x,aₑ=1,σₑ=1,aᵢ=2,σᵢ=2),-4:0.01:4,lw=2)
+
+plot!(p[3,1],x->dogf(x,aₑ=2,σₑ=2,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[3,2],x->dogf(x,aₑ=2,σₑ=1,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
+plot!(p[3,3],x->dogf(x,aₑ=2,σₑ=1,aᵢ=1,σᵢ=2),-4:0.01:4,lw=2)
+
+p
+
+
+
+
+
+p=plot(layout=(3,4),leg=false,frame=:origin,yticks=[],xticks=[],lw=2,link=:y)
+
+
+plot!(p[1,1],x->gaborf(x,f=0.125,phase=0),-2:0.01:2,lw=2)
+plot!(p[1,2],x->gaborf(x,f=0.125,phase=0.25),-2:0.01:2,lw=2)
+plot!(p[1,3],x->gaborf(x,f=0.125,phase=0.5),-2:0.01:2,lw=2)
+plot!(p[1,4],x->gaborf(x,f=0.125,phase=0.75),-2:0.01:2,lw=2)
+
+plot!(p[2,1],x->gaborf(x,f=0.25,phase=0),-2:0.01:2,lw=2)
+plot!(p[2,2],x->gaborf(x,f=0.25,phase=0.25),-2:0.01:2,lw=2)
+plot!(p[2,3],x->gaborf(x,f=0.25,phase=0.5),-2:0.01:2,lw=2)
+plot!(p[2,4],x->gaborf(x,f=0.25,phase=0.75),-2:0.01:2,lw=2)
+
+plot!(p[3,1],x->gaborf(x,f=0.375,phase=0),-2:0.01:2,lw=2)
+plot!(p[3,2],x->gaborf(x,f=0.375,phase=0.25),-2:0.01:2,lw=2)
+plot!(p[3,3],x->gaborf(x,f=0.375,phase=0.5),-2:0.01:2,lw=2)
+plot!(p[3,4],x->gaborf(x,f=0.375,phase=0.75),-2:0.01:2,lw=2)
+
+p
+
+savefig("test.png")
+
+
+##

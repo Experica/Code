@@ -1,343 +1,380 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,Images,StatsPlots,Interact,ImageSegmentation,LsqFit,ProgressMeter,Distances,
-Combinatorics,VegaLite,DataFrames,Clustering,TSne,MultivariateStats
-import NeuroAnalysis: isresponsive
-
-dataroot = "../Data"
-dataexportroot = "../DataExport"
-resultroot = "../Result"
-
-subject = "AF5";recordsession = "HLV1";recordsite = "ODL2"
-siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
-resultsitedir = joinpath(resultroot,subject,siteid)
-layer = load(joinpath(resultsitedir,"layer.jld2"),"layer")
+using NeuroAnalysis,Statistics,StatsBase,FileIO,JLD2,Images,StatsPlots,Interact,Distances,Combinatorics,
+    VegaLite,DataFrames,Clustering,UMAP,MultivariateStats,HypothesisTests
 
 
-ccode=Dict("DKL_X"=>'A',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S')
-"extrema value of max amplitude and it's delay index"
-function exd(csta)
-    exi = [argmin(csta),argmax(csta)]
-    ex = csta[exi]
-    absexi = argmax(abs.(ex))
-    (ex=ex[absexi],d=exi[absexi][3])
-end
-"join channel stas"
-function joinsta(stas;μ=0.5)
-    cn = length(stas)
-    sizepx = stas[1]["sizepx"]
-    sizedeg = stas[1]["sizedeg"]
-    delays = stas[1]["delays"]
-    ppd = first(sizepx./sizedeg)
-    xi = stas[1]["xi"]
-    notxi = setdiff(1:prod(sizepx),xi)
-    cii=CartesianIndices(sizepx)
-    bdi = filter!(i->!isnothing(i),indexin([-30:0;200:230],delays))
-
-    dataset = Dict("sizedeg"=>sizedeg,"sizepx"=>sizepx,"delays"=>delays,"ppd"=>ppd,"bdi"=>bdi)
-    dataset["log"] = [i["log"] for i in stas]
-    dataset["color"] = [i["color"] for i in stas]
-    dataset["ccode"] = map(i->ccode[i],dataset["color"])
-    dataset["minmaxcolor"] = [(i["mincolor"],i["maxcolor"]) for i in stas]
-    usta = Dict();ucexd=Dict();uresponsive=Dict()
-
-    uids = mapreduce(c->keys(stas[c]["usta"]),intersect,1:cn)
-    for u in uids
-        csta = Array{Float64}(undef,sizepx...,length(delays),cn)
-        cexd = []
-        for c in 1:cn
-            zsta = stas[c]["usta"][u].-μ
-            for d in eachindex(delays)
-                csta[cii[notxi],d,c].=mean(zsta[d,:])
-                csta[cii[xi],d,c] = zsta[d,:]
+function collectsta(indir;unit=DataFrame(),datafile="stadataset.jld2")
+    for (root,dirs,files) in walkdir(indir)
+        if datafile in files
+            dataset = load(joinpath(root,datafile),"dataset")
+            siteid = dataset["siteid"]
+            # STA was batched only for SU
+            # SU was chosen that spikes in all tests
+            # lroi only for STA responsive in at least one tests
+            id = ["$(siteid)_SU$u" for u in keys(dataset["ulroi"])]
+            roic = [v.centerdeg for v in values(dataset["ulroi"])]
+            roir = [v.radiusdeg for v in values(dataset["ulroi"])]
+            cr = Any[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["ulroi"])]
+            df = DataFrame(siteid=siteid,id=id,roicenter=roic,roiradius=roir,cr=cr)
+            if haskey(dataset,"ulfit")
+                foreach(m->df[!,"sta!$m"]=Any[dataset["ulfit"][u][m] for u in keys(dataset["ulroi"])], keys(first(values(dataset["ulfit"]))))
             end
-            push!(cexd,exd(csta[:,:,:,c]))
+            append!(unit,df,cols=:union)
         end
-        usta[u] = csta
-        ucexd[u] = cexd
-        uresponsive[u] = false
     end
-    dataset["usta"] = usta
-    dataset["ucexd"] = ucexd
-    dataset["uresponsive"] = uresponsive
-    return dataset
+    return unit
 end
-"local RMS contrast of each image, highlighting local structure regions"
-function localcontrast(csta;ws=0.5,ppd=45)
-    dims = size(csta)
-    clc = Array{Float64}(undef,dims)
-    w = round(Int,ws*ppd)
-    w = iseven(w) ? w+1 : w
-    for d in 1:dims[3], c in 1:dims[4]
-        clc[:,:,d,c] = mapwindow(std,csta[:,:,d,c],(w,w))
-    end
-    return clc
-end
-"peak ROI region and its delay"
-function peakroi(clc)
-    pi = [Tuple(argmax(clc))...]
-    plc = clc[:,:,pi[3:end]...]
-    segs = seeded_region_growing(plc,[(CartesianIndex(1,1),1),(CartesianIndex(pi[1:2]...),2)])
-    idx = findall(labels_map(segs).==2)
-    idxlims = dropdims(extrema(mapreduce(i->[Tuple(i)...],hcat,idx),dims=2),dims=2)
-    hw = map(i->i[2]-i[1],idxlims)
-    center = round.(Int,mean.(idxlims))
-    radius = round(Int,maximum(hw)/2)
-    return (i=idx,center=center,radius=radius,pd=pi[3])
-end
-"check local mean or contrast in a region at a delay significently higher than baseline"
-function isresponsive(sta,idx,d,bdi;mfactor=3,cfactor=3)
-    d in bdi && return false
-    blm = [mean(sta[idx,j]) for j in bdi]
-    bmm = mean(blm);bmsd=std(blm)
-    blc = [std(sta[idx,j]) for j in bdi]
-    bcm = mean(blc);bcsd=std(blc)
-    (std(sta[idx,d]) > bcm+cfactor*bcsd) || (mean(sta[idx,d]) > bmm+mfactor*bmsd)
-end
-"check unit responsive and cut local sta"
-function responsivesta!(dataset;ws=0.5,mfactor=3.5,cfactor=3.5,roimargin=0,peakroirlim=2)
-    sizepx = dataset["sizepx"]
-    ppd = dataset["ppd"]
-    bdi = dataset["bdi"]
-    usta = dataset["usta"]
-    ucexd = dataset["ucexd"]
-    uresponsive=dataset["uresponsive"]
 
-    ulsta=Dict();ulcexd=Dict();ulroi=Dict();ucresponsive=Dict()
-    p = ProgressMeter.Progress(length(usta),desc="Test STAs ... ")
-    for u in keys(usta)
-        clc = localcontrast(usta[u],ws=ws,ppd=ppd)
-        cproi = map(c->peakroi(clc[:,:,:,c]),1:size(clc,4))
-        ucresponsive[u] = map(c->cproi[c].radius < peakroirlim*ppd ? isresponsive(usta[u][:,:,:,c],cproi[c].i,cproi[c].pd,bdi,mfactor=mfactor,cfactor=cfactor) : false,1:size(clc,4))
-        if any(ucresponsive[u])
-            uresponsive[u] = true
-            vroi = cproi[ucresponsive[u]]
-            vcs = mapfoldl(r->r.center,hcat,vroi,init=zeros(Int,2,0))
-            center = round.(Int,mean(vcs,dims=2)[:])
-            cdev = maximum(Distances.colwise(Euclidean(),vcs,center))
-            radius = round(Int,(maximum(map(r->r.radius,vroi))+cdev)*(1+roimargin))
-            vr = map(i->intersect(center[i].+(-radius:radius),1:sizepx[i]),1:2)
-            radius = (minimum ∘ mapreduce)((r,c)->abs.([r[begin],r[end]].-c),append!,vr,center)
-            ulroi[u] = (center=center,diameterdeg=(2radius+1)/ppd)
-            ulsta[u] = usta[u][map(i->i.+(-radius:radius),center)...,:,:]
-            ulcexd[u] = map(i->exd(ulsta[u][:,:,:,i]),1:size(ulsta[u],4))
-        else
-            uresponsive[u] = false
-        end
-        next!(p)
-    end
-    dataset["ulsta"]=ulsta
-    dataset["ulroi"]=ulroi
-    dataset["ulcexd"]=ulcexd
-    dataset["ucresponsive"]=ucresponsive
+## STA
+resultroot = "Z:/"
+figfmt = [".png"]
 
-    return dataset
-end
-"gabor RF model"
-rfgabor(x,y,p...) = gaborf(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[5],θ=p[6],f=p[7],phase=p[8])
-# rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3]*p[5],θₑ=p[6],aᵢ=p[7],μᵢ₁=p[2]+p[8],σᵢ₁=p[3]*p[9],μᵢ₂=p[4]+p[10],σᵢ₂=p[3]*p[9]*p[5],θᵢ=p[6])
-"dog RF model"
-rfdog(x,y,p...) = dogf(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[3]*p[6],μᵢ₂=p[4],σᵢ₂=p[3]*p[6],θᵢ=0)
-"fit a 2D model to an image"
-function modelfit(data,ppd;model=:gabor)
-    alb,aub = abs.(extrema(data))
-    ab = max(alb,aub)
-    rpx = (size(data)[1]-1)/2
-    r = rpx/ppd
+staunit = collectsta(resultroot)
 
-    x = (mapreduce(i->[i[2] -i[1]],vcat,CartesianIndices(data)) .+ [-(rpx+1) rpx+1])/ppd
-    y = vec(data)
-    rlt = mfun = missing
-    try
-        if model == :dog
-            if aub >= alb
-                ai = 3.5alb
-                ae = aub + ai
-                es = 0.2r;esl=0.15r;esu=0.3r
-                ier=2;ierl = 1.1;ieru = 3
-            else
-                ae = 3.5aub
-                ai = alb + ae
-                es = 0.4r;esl=0.16r;esu=0.6r
-                ier=0.5;ierl = 0.3;ieru = 0.9
-            end
-            # lb=[0,          -0.4sr,    0.1sr,   -0.4sr,    0.5,    0,     0,       -0.1sr,     0.1,    -0.1sr]
-            # ub=[10,         0.4sr,    0.5sr,    0.4sr,    2,      π,     Inf,      0.1sr,     10,       0.1sr]
-            # p0=[0,       0,        0.3sr,    0,        1,      π/4,   aei[2],    0,         0.25,       0]
-            ub=[1.5ae,    0.36r,    esu,    0.36r,     1.5ai,    ieru]
-            lb=[0.5ae,   -0.36r,    esl,   -0.36r,     0.5ai,    ierl]
-            p0=[ae,       0,        es,     0,          ai,      ier]
-            mfun = (x,p) -> rfdog.(x[:,1],x[:,2],p...)
-        elseif model == :gabor
-            ori,sf = f1orisf(powerspectrum2(data,ppd)...)
-            fub = min(1.5sf,8);flb=max(0.5sf,0.2)
-            ub=[1.3ab,   0.36r,   0.36r,   0.36r,   0.36r,     π,    fub,   1]
-            lb=[0.7ab,  -0.36r,   0.1r,   -0.36r,   0.1r,      0,    flb,   0]
-            p0=[ab,      0,       0.2r,    0,       0.2r,      ori,  sf,    0]
-            mfun = (x,p) -> rfgabor.(x[:,1],x[:,2],p...)
-        end
-        if !ismissing(mfun)
-            mfit = curve_fit(mfun,x,y,p0,lower=lb,upper=ub,
-            maxIter=3000,x_tol=1e-11,g_tol=1e-15,min_step_quality=1e-4,good_step_quality=0.25,lambda_increase=5,lambda_decrease=0.2)
-            rlt = (model=model,radius=r,param=mfit.param,converged=mfit.converged,resid=mfit.resid,r=cor(y,mfun(x,mfit.param)))
-        end
-    catch
-    end
-    return rlt
-end
-"fit responsive sta to each type of models"
-function rffit!(dataset;model=[:gabor,:dog])
-    ulsta = dataset["ulsta"]
-    ulroi = dataset["ulroi"]
-    ppd = dataset["ppd"]
 
-    if !haskey(dataset,"urf")
-        dataset["urf"]=Dict()
-    end
-    urf = dataset["urf"]
-    p = ProgressMeter.Progress(length(ulsta),desc="Fit RFs ... ")
-    for u in keys(ulsta)
-        if !haskey(urf,u)
-            urf[u] = Dict()
-        end
-        rs = dataset["ucresponsive"][u]
-        ds = map(i->i.d,dataset["ulcexd"][u])
-        for m in model
-            urf[u][m] = [rs[i] ? modelfit(ulsta[u][:,:,ds[i],i],ppd,model=m) : missing for i in 1:length(rs)]
-        end
-        next!(p)
+sym(r) = r < 1 ? 1 - 1/r : r - 1
+abssym(r) = abs(sym(r))
+signsym(r) = sign(sym(r))
+oddeven(p) = p < 0.5 ? 4abs(p-0.25) : 4abs(p-0.75)
+onoff(p) = p < 0.5 ? 1 - 4abs(p-0.25) : 4abs(p-0.75) - 1
+dogfun = (x,y,p) -> dogf.(x,y,aₑ=p[1],μₑ₁=p[2],σₑ₁=p[3],μₑ₂=p[4],σₑ₂=p[3],θₑ=0,aᵢ=p[5],μᵢ₁=p[2],σᵢ₁=p[6],μᵢ₂=p[4],σᵢ₂=p[6],θᵢ=0)
+gaborfun = (x,y,p) -> gaborf.(x,y,a=p[1],μ₁=p[2],σ₁=p[3],μ₂=p[4],σ₂=p[5],θ=p[6],f=p[7],phase=p[8])
+
+function fitpredict(model,param;ppd=45,tight=false)
+    if model==:dog
+        fit=(;model,param,fun=dogfun)
+    elseif model==:gabor
+        fit=(;model,param,fun=gaborfun)
     end
 
-    return dataset
+   fitpredict(fit;ppd,tight)
 end
-
-
-
-## Load all stas
-testids = ["$(siteid)_HartleySubspace_$i" for i in 1:4]
-testn=length(testids)
-stadir = joinpath(resultsitedir,"sta")
-isdir(stadir) || mkpath(stadir)
-lstadir = joinpath(resultsitedir,"lsta")
-isdir(lstadir) || mkpath(lstadir)
-rffitdir = joinpath(resultsitedir,"rffit")
-isdir(rffitdir) || mkpath(rffitdir)
-
-dataset = joinsta(load.(joinpath.(resultsitedir,testids,"sta.jld2")))
-dataset = responsivesta!(dataset)
-dataset = rffit!(dataset,model=[:gabor])
-
-save(joinpath(resultsitedir,"stadataset.jld2"),"dataset",dataset)
-dataset = load(joinpath(resultsitedir,"stadataset.jld2"),"dataset")
-
-## stas
-plotstas=(u,d;dir=nothing)->begin
-    usta = dataset["usta"][u]
-    delays = dataset["delays"]
-    sizepx = dataset["sizepx"]
-    sizedeg = dataset["sizedeg"]
-    uresponsive = dataset["uresponsive"][u]
-    clim = maximum(map(i->abs(i.ex),dataset["ucexd"][u]))
-    xlims = [0,sizedeg[2]]
-    ylims = [0,sizedeg[1]]
-    x = range(xlims...,length=sizepx[2])
-    y = range(ylims...,length=sizepx[1])
-
-    title = "Unit_$(u)_STA_$(delays[d])"
-    p = Plots.plot(layout=(1,testn),legend=false,size=(400testn,600),titlefontcolor=uresponsive ? :green : :match,title=title)
-    foreach(c->Plots.heatmap!(p,subplot=c,x,y,usta[:,:,d,c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xlims,ylims=ylims,xticks=xlims,yticks=ylims,yflip=true,xlabel=dataset["color"][c]),1:testn)
-    isnothing(dir) ? p : savefig(joinpath(dir,"$title.png"))
+function fitpredict(fit;ppd=45,tight=false)
+   if tight
+       param = deepcopy(fit.param)
+       if fit.model == :dog
+           param[[2,4]].=0
+           radius = 3*maximum(param[[6,3]])
+           fit = (;fit.model,fit.fun,param,radius)
+       elseif fit.model == :gabor
+           param[[2,4]].=0
+           radius = 3*maximum(param[[3,5]])
+           fit = (;fit.model,fit.fun,param,radius)
+       end
+   end
+   x=y= -fit.radius:1/ppd:fit.radius
+   predict(fit,x,y,yflip=true)
 end
-
-@manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
-    plotstas(u,d)
-end
-for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
-    u != 167 && continue
-    plotstas(u,d,dir=stadir)
-end
-## responsive local stas
-plotlstas=(u;dir=nothing)->begin
-    ulsta = dataset["ulsta"][u]
-    delays = dataset["delays"]
-    diameterpx = size(ulsta)[1]
-    diameterdeg = dataset["ulroi"][u].diameterdeg
-    ucresponsive = dataset["ucresponsive"][u]
-    ulcex = map(i->i.ex,dataset["ulcexd"][u])
-    ulcd = map(i->i.d,dataset["ulcexd"][u])
-    clim = maximum(abs.(ulcex))
-    xylims = [0,round(diameterdeg,digits=1)]
-    xy = range(xylims...,length=diameterpx)
-
-    p = Plots.plot(layout=(1,testn+1),legend=false,size=(350(testn+1),600))
-    Plots.bar!(p,subplot=1,dataset["color"],ulcex,frame=:zerolines,ylabel="extrema")
-    foreach(c->Plots.heatmap!(p,subplot=c+1,xy,xy,ulsta[:,:,ulcd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    titlefontcolor=ucresponsive[c] ? :green : :match,xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,xlabel=dataset["color"][c],title="Unit_$(u)_STA_$(delays[ulcd[c]])"),1:testn)
-    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$u.png"))
-end
-
-@manipulate for u in sort(collect(keys(dataset["ulsta"])))
-    plotlstas(u)
-end
-for u in sort(collect(keys(dataset["ulsta"])))
-    plotlstas(u,dir=lstadir)
-end
-## rf fit
-function rfimage(rffit,x,y;yflip=false)
-    if rffit.model == :dog
-        rfi = [rfdog(i,j,rffit.param...) for j in y, i in x]
-    else
-        rfi = [rfgabor(i,j,rffit.param...) for j in y, i in x]
+function fitnorm(fit;sdfactor=3)
+    param = deepcopy(fit.param)
+    if fit.model == :dog
+        param[[2,4]].=0
+        radius = sdfactor*maximum(param[[6,3]])
+    elseif fit.model == :gabor
+        param[[2,4]].=0
+        radius = sdfactor*maximum(param[[3,5]])
     end
-    yflip && (rfi=reverse(rfi,dims=1))
-    rfi
-end
-function rfimage(rffit,radiusdeg;ppd=45,yflip=true)
-    x=y= -radiusdeg:1/ppd:radiusdeg
-    rfimage(rffit,x,y,yflip=yflip)
+    sqrt(hcubature(x->fit.fun(x...,param)^2,[-radius,-radius],[radius,radius])[1])
 end
 
-plotrffit=(u,m;dir=nothing)->begin
-    ulsta = dataset["ulsta"][u]
-    delays = dataset["delays"]
-    ppd = dataset["ppd"]
-    diameterpx = size(ulsta)[1]
-    diameterdeg = dataset["ulroi"][u].diameterdeg
-    ucresponsive = dataset["ucresponsive"][u]
-    ulcex = map(i->i.ex,dataset["ulcexd"][u])
-    ulcd = map(i->i.d,dataset["ulcexd"][u])
-    clim = maximum(abs.(ulcex))
-    xylims = [0,round(diameterdeg,digits=1)]
-    xy = range(xylims...,length=diameterpx)
-
-    p = Plots.plot(layout=(4,testn),legend=false,size=(400testn,4*250))
-    foreach(c->Plots.heatmap!(p,subplot=c,xy,xy,ulsta[:,:,ulcd[c],c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    titlefontcolor=ucresponsive[c] ? :green : :match,xlims=xylims,ylims=xylims,xticks=xylims,yticks=[],yflip=true,title="Unit_$(u)_STA_$(delays[ulcd[c]])"),1:testn)
-
-    umfit=dataset["urf"][u][m]
-    rpx = (diameterpx-1)/2
-    x=y=(-rpx:rpx)./ppd
-    xylims=[round.(extrema(x),digits=2)...]
-    rfs = map(f->ismissing(f) ? missing : rfimage(f,x,y),umfit)
-    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+testn,frame=:none) :
-    Plots.heatmap!(p,subplot=c+testn,x,y,rfs[c],aspect_ratio=:equal,frame=:semi,color=:coolwarm,clims=(-clim,clim),
-    xlims=xylims,ylims=xylims,xticks=xylims,yticks=xylims,xlabel=dataset["color"][c],titlefontcolor=ucresponsive[c] ? :green : :match,title="Fit_$(m)"),1:testn)
-
-    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+2testn,frame=:none) :
-    Plots.histogram!(p,subplot=c+2testn,umfit[c].resid,frame=:semi,linecolor=:match,bar_width=0.8,nbins=20,
-    xlabel="Residual",grid=false),1:testn)
-
-    foreach(c->ismissing(rfs[c]) ? Plots.plot!(p,subplot=c+3testn,frame=:none) :
-    Plots.scatter!(p,subplot=c+3testn,vec(ulsta[:,:,ulcd[c],c]),vec(rfs[c]),frame=:semi,grid=false,
-    xlabel="y",ylabel="predict y",title="r = $(round(umfit[c].r,digits=3))",markerstrokewidth=0,markersize=1),1:testn)
-    isnothing(dir) ? p : savefig(joinpath(dir,"Unit_$(u)_Fit_$(m).png"))
+function stadogunit(unit;model=:dog,imgsize=(48,48))
+    df = select!(dropmissing!(flatten(dropmissing(unit,["cr","sta!$model"]),["cr","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
+        "sta!$model"=>ByRow(i->i.model)=>:model,
+        "sta!$model"=>ByRow(i->i.param)=>:param,
+        # "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img","sta!$model"=>ByRow(i->fitnorm(i))=>:W,
+        "sta!$model"=>ByRow(i->i.r)=>:r,
+        "sta!$model"=>ByRow(i->i.bic)=>:bic,
+        "sta!$model"=>ByRow(i->i.aic)=>:aic,
+        "sta!$model"=>ByRow(i->i.adjr2)=>:adjr2,
+        "sta!$model"=>ByRow(i->i.param[1])=>:ae,
+        "sta!$model"=>ByRow(i->i.param[2])=>:x,
+        "sta!$model"=>ByRow(i->i.param[3])=>:se,
+        "sta!$model"=>ByRow(i->i.param[4])=>:y,
+        "sta!$model"=>ByRow(i->i.param[5])=>:ai,
+        "sta!$model"=>ByRow(i->i.param[6])=>:si,
+        "sta!$model"=>ByRow(i->4*maximum(i.param[[3,6]]))=>:diameter,
+        "sta!$model"=>ByRow(i->sym(i.param[6]/i.param[3]))=>:cs,
+        "sta!$model"=>ByRow(i->abs(sym(i.param[6]/i.param[3])))=>:op,
+        "sta!$model"=>ByRow(i->sym(i.param[1]/i.param[5]))=>:onoff,
+        "sta!$model"=>ByRow(i->abs(sym(i.param[1]/i.param[5])))=>:amp,
+        "sta!$model"=>ByRow(i->signsym(i.param[1]/i.param[5]))=>:sign)
 end
 
-@manipulate for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
-    plotrffit(u,m)
+function stagaborunit(unit;model=:gabor,imgsize=(48,48))
+    df = select!(dropmissing!(flatten(dropmissing(unit,["cr","sta!$model"]),["cr","sta!$model"]),"sta!$model"),Not(r"\w*!\w*"),
+        "sta!$model"=>ByRow(i->i.model)=>:model,
+        "sta!$model"=>ByRow(i->i.param)=>:param,
+        # "sta!$model"=>ByRow(i->imresize(fitpredict(i,tight=true),imgsize))=>"img","sta!$model"=>ByRow(i->fitnorm(i))=>:W,
+        "sta!$model"=>ByRow(i->i.r)=>:r,
+        "sta!$model"=>ByRow(i->i.bic)=>:bic,
+        "sta!$model"=>ByRow(i->i.aic)=>:aic,
+        "sta!$model"=>ByRow(i->i.adjr2)=>:adjr2,
+        "sta!$model"=>ByRow(i->i.param[1])=>:a,
+        "sta!$model"=>ByRow(i->i.param[2])=>:x,
+        "sta!$model"=>ByRow(i->i.param[3])=>:sx,
+        "sta!$model"=>ByRow(i->i.param[4])=>:y,
+        "sta!$model"=>ByRow(i->i.param[5])=>:sy,
+        "sta!$model"=>ByRow(i->rad2deg(i.param[6]))=>:ori,
+        "sta!$model"=>ByRow(i->i.param[7])=>:sf,
+        "sta!$model"=>ByRow(i->i.param[8])=>:phase,
+        "sta!$model"=>ByRow(i->4*maximum(i.param[[3,5]]))=>:diameter,
+        "sta!$model"=>ByRow(i->sym(i.param[3]/i.param[5]))=>:el,
+        "sta!$model"=>ByRow(i->abs(sym(i.param[3]/i.param[5])))=>:rd,
+        "sta!$model"=>ByRow(i->4*i.param[5]*i.param[7])=>:cyc,
+        "sta!$model"=>ByRow(i->oddeven(i.param[8]))=>:oddeven,
+        "sta!$model"=>ByRow(i->onoff(i.param[8]))=>:onoff,
+        "sta!$model"=>ByRow(i->sign(onoff(i.param[8])))=>:sign)
 end
-for u in sort(collect(keys(dataset["urf"]))),m in collect(keys(first(values(dataset["urf"]))))
-    plotrffit(u,m,dir=rffitdir)
+
+dogunit = stadogunit(staunit)
+gaborunit = stagaborunit(staunit)
+
+gaborunit |> Voyager()
+
+
+
+
+
+
+# Test goodness of fit
+gdogi = dogunit.r .> 0.8
+ggabori = gaborunit.r .> 0.7
+
+
+
+# BIC to select model
+scatter(dogunit.bic,gaborunit.bic,leg=false,marker=(3,0.5,stroke(0)),ratio=:equal,grid=false,xlims=(0,2e5),
+    ylims=(0,2e5),xticks=[],yticks=[],xlabel="BIC (DoG)",ylabel="BIC (Gabor)")
+plot!(x->x,0,2e5,color=:black)
+
+dogi = dogunit.bic .< gaborunit.bic
+
+# Spatial Pattern
+gdogunit = dogunit[dogi .& gdogi,:]
+ggaborunit = gaborunit[.!dogi .& ggabori,:]
+
+
+
+
+imgsize=(48,48)
+gdogunit.img = imresize.(fitpredict.(gdogunit.model,gdogunit.param,tight=true),[imgsize])
+gdogimg = map(i->float32.(alphamask(i)),gdogunit.img)
+gdogimg = map(i->float32.(i),gdogunit.img)
+scatter(gdogunit.cs,gdogunit.onoff,yflip=true,xlims=(-0.4,0.4),ylims=(-1.5,1.5),leg=false,xticks=[0],yticks=[0],
+    marker=(0.8,stroke(0)),xlabel="CenterSurround",ylabel="OnOff")
+
+scatter(ggaborunit.phase,ggaborunit.cyc,leg=false,yflip=true,ylims=(0,2),
+    marker=(3,0.8,stroke(0)),xlabel="Phase",ylabel="Cycle")
+
+# Spatial Pattern Clustering
+features = [:cs,:onoff,:op,:amp]
+F = mapfoldl(i->gdogunit[:,i],hcat,features)
+foreach(i->F[:,i]=zscore(F[:,i]),1:size(F,2))
+
+cr = kmeans(F',4)
+cid = assignments(cr)
+
+
+using GLMakie
+
+
+
+@manipulate for i in 100:300, n in 5:50, d in 0.001:0.001:3
+    F2 = umap(F', 2, n_neighbors=n, min_dist=d, n_epochs=i)
+    Plots.scatter(F2[2,:], F2[1,:],leg=false,grid=false,marker=(3,stroke(0)),size=(600,600),
+            xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
+    # scatter(Ft2[2,:], Ft2[1,:],group=cid,leg=true,grid=false,marker=(1,stroke(0)),size=(600,600),palette=:tab10,
+    #         xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
 end
+
+
+
+@manipulate for i in 100:300, n in 5:50, d in 0.001:0.001:3
+   F2 = umap(F', 2, n_neighbors=n, min_dist=d, n_epochs=i)
+   Makie.scatter(F2[2,:], F2[1,:], marker=gdogimg,markersize=30)
+end
+
+
+
+
+
+
+scatter(gdogunit.cs,gdogunit.onoff,yflip=true,xlims=(-0.5,0.5),ylims=(-2.5,2.5),leg=true,xticks=[-0.2,0,0.2],#group=cid,
+    marker=(0.8,stroke(0)),palette=:tab10,xlabel="CenterSurround",ylabel="OnOff")
+
+scatter(gdogunit.cs,gdogunit.onoff,yflip=true,leg=true,xticks=[0],yticks=[0],group=cid,
+    marker=(0.8,stroke(0)),palette=:tab10,xlabel="CenterSurround",ylabel="OnOff")
+
+
+
+
+
+
+
+
+vdogcell |> [@vlplot(:bar,x={"r",bin={step=0.05,extent=[0,1]},title="r"},y={"count()",title="Number of Linear Filter"});
+                @vlplot(mark={:line,size=2},x=:r,transform=[{sort=[{field=:r}],window=[{op="count",as="cum"}],frame=[nothing,0]}],
+                y={"cum",title="Cumulated Number of Linear Filter"})]
+
+doggaborgoodness = DataFrame(dogr=dogcell.r,gaborr=gaborcell.r,dogbic=dogcell.bic,gaborbic=gaborcell.bic,dogfvu=dogcell.fvu,gaborfvu=gaborcell.fvu)
+doggaborgoodness |>
+    [@vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1.5e5}]},x=:x,y=:x}, {:point,x={:gaborbic,title="BIC (Gabor)"},y={:dogbic,title="BIC (DoG)"}}]);
+    @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:gaborfvu,title="FVU (Gabor)"},y={:dogfvu,title="FVU (DoG)"}}]);
+    @vlplot(layer=[{mark={:line,size=1,color="black"},data={values=[{x=0},{x=1}]},x=:x,y=:x}, {:point,x={:gaborr,title="R (Gabor)"},y={:dogr,title="R (DoG)"}}])]
+
+
+
+srfcells |> [@vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Spatial RF"},color="rc");
+       @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Spatial RF"},color="rc")]
+
+srfcells |> [@vlplot(:point,x={"ar",title="Aspect Ratio"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"});
+          @vlplot(:point,x={"nc",title="Number of Cycle"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"});
+          @vlplot(:point,x={"odd",title="Oddness"},y={"depth",sort="descending",title="Cortical Depth"},color={"layer"})]
+
+gaborcell |> [@vlplot(mark={:point,size=20},x={"ar",title="Aspect Ratio"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"});
+       @vlplot(mark={:point,size=20},x={"nc",title="Number of Cycle"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"});
+       @vlplot(mark={:point,size=20},x={"oddeven",title="Oddness"},y={"depth",sort="descending",title="Cortical Depth"},color={"rc"})]
+
+gaborcell |> [@vlplot(:point,x={"diameter",title="Diameter (Deg)"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"ar",title="Aspect Ratio"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"el",title="Ellipticalness"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"ori",title="Ori (Deg)"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"sf",title="SpatialFreq (Cycle/Deg)"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"nc",title="Number of Cycle"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"phase",title="Phase"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"oddeven",title="OddEven"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}});
+           @vlplot(:point,x={"onoff",title="OnOff"},y={"depth",sort="descending",title="Cortical Depth (μm)"},color={"layer",scale={scheme=:category10}})]
+
+dogunit |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},title="Diameter (Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"ae",bin={maxbin=30},title="Ae"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"ai",bin={maxbin=30},title="Ai"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+           @vlplot(mark={:bar,binSpacing=0},x={"centersurround",bin={step=0.03},title="CenterSurround"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+           @vlplot(mark={:bar,binSpacing=0},x={"opponency",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+           @vlplot(mark={:bar,binSpacing=0},x={"onoff",bin={step=0.2},title="OnOff"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"amplitude",bin={step=0.2},title="OnOff Amplitude"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+           @vlplot(mark={:bar,binSpacing=0},x={"sign",bin={maxbin=3},title="OnOff Sign"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}})]
+
+gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"diameter",bin={step=0.03},title="Diameter (Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"el",bin={step=0.1},title="Ellipticalness"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"rd",bin={step=0.1},title="Roundness"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"ori",bin={step=3.6},title="Ori (Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"sf",bin={step=0.1},title="SpatialFreq (Cycle/Deg)"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"cyc",bin={step=0.1},title="Cycle"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"phase",bin={step=0.02},title="Phase"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"onoff",bin={step=0.04},title="OnOff"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}});
+            @vlplot(mark={:bar,binSpacing=0},x={"sign",bin={maxbin=3},title="OnOff Sign"},y={"count()",title="Number of Linear Filter"},color={"layer",scale={scheme=:category10}})]
+
+gaborcell |> [@vlplot(:bar,x={"ar",bin={maxbins=20},title="Aspect Ratio"},y={"count()",title="Number of Spatial RF"},color={"rc"});
+       @vlplot(:bar,x={"nc",bin={maxbins=20},title="Number of Cycle"},y={"count()",title="Number of Spatial RF"},color={"rc"});
+       @vlplot(:bar,x={"odd",bin={maxbins=15},title="Oddness"},y={"count()",title="Number of Spatial RF"},color={"rc"})]
+
+
+
+
+
+
+
+
+## UMAP of STA
+function d2clu(x;r=1)
+   cs = dbscan(x,r)
+   cid = zeros(Int,size(x,2))
+   foreach(i->cid[cs[i].core_indices] .= i, 1:length(cs))
+   cid
+end
+function srimg(c,i)
+   mapreduce((p,q)->float32.(alphamask(q,color=spectralcm[p])),hcat,c,i)
+end
+dogimg = map(i->float32.(alphamask(i)),dogcell.img)
+gaborimg = map(i->float32.(alphamask(i)),gaborcell.img)
+spectralcm = Dict('A'=>ColorMaps["dkl_mcclumiso"].colors,'L'=>ColorMaps["lms_mccliso"].colors,
+                       'M'=>ColorMaps["lms_mccmiso"].colors,'S'=>ColorMaps["lms_mccsiso"].colors)
+dogimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),dogcell.img,dogcell.rc)
+gaborimgc = map((i,c)->float32.(alphamask(i,color=spectralcm[c])),gaborcell.img,gaborcell.rc)
+
+@manipulate for i in 1:length(dogimg)
+   dogimg[i]
+end
+
+@manipulate for i in 1:length(gaborimg)
+   gaborimg[i]
+end
+
+# DoG
+features = [:cs,:op,:amp]
+Y = mapfoldl(i->dogcell[:,i],hcat,features)
+foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
+
+@manipulate for i in 100:500, n in 5:50, d in 0.001:0.001:3
+   Y2 = umap(permutedims(Y), 2, n_neighbors=n, min_dist=d, n_epochs=i)
+   Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
+end
+
+Y2 = umap(permutedims(Y), 2, n_neighbors=30, min_dist=0.4, n_epochs=300,metric=Euclidean(),init=:spectral)
+p = Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
+save(joinpath(resultroot,"sta_dog_shape_umap.png"),p)
+
+p = Makie.scatter(Y2[1,:], Y2[2,:], marker=dogimgc,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
+save(joinpath(resultroot,"sta_dog_shape_umap_c.png"),p)
+
+Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=2.5),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
+savefig(joinpath(resultroot,"sta_dog_shape_umap_clu.png"))
+dogcell.umapclu = d2clu(Y2,r=2.5)
+
+
+
+save("UMAP_sta.svg",plotunitpositionimage(Y2',dogimg))
+
+
+dogcell |> [@vlplot(mark={:bar,binSpacing=0},x={"op",bin={step=0.03},title="Opponency"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
+      @vlplot(mark={:bar,binSpacing=0},x={"amp",bin={step=0.2},title="OnOff Amplitude"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
+dogcell.sop = dogcell.umapclu .< 3
+dogcell.spatial = ["dog-"*(i ? "op" : "nop") for i in dogcell.sop]
+
+
+
+# Gabor
+features = [:rd,:cyc,:oddeven]
+Y = mapfoldl(i->gaborcell[:,i],hcat,features)
+foreach(i->Y[:,i]=zscore(Y[:,i]),1:size(Y,2))
+
+@manipulate for i in 100:500, n in 5:50, d in 0.001:0.001:3
+   Y2 = umap(permutedims(Y), 2, n_neighbors=n, min_dist=d, n_epochs=i)
+   Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
+end
+
+Y2 = umap(permutedims(Y), 2, n_neighbors=16, min_dist=0.05, n_epochs=300,metric=Euclidean(),init=:spectral)
+p = Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
+save(joinpath(resultroot,"sta_gabor_shape_umap.png"),p)
+
+p = Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimgc,markersize=30,scale_plot = false,show_axis = false,resolution = (1200, 1200))
+save(joinpath(resultroot,"sta_gabor_shape_umap_c.png"),p)
+
+Plots.scatter(Y2[1,:], Y2[2,:], marker=(3,3,:circle,stroke(0)),group=d2clu(Y2,r=1.2),frame=:none,leg=:inline,aspect_ratio=1,size=(600,600))
+savefig(joinpath(resultroot,"sta_gabor_shape_umap_clu.png"))
+gaborcell.umapclu = d2clu(Y2,r=1.2)
+
+save("UMAP_sta.svg",plotunitpositionimage(Y2',gaborimg))
+
+
+gaborcell |> [@vlplot(mark={:bar,binSpacing=0},x={"cyc",bin={step=0.1},title="Cycle"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"});
+      @vlplot(mark={:bar,binSpacing=0},x={"oddeven",bin={step=0.02},title="OddEven"},y={"count()",title="Number of Spatial RF"},color={"umapclu:n"})]
+gaborcell.sop = gaborcell.umapclu .< 3
+gaborcell.spatial = ["gabor-"*(i == 3 ? "nop" : i == 2 ? "op_odd" : "op_even") for i in gaborcell.umapclu]
+
+
+
+save(joinpath(resultroot,"dogcell.jld2"),"dogcell",dogcell)
+save(joinpath(resultroot,"gaborcell.jld2"),"gaborcell",gaborcell)
+
+
+
+
+
+
+
+
+
 
 ## t-SNE of responsive sta
 lsta = mapreduce(u->mapreduce((c,r,exd)->r ? [dataset["ulsta"][u][:,:,exd.d,c]] : [],

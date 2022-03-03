@@ -128,13 +128,16 @@ end
 # penetration = transform!(penetration,All()=>ByRow((a,b,c)->join(filter!(!isempty,[a,b,c]),"_"))=>:siteid)
 # XLSX.writetable(joinpath(resultroot,"penetration.xlsx"),collect(eachcol(penetration)),names(penetration))
 
-## Batch Penetration Sites
+## Batch RecordSites
 penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
 @showprogress "Batch Spike Info ... " for r in eachrow(penetration)
     spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
 end
 
-## Collect Units
+
+
+
+## Collect Units of All RecordSites
 function collectunit!(indir;unit=Dict(),datafile="unit.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
@@ -143,6 +146,7 @@ function collectunit!(indir;unit=Dict(),datafile="unit.jld2")
             u["siteid"] = fill(u["siteid"],length(u["unitid"]))
             u["id"] = map((s,g,i)->g ? "$(s)_SU$i" : "$(s)_MU$i",u["siteid"],u["unitgood"],u["unitid"])
             if haskey(unit,"id")
+                append!(unit["siteid"],u["siteid"])
                 append!(unit["id"],u["id"])
                 append!(unit["unitid"],u["unitid"])
                 append!(unit["unitgood"],u["unitgood"])
@@ -162,6 +166,9 @@ end
 
 allunit = collectunit!(resultroot)
 save(joinpath(resultroot,"allunit.jld2"),"allunit",allunit)
+
+
+
 
 
 ## Single Unit Type

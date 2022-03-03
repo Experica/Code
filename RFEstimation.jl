@@ -33,7 +33,7 @@ function joinsta(indir;ccode=ccode,btw=-100:0,rtw=5:135,datafile="sta.jld2")
 
     uns = map(i->length(keys(stas[i]["usta"])),corder)
     @info "Number of Units for STA: $uns "
-    uids = mapreduce(i->keys(stas[i]["usta"]),intersect,corder)
+    uids = mapreduce(i->keys(stas[i]["usta"]),intersect,corder) # only for SU that spikes in all tests
     p = ProgressMeter.Progress(length(uids),desc="Join STAs ... ")
     for u in uids
         csta = Array{Float64}(undef,sizepx...,length(delays),length(corder))
@@ -183,7 +183,7 @@ plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     xticks=xylims,yticks=false,xlabel=dataset["color"][i],titlefontcolor=ucresponsive[i] ? :green : :match,title="Fit_$(m)"),1:cn)
 
     @views foreach(i->ismissing(fs[i]) ? plot!(p[3,i],frame=:none) :
-    heatmap!(p[3,i],x,y,reshape(umfit[i].resid,diameterpx,:),aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims=xylims,ylims=xylims,
+    heatmap!(p[3,i],x,y,ulsta[:,:,ulcd[i],i].-fs[i],aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims=xylims,ylims=xylims,
     xticks=false,yticks=false,xlabel="Residual",titlefontcolor=ucresponsive[i] ? :green : :match,title="r = $(round(umfit[i].r,digits=3))"),1:cn)
     isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"Unit_$(u)_Fit_$(m)$ext")),figfmt)
 end
