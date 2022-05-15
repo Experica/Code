@@ -1,7 +1,7 @@
 ## concat binary files using CatGT
-catgt = "C:\\Users\\fff00\\CatGT-win\\CatGT.exe"
+catgt = raw"C:\Users\fff00\CatGT-win\CatGT.exe"
 
-indir = "E:\\SpikeGLXData\\AG1\\AG1_V1_ODL1"
+indir = raw"E:\SpikeGLXData\AG1\AG1_V1_ODL1"
 files = readdir(indir)
 apfiles = filter(f->occursin(r"AG.*ap.bin",f),files)
 apmetafiles = filter(f->occursin(r"AG.*ap.meta",f),files)

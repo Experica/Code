@@ -1,10 +1,10 @@
-using NeuroAnalysis,FileIO,Statistics,StatsPlots,Plots,StatsBase,ProgressMeter,XLSX
+using NeuroAnalysis,FileIO,Statistics,StatsPlots,StatsBase,Images,ProgressMeter,DataFrames,XLSX
 
 function mergespike!(indir;unit=Dict(),datafile="spike.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
             spike,siteid = load(joinpath(root,datafile),"spike","siteid")
-            delete!.([spike],["unitspike","isspikesorted","unitsync"])
+            foreach(k->delete!(spike,k),["unitspike","isspikesorted","unitsync","t0"])
             if haskey(unit,"siteid")
                 if siteid == unit["siteid"]
                     newids = setdiff(spike["unitid"],unit["unitid"])
@@ -13,11 +13,14 @@ function mergespike!(indir;unit=Dict(),datafile="spike.jld2")
                         append!(unit["unitid"],newids)
                         append!(unit["unitgood"],spike["unitgood"][newididx])
                         unit["unitposition"] = [unit["unitposition"];spike["unitposition"][newididx,:]]
+                        unit["unitwaveforms"] = [unit["unitwaveforms"];spike["unitwaveforms"][newididx,:,:]]
                         unit["unitwaveform"] = [unit["unitwaveform"];spike["unitwaveform"][newididx,:]]
-                        unit["unittemplatewaveform"] = [unit["unittemplatewaveform"];spike["unittemplatewaveform"][newididx,:]]
                         foreach(k->append!(unit["unitfeature"][k],spike["unitfeature"][k][newididx]),keys(spike["unitfeature"]))
+                        append!(unit["unittemplatemeanamplitude"],spike["unittemplatemeanamplitude"][newididx])
+                        unit["unittemplateposition"] = [unit["unittemplateposition"];spike["unittemplateposition"][newididx,:]]
+                        unit["unittemplatewaveform"] = [unit["unittemplatewaveform"];spike["unittemplatewaveform"][newididx,:]]
                         foreach(k->append!(unit["unittemplatefeature"][k],spike["unittemplatefeature"][k][newididx]),keys(spike["unittemplatefeature"]))
-                        append!(unit["unittemplateamplitude"],spike["unittemplateamplitude"][newididx])
+                        foreach(k->append!(unit["qm"][k],spike["qm"][k][newididx]),keys(spike["qm"]))
                     end
                 end
             else
@@ -40,11 +43,11 @@ spikeinfo = (indir) -> begin
 unit = mergespike!(indir)
 save(joinpath(indir,"unit.jld2"),"unit",unit)
 
-unitid = unit["unitid"];unitwave = unit["unitwaveform"]
-unittempwave=unit["unittemplatewaveform"];unitgood=unit["unitgood"]
-unitposition=unit["unitposition"];unitfeature = unit["unitfeature"]
-unittempfeature=unit["unittemplatefeature"];unittempamp = unit["unittemplateamplitude"]
-siteid = unit["siteid"];figfmt = [".png"]
+unitid = unit["unitid"];unitgood=unit["unitgood"]
+unittempposition=unit["unittemplateposition"];unittempamp = unit["unittemplatemeanamplitude"]
+unittempwave=unit["unittemplatewaveform"];unittempfeature=unit["unittemplatefeature"]
+unitposition=unit["unitposition"];unitwave = unit["unitwaveform"];unitfeature = unit["unitfeature"]
+unitqm=unit["qm"];siteid = unit["siteid"];figfmt = [".png"]
 
 
 ## Unit Position
@@ -56,18 +59,18 @@ muc=1.2
 r=100
 w = replace(unitgood,0=>muc)
 
-n,y = unitdensity(unitposition[:,2];w,bw=80,step=40,r)
-plot(n*1e9,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(400,700),
+n,y = unitdensity(unitposition[:,2];w,bw=40,step=20,r,s=1.4)
+plot(1e9n,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(400,700),
     lw=2,left_margin=4Plots.mm,title="Count(MU)=$muc, r=$(r)μm")
 foreach(ext->savefig(joinpath(indir,"UnitDensity$ext")),figfmt)
 
-df=Dict("feature"=>["Density";;],"depth"=>y,"depthfeature"=>[n;;])
+df=Dict("feature"=>["Density";;],"depth"=>y,"depthfeature"=>[1e9n;;],"siteid"=>siteid)
 
 ## Unit Feature
 un,wn = size(unitwave)
 wx = range(-wn/2,step=1,length=wn)
 
-uwy = [1.2*unitwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
+uwy = [1e-2*unitwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
 uwx = [0.05*wx[j]+unitposition[i,1] for i in 1:un,j in 1:wn]
 
 plot(uwx',uwy',leg=false,size=(400,700),xlabel="X (μm)",ylabel="Y (μm)",grid=false,lw=2,left_margin=4Plots.mm,
@@ -82,7 +85,7 @@ plotdepthfeature(unittempfeature,unitposition,["uppvinv" "downpvinv"],kw=1000;xl
 foreach(ext->savefig(joinpath(indir,"UnitFeature_invspeed$ext")),figfmt)
 
 
-plotdepthfeature(unitfeature,unitposition,["amplitude" "peaktroughratio"];kw=[0.1 1],xlabel="A.U.",df)
+plotdepthfeature(unitfeature,unitposition,["amplitude" "peaktroughratio"];kw=[1e-3 1],xlabel="A.U.",df)
 foreach(ext->savefig(joinpath(indir,"UnitFeature_amp$ext")),figfmt)
 
 plotdepthfeature(unitfeature,unitposition,["halftroughwidth" "halfpeakwidth" "duration"];kw=1000,xlabel="Time (ms)",df)
@@ -90,6 +93,9 @@ foreach(ext->savefig(joinpath(indir,"UnitFeature_width$ext")),figfmt)
 
 plotdepthfeature(unitfeature,unitposition,["repolarrate" "recoverrate"];kw=1e-3,xlabel="A.U.",df)
 foreach(ext->savefig(joinpath(indir,"UnitFeature_rate$ext")),figfmt)
+
+plotdepthfeature(unitqm,unitposition,["fr" "fp" "pisi"];xlabel="A.U.",df)
+foreach(ext->savefig(joinpath(indir,"UnitFeature_qm$ext")),figfmt)
 
 save(joinpath(indir,"unitdepthfeature.jld2"),"df",df)
 end
@@ -102,9 +108,9 @@ plotdepthfeature = (feature,position,ks;kw=ones(1,length(ks)),size=(350,700),xla
     p=scatter(vs,position[:,2],label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,size=size,
         xlabel=xlabel,ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
 
-    yms = [unitdensity(position[:,2],w=vs[:,i],wfun=mean,bw=80,step=40) for i in 1:kn]
+    yms = [unitdensity(position[:,2],w=vs[:,i],wfun=mean,bw=40,step=20,s=1.4) for i in 1:kn]
     y = yms[1].y
-    yms = replace!(hcat(map(i->i.n,yms)...),NaN=>0,Inf=>0,-Inf=>0)
+    yms = hcat(map(i->i.n,yms)...)
     if df isa Dict
         if haskey(df,"feature")
             df["feature"] = [df["feature"] ks]
@@ -142,7 +148,7 @@ function collectunit!(indir;unit=Dict(),datafile="unit.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
             u = load(joinpath(root,datafile),"unit")
-            delete!(u,"chposition")
+            foreach(k->delete!(u,k),["chposition","unitwaveforms","unittemplatemeanamplitude"])
             u["siteid"] = fill(u["siteid"],length(u["unitid"]))
             u["id"] = map((s,g,i)->g ? "$(s)_SU$i" : "$(s)_MU$i",u["siteid"],u["unitgood"],u["unitid"])
             if haskey(unit,"id")
@@ -152,10 +158,11 @@ function collectunit!(indir;unit=Dict(),datafile="unit.jld2")
                 append!(unit["unitgood"],u["unitgood"])
                 unit["unitposition"] = [unit["unitposition"];u["unitposition"]]
                 unit["unitwaveform"] = [unit["unitwaveform"];u["unitwaveform"]]
-                unit["unittemplatewaveform"] = [unit["unittemplatewaveform"];u["unittemplatewaveform"]]
                 foreach(k->append!(unit["unitfeature"][k],u["unitfeature"][k]),keys(u["unitfeature"]))
+                unit["unittemplateposition"] = [unit["unittemplateposition"];u["unittemplateposition"]]
+                unit["unittemplatewaveform"] = [unit["unittemplatewaveform"];u["unittemplatewaveform"]]
                 foreach(k->append!(unit["unittemplatefeature"][k],u["unittemplatefeature"][k]),keys(u["unittemplatefeature"]))
-                append!(unit["unittemplateamplitude"],u["unittemplateamplitude"])
+                foreach(k->append!(unit["qm"][k],u["qm"][k]),keys(u["qm"]))
             else
                 unit = u
             end
@@ -167,42 +174,59 @@ end
 allunit = collectunit!(resultroot)
 save(joinpath(resultroot,"allunit.jld2"),"allunit",allunit)
 
+## Layer info for all units
+usi = map(i->findfirst(alllayer.siteid.==i),allunit["siteid"])
+allunit["unitaligndepth"] = [alllayer.e2cfun[usi[i]](allunit["unitposition"][i,2]) |> alllayer.tcfun[usi[i]] for i in eachindex(usi)]
+allunit["unitlayer"] = assignlayer.(unitaligndepth,[layertemplate])
 
 
 
-
-## Single Unit Type
+## Single Unit Feature
 allunit = load(joinpath(resultroot,"allunit.jld2"),"allunit")
-unitid = allunit["unitid"];unitwave = allunit["unitwaveform"]
-unittempwave=allunit["unittemplatewaveform"];unitgood=allunit["unitgood"]
-unitposition=allunit["unitposition"];unitfeature = allunit["unitfeature"]
-unittempfeature=allunit["unittemplatefeature"];unittempamp = allunit["unittemplateamplitude"]
-siteid = allunit["siteid"];figfmt = [".png"]
+unitid = allunit["id"];unitwave = allunit["unitwaveform"];unittempfeature = allunit["unittemplatefeature"]
+unitgood=allunit["unitgood"];unitposition=allunit["unitposition"];unitfeature = allunit["unitfeature"]
+unitaligndepth=allunit["unitaligndepth"];unitlayer=allunit["unitlayer"];unitqm=allunit["qm"];figfmt = [".png"]
 
-f1 = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","ttrough","amplitude"]
+f1 = ["duration","peaktroughratio","lefthalftroughwidth","righthalftroughwidth","halftroughwidth","lefthalfpeakwidth","righthalfpeakwidth","halfpeakwidth","repolarrate","recoverrate","ttrough","amplitude"]
 f2 = ["upspread","downspread","leftspread","rightspread","uppvinv","downpvinv"]
-f = [f1;f2]
-F = Float64[hcat(map(k->unitfeature[k],f1)...);;hcat(map(k->unittempfeature[k],f2)...)][unitgood,:]
+fqm= ["fr","pisi","fp"]
+f = [f1;f2;fqm]
+ui = unitgood .& (0 .<= unitaligndepth .< 1) # cortical single units
+csuid = unitid[ui]
+save(joinpath(resultroot,"csuid.jld2"),"csuid",csuid)
+
+F = Float64[hcat(map(k->unitfeature[k],f1)...);;hcat(map(k->unittempfeature[k],f2)...);;hcat(map(k->unitqm[k],fqm)...)][ui,:]
 replace!(F,NaN=>0,Inf=>0,-Inf=>0)
-
-# Y = Float64[abs.(unitfeature[f1[1]]);;hcat(map(k->unitfeature[k],f1[2:end])...);;
-#   hcat(map(k->replace(unittempfeature[k],NaN=>0,Inf=>0,-Inf=>0),f2)...)][unitgood,:]
-
 foreach(i->F[:,i]=zscore(F[:,i]),1:size(F,2))
-dotplot(permutedims(f),F,leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0)),
-        xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
+
+dotplot(permutedims(1:length(f)),F,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="Spike Feature",size=(750,600),ann=(18,15,"n=$(size(F,1))"))
 foreach(ext->savefig(joinpath(resultroot,"SpikeFeature$ext")),figfmt)
 
-
+## Single Unit Type
 using Interact,UMAP,Clustering,Distances,PyCall
 
-ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","upspread","downspread","uppvinv","downpvinv"]
+ft = ["duration","peaktroughratio","lefthalftroughwidth","righthalftroughwidth","halftroughwidth",
+    "lefthalfpeakwidth","righthalfpeakwidth","halfpeakwidth","repolarrate","recoverrate","upspread",
+    "downspread","uppvinv","downpvinv","pisi"]
+ft = ["duration","peaktroughratio","lefthalftroughwidth","righthalftroughwidth",
+    "lefthalfpeakwidth","righthalfpeakwidth","repolarrate","recoverrate","upspread",
+    "downspread","uppvinv","downpvinv"]
 ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","upspread","downspread"]
 ft = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","upspread","downspread"]
 Ft = F[:,indexin(ft,f)]
 
 
-scatter(Ft[:,1],Ft[:,3],marker=(1,stroke(0)))
+@manipulate for i in 100:300, n in 5:50, d in 0.001:0.001:3
+    Ft2 = umap(Ft', 2, n_neighbors=n, min_dist=d, n_epochs=i)
+    # scatter(Ft2[2,:], Ft2[1,:],leg=false,grid=false,marker=(1,stroke(0)),size=(600,600),
+    #         xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
+    scatter(Ft2[2,:], Ft2[1,:],group=cid,leg=true,grid=false,marker=(2,stroke(0)),size=(600,600),palette=:tab10,
+            xticks=[],yticks=[],ratio=:equal,xlabel="UMAP Dimension 2",ylabel="UMAP Dimension 1")
+end
+
+
+scatter(abs.(Ft[:,1]),Ft[:,5],marker=(1,stroke(0)))
 
 
 
@@ -211,10 +235,7 @@ D = pairwise(Euclidean(),Ft,dims=1)
 cr = hclust(D,branchorder=:optimal)
 cid = cutree(cr,k=4)
 
-cr = kmeans(Ft',4)
-
-
-cr = kmeans(Ft5,6)
+cr = kmeans(Ft',5)
 cid = assignments(cr)
 
 
@@ -223,13 +244,11 @@ crs = [kmeans(Ft',i) for i in 1:12]
 mi = [mutualinfo(crs[i],crs[end]) for i in 1:11]
 ri = [randindex(crs[i],crs[end])[1] for i in 1:11]
 vi = [vmeasure(crs[i],crs[end]) for i in 1:11]
-si = [mean(silhouettes(crs[i],D)) for i in 2:11]
 
 
 plot(mi,leg=false)
 plot(ri,leg=false)
 plot(vi,leg=false)
-plot(si,leg=false)
 
 D = pairwise(Euclidean(),Ft,dims=1)
 cr = dbscan(D,0.4,20)
@@ -324,9 +343,13 @@ dotplot!(permutedims(ft),clamp!(Ft[cid.==6,:],-clim,clim),leg=false,grid=false,y
         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
 foreach(ext->savefig(joinpath(resultroot,"SpikeFeature_UnitCluster$ext")),figfmt)
 
+
+
+
+
 cidx = [findall(cid.==i) for i in 1:length(unique(cid))]
 
-cws = map(i->unitwave[unitgood,:][sample(i,200,replace=false),:],cidx)
+cws = map(i->unitwave[ui,:][sample(i,50,replace=false),:],cidx)
 ncws = map(i->0.8i./map(j->max(abs.(j)...),extrema(i,dims=2)),cws)
 
 cmws = map(i->dropdims(mean(i,dims=1),dims=1),cws)
@@ -341,7 +364,7 @@ p
 
 
 p=plot(leg=false)
-foreach(i->plot!(ncmws[i],color=cs[i],lw=3),1:6)
+foreach(i->plot!(ncmws[i],color=cs[i],lw=3),1:5)
 p
 foreach(ext->savefig(joinpath(resultroot,"SpikeWave_UnitCluster$ext")),figfmt)
 

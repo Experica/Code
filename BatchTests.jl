@@ -21,12 +21,16 @@ tests = select!(filter(meta) do r
                     # r.RecordSite == "ODR1" &&
                     r.ID == "Color" &&
                     r.sourceformat == "SpikeGLX"
-                    end,
+                end,
                 [:files,:ID,:UUID,:sourceformat])
-files = ".\\AG2\\AG2_V1_ODR1_Color_0.mat"
-pyplot()
+
 
 ## Setup Param
+
+files = ".\\AG2\\AG2_V1_ODR1_Flash2Color_1.mat"
+pyplot()
+
+param[:spikesorter] = "kilosort3"
 param[:model] = [:STA]
 
 # param[:cell] = load(joinpath(param[:resultroot],"cell.jld2"),"cell")

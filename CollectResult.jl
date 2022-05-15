@@ -4,41 +4,7 @@ using NeuroAnalysis,DataFrames,FileIO,Statistics,LightGraphs,MetaGraphs
 ccode = Dict("DKL_X"=>'A',"DKL_Y"=>'Y',"DKL_Z"=>'S',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S',
              "LMS_X"=>'L',"LMS_Y"=>'M',"LMS_Z"=>'S',"DKL_Hue_L0"=>"DKL_L0","HSL_Hue_Ym"=>"HSL_Ym")
 
-"Collect Units"
-function collectunit!(indir;cell=DataFrame(),datafile="spike.jld2")
-    for (root,dirs,files) in walkdir(indir)
-        if datafile in files
-            spikedata = load(joinpath(root,datafile))
-            spike = spikedata["spike"]
-            siteid = spikedata["siteid"]
-            sui = findall(spike["unitgood"])
-            df = DataFrame(site=siteid,id=["$(siteid)_SU$u" for u in spike["unitid"][sui]],
-             position = [spike["unitposition"][i:i,:] for i in sui])
-            append!(cell,df,cols=:union)
-        end
-    end
-    return unique!(cell,:id)
-end
 
-"Collect Layers and Merge into Cell"
-function collectlayer(indir;cell=DataFrame(site=[],position=[]),datafile="layer.jld2")
-    ls = Dict()
-    for (root,dirs,files) in walkdir(indir)
-        if datafile in files
-            l = load(joinpath(root,datafile))
-            ls[l["siteid"]] = l["layer"]
-        end
-    end
-    getdepth = (s,p) -> begin
-        haskey(ls,s) || return missing
-        return -p[2] + ls[s]["Out"][1]
-    end
-    getlayer = (s,p) -> begin
-        haskey(ls,s) || return missing
-        return assignlayer(p[2],ls[s])
-    end
-    return transform(cell,[[:site,:position] => ByRow(getdepth) => :depth, [:site,:position] => ByRow(getlayer) => :layer])
-end
 
 "Collect CondTests and Merge into Cell"
 function collectcondtest(indir;cell=DataFrame(id=[]),ccode=ccode,datafile="factorresponse.jld2")
@@ -86,27 +52,7 @@ function collectcircuitgraph(indir;datafile="sitecircuit.jld2")
     return g
 end
 
-"Collect STAs and Merge into Cell"
-function collectsta(indir;cell=DataFrame(id=[]),datafile="stadataset.jld2")
-    dfs=DataFrame()
-    for (root,dirs,files) in walkdir(indir)
-        if datafile in files
-            dataset = load(joinpath(root,datafile),"dataset")
-            siteid = dataset["siteid"]
-            id = ["$(siteid)_SU$u" for u in keys(dataset["ulroi"])]
-            roic = [v.centerdeg for v in values(dataset["ulroi"])]
-            roir = [v.radiusdeg for v in values(dataset["ulroi"])]
-            rc = Any[map((c,r)->r ? c : missing,dataset["ccode"],dataset["ucresponsive"][u]) for u in keys(dataset["ulroi"])]
-            df = DataFrame(id=id,roicenter=roic,roiradius=roir,rc=rc)
-            if haskey(dataset,"ulfit")
-                foreach(m->df[!,"sta!$m"]=Any[map(f->ismissing(f) ? missing : (;(k=>f[k] for k in setdiff(keys(f),[:resid]))...),dataset["ulfit"][u][m]) for u in keys(dataset["ulroi"])],
-                        keys(first(values(dataset["ulfit"]))))
-            end
-            append!(dfs,df,cols=:union)
-        end
-    end
-    return outerjoin(cell,unique!(dfs,:id),on=:id)
-end
+
 
 ## Collect Results
 resultroot = "../Result"

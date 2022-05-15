@@ -416,6 +416,7 @@ plotanalog((iclll.-clll)[2:end-1,:])
 
 extrema((iclll.-clll)[2:end-1,:])
 
+gr()
 
 ## kCSD
 using PyCall
@@ -625,6 +626,7 @@ extrema(t)
 extrema(tt)
 
 
+using NeuroAnalysis
 
 
 ## ap plot
@@ -644,11 +646,108 @@ plot(y',leg=false,frame=:grid,grid=false,color=:black,size=(600,750),
 savefig("test.svg")
 
 
-a=unitepochpsth[1]
+batchon = range(start=0,step=1500,length=800)
+epochs = ref2sync(batchon.+epoch,dataset,ii)
 
-typeof(a.x)
+ys = fill2mask(epochsamplenp(mmbinfile,fs,epochs.+t0,1:nch;meta=[],bandpass=[300,3000],whiten=nothing),exchmask,chmap=chmapraw)
+ys = resample(ys,1//3,dims=3)
+fs /= 3
 
-map(p->(;vmeanse(p.mat[1:2:end,:])...,p.x),unitepochpsth)
+ys = fill2mask(epochsamplenp(mmbinfile,fs,epochs,1:nch;meta,bandpass=[300,3000],whiten=nothing),exchmask,chmap=chmapraw)
+ys = resample(ys,1//3,dims=3)
+fs /= 3
+
+
+
+cc = mapreduce(i->cor(pys[:,:,i],dims=2),(i,j)->cat(i,j,dims=3),1:size(pys,3))
+@manipulate for i in 1:size(cc,3)
+    # plotanalog(c[:,:,f],x=depths,y=depths,color=:turbo)
+    heatmap(cc[:,:,i],color=:turbo)
+end
+
+lcc = localcoherence(cc,s=1.4)
+plotanalog(lcc,y=depths,color=:turbo)
+
+plot!(1e3mean(lcc,dims=2),depths)
+
+
+
+pys = ys[:,1,:,1:2:end]
+ps,freqs = powerspectrum(pys,fs,freqrange=[300,3000])
+
+using Interact
+
+@manipulate for i in 1:size(pys,3)
+    @views plotanalog(ps[:,:,i],x=freqs,y=depths,color=:turbo,n=mean(ps[:,:,i],dims=2))
+end
+
+
+
+pss = dropdims(mean(ps,dims=2),dims=2)
+plotanalog(pss;hy,color=:heat,n=mean(pss,dims=2),xlabel="",cunit=:fr)
+
+
+
+
+
+
+
+pys = ys[:,1,:,1:2:end]
+
+cs,freqs = coherencespectrum(pys,fs,freqrange=[300,3000])
+
+pss=wpc[4][:,1:2:200]
+pbss=aps[4]["wpbc"][:,1:2:200]
+ds = depths[1]
+pdc = abs.(pss.-pbss)
+
+plotanalog(pss,x=1:100,y=ds,xlabel="Trials",color=:heat,cunit=:fr,n=mean(pss,dims=2))
+plotanalog(pbss,x=1:100,y=ds,xlabel="Trials",color=:heat,cunit=:fr,n=mean(pbss,dims=2))
+
+plotanalog(pdc,x=1:100,y=ds,xlabel="",color=:heat,cunit=:fr,n=mean(pdc,dims=2))
+plotanalog(pdc,x=1:100,y=ds,xlabel="",n=mean(pdc,dims=2))
+
+
+
+
+
+@manipulate for f in 1:length(freqs)
+    plotanalog(cs[:,:,f,1],x=depths,y=depths,xlabel="Depth",xunit="μm",color=:heat,cunit=:fr,aspectratio=:equal)
+    # heatmap(c[:,:,f],color=:turbo)
+end
+
+plotanalog(cs[:,:,43,1],x=depths,y=depths,xlabel="Depth",xunit="μm",color=:heat,cunit=:fr,aspectratio=:equal)
+savefig("test.png")
+freqs[43]
+
+
+css = dropdims(mean(cs,dims=3),dims=3)
+@manipulate for f in 1:size(css,3)
+    plotanalog(css[:,:,f],x=depths,y=depths,xlabel="Depth",xunit="μm",color=:heat,cunit=:fr,aspectratio=:equal)
+    # heatmap(c[:,:,f],color=:turbo)
+end
+plotanalog(css[:,:,43],x=depths,y=depths,xlabel="Depth",xunit="μm",color=:heat,cunit=:fr,aspectratio=:equal)
+
+
+lcss = mapreduce(i->bandmean(css[:,:,i]),hcat,1:size(css,3))
+
+plotanalog(lcss,x=freqs,y=depths,xlabel="Frequency",xunit="Hz",color=:heat,cunit=:fr,n=mean(lcss,dims=2))
+
+plotanalog(lcss,y=depths,xlabel="",color=:heat,cunit=:fr,n=mean(lcss,dims=2))
+
+
+
+## mouse layer
+
+condon = range(start=0,step=1,length=50)
+epochs = condon.+[0 0.2]
+fs = 20e3
+
+ys = fill2mask(epochsamplenp(mmbinfile,fs,epochs.+t0,1:nch;meta=[],bandpass=[300,3000],whiten=nothing),exchmask,chmap=chmapraw)
+ys = resample(ys,1//2,dims=3)
+fs /= 2
+
+
 
 
 ##
@@ -681,46 +780,25 @@ pvalue(ApproximateTwoSampleKSTest(tv,ob))
 
 
 
-p=plot(layout=(3,3),leg=false,frame=:origin,yticks=[],xticks=[],lw=2,link=:y)
-plot!(p[2,1],x->dogf(x,aₑ=1,σₑ=2,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[2,2],x->dogf(x,aₑ=1,σₑ=1,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[2,3],x->dogf(x,aₑ=1,σₑ=1,aᵢ=1,σᵢ=2),-4:0.01:4,lw=2)
-
-plot!(p[1,1],x->dogf(x,aₑ=1,σₑ=2,aᵢ=2,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[1,2],x->dogf(x,aₑ=1,σₑ=1,aᵢ=2,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[1,3],x->dogf(x,aₑ=1,σₑ=1,aᵢ=2,σᵢ=2),-4:0.01:4,lw=2)
-
-plot!(p[3,1],x->dogf(x,aₑ=2,σₑ=2,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[3,2],x->dogf(x,aₑ=2,σₑ=1,aᵢ=1,σᵢ=1),-4:0.01:4,lw=2)
-plot!(p[3,3],x->dogf(x,aₑ=2,σₑ=1,aᵢ=1,σᵢ=2),-4:0.01:4,lw=2)
-
-p
-
-
-
-
-
-p=plot(layout=(3,4),leg=false,frame=:origin,yticks=[],xticks=[],lw=2,link=:y)
-
-
-plot!(p[1,1],x->gaborf(x,f=0.125,phase=0),-2:0.01:2,lw=2)
-plot!(p[1,2],x->gaborf(x,f=0.125,phase=0.25),-2:0.01:2,lw=2)
-plot!(p[1,3],x->gaborf(x,f=0.125,phase=0.5),-2:0.01:2,lw=2)
-plot!(p[1,4],x->gaborf(x,f=0.125,phase=0.75),-2:0.01:2,lw=2)
-
-plot!(p[2,1],x->gaborf(x,f=0.25,phase=0),-2:0.01:2,lw=2)
-plot!(p[2,2],x->gaborf(x,f=0.25,phase=0.25),-2:0.01:2,lw=2)
-plot!(p[2,3],x->gaborf(x,f=0.25,phase=0.5),-2:0.01:2,lw=2)
-plot!(p[2,4],x->gaborf(x,f=0.25,phase=0.75),-2:0.01:2,lw=2)
-
-plot!(p[3,1],x->gaborf(x,f=0.375,phase=0),-2:0.01:2,lw=2)
-plot!(p[3,2],x->gaborf(x,f=0.375,phase=0.25),-2:0.01:2,lw=2)
-plot!(p[3,3],x->gaborf(x,f=0.375,phase=0.5),-2:0.01:2,lw=2)
-plot!(p[3,4],x->gaborf(x,f=0.375,phase=0.75),-2:0.01:2,lw=2)
-
-p
 
 savefig("test.png")
 
 
 ##
+using MultivariateStats
+
+tt = fit(ICA,cat(values(cdrms)...,dims=2),7,maxiter=200)
+
+plot(tt.mean)
+
+heatmap(first(values(cdrms)),color=:coolwarm)
+
+plot!(abs.(tt.W*1e4),0:191,leg=false)
+
+pp = cat(values(cdrms)...,dims=2)
+
+heatmap(pp)
+
+
+
+ugs = map(i->i ? "Single-" : "Multi-",unitgood)
