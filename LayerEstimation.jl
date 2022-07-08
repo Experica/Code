@@ -1,10 +1,21 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,JLD2,StatsPlots,Images,ProgressMeter,Interact,DataFrames,XLSX,Dierckx
+using NeuroAnalysis,Statistics,StatsBase,FileIO,JLD2,StatsPlots,Images,ProgressMeter,DataFrames,XLSX,Dierckx
 
 ## Combine all layer tests of one RecordSite
 dataroot = "X:/"
 dataexportroot = "Y:/"
 resultroot = "Z:/"
 figfmt = [".png"]
+
+
+# Neuropixels 1.0 layout
+xs = repeat([16,48,0,32],outer=96)
+ys = repeat(range(0,step=20,length=192),inner=2)
+
+deleteat!(xs,192)
+deleteat!(ys,192)
+
+scatter(xs,ys,m=:rect,ms=8,msw=0,color=:gray35,size=(300,3840),leg=false,frame=:none,ratio=:equal)
+scatter!([32],[1900],m=:rect,ms=8,msw=0,color=HSL(0,0.9,0.6),leg=false)
 
 
 # df=DataFrame(power=[405.5,239.0,92.8,410.5,115.2,493.6],hue=repeat(["180","0"],outer=3),location=repeat(["P5","P4","P3"],inner=2))
@@ -68,7 +79,7 @@ plotlayerunitfeature=(udf,depths;w=140,h=600,color=:tab10,layer=nothing)->begin
         ylabel = i==1 ? "Depth (μm)" : ""
 
         if i == 1
-            x = 1e9*udf.Density
+            x = udf.Density
             xmin,xmax = extrema(x)
             plot!(p[i],x,depths;xlabel="Density",ylabel,leg=false,color=cs[i],
             lw=1.5,yticks,xticks=[ceil(xmin,sigdigits=1),floor(xmax,sigdigits=1)],
@@ -104,7 +115,7 @@ plotcondresponse=(resp,times,depths;colors=[],minmaxcolors=[],colormaps=[],title
     for i in 1:n
         isnothing(layer) || (lim=abspct(resp[i]))
         yticks = i==1 ? (0:200:depths[i][end]) : false
-        xticks = (0:30:times[i][end])
+        xticks = (0:50:times[i][end])
         leftmargin = i==1 ? 4mm : -4mm
         xlabel = i==1 ? "Time (ms)" : ""
         ylabel = i==1 ? "Depth (μm)" : ""
@@ -121,6 +132,9 @@ plotcondresponse=(resp,times,depths;colors=[],minmaxcolors=[],colormaps=[],title
         if !isnothing(layer)
             ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
             hline!(p[i],[l[2] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann)
+            # yticks = i==1 ? [layer["1"][2],layer["WM"][2]] : false
+            # yformatter = x->Int(layer["1"][2]-x)
+            # hline!(p[i],[l[2] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann,yticks,yformatter)
         end
     end
     p
@@ -151,6 +165,9 @@ plottrialresponse=(resp,trials,depths;colors=[],minmaxcolors=[],colormaps=[],tit
         if !isnothing(layer)
             ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
             hline!(p[i],[l[2] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann)
+            # yticks = i==1 ? [layer["1"][2],layer["WM"][2]] : false
+            # yformatter = x->Int(layer["1"][2]-x)
+            # hline!(p[i],[l[2] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann,yticks,yformatter)
         end
     end
     p
@@ -159,7 +176,7 @@ end
 
 
 ## Manual Interactive Layer Assignment
-subject = "AG2";recordsession = "V1";recordsite = "ODR1"
+subject = "AG2";recordsession = "V1";recordsite = "ODR2"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -184,6 +201,8 @@ jldsave(joinpath(siteresultdir,"layer.jld2");layer,siteid)
 flashdepth(siteid,siteresultdir;layer)
 colordepth(siteid,siteresultdir;layer)
 orisfdepth(siteid,siteresultdir;layer)
+
+
 
 ## Flash2Color
 flashdepth = (siteid,siteresultdir;ii='0',layer=nothing) -> begin
@@ -237,6 +256,7 @@ plottrialresponse(pdc,trials,depths;colors,titles=titles[1:2:end],layer)
 foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCoherence$ext")),figfmt)
 plottrialresponse(wpdc,trials,depths;colors,titles=titles[1:2:end],layer)
 foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
+jldsave(joinpath(siteresultdir,"$(test)_ap.jld2");crms,pc,pdc,times,trials,depths,colors,titles,siteid)
 
 # Unit PSTH
 cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
@@ -246,26 +266,37 @@ ys = mapreduce(i->[v.y for v in values(i["cpsth"])],append!,cpsths)
 
 plotcondresponse(cpsth,xs,ys;colors,titles,layer)
 foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
-return
+
 # LFP and CSD
-lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
-lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
-dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
-time = mapreduce(i->[i["time"],i["time"]],append!,lfps)
-depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
-lfplim=absmax(lfp)
-csdlim=absmax(dcsd)
+lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
+clfp = mapreduce(i->[1e6v for v in values(i["clfp"])],append!,lfs)
+ccsd = mapreduce(i->[v for v in values(i["ccsd"])],append!,lfs)
+times = mapreduce(i->[i["times"],i["times"]],append!,lfs)
+depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfs)
+cm = cgrad(:jet,rev=true)
 
-plotflashdepthresponse(lfp,lfplim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LFP$ext")),figfmt)
+# heatmap(rand(20,20),color=c,size=(400,600))
 
-plotflashdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dCSD$ext")),figfmt)
+plotcondresponse(clfp,times,depths;colors,titles,layer)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+plotcondresponse(ccsd,times,depths;colors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-# 5x1 gaussian kernal(80μm)
-fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
-plotflashdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_fdCSD$ext")),figfmt)
+# σ=1(20μm): 5(80μm) diameter gaussian kernal
+fccsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["ccsd"])],append!,lfs)
+plotcondresponse(fccsd,times,depths;colors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
+
+# σ=2(40μm): 9(160μm) diameter gaussian kernal
+fccsd = mapreduce(i->[imfilter(v,Kernel.gaussian((2,0)),Fill(0)) for v in values(i["ccsd"])],append!,lfs)
+plotcondresponse(fccsd,times,depths;colors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+jldsave(joinpath(siteresultdir,"$(test)_lf.jld2");fccsd,times,depths,colors,titles,siteid)
+
+# σ=3(60μm): 13(240μm) diameter gaussian kernal
+fccsd = mapreduce(i->[imfilter(v,Kernel.gaussian((3,0)),Fill(0)) for v in values(i["ccsd"])],append!,lfs)
+plotcondresponse(fccsd,times,depths;colors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
 end
 
 
@@ -323,26 +354,34 @@ ys = map(i->first(values(i["cpsth"])).y,cpsths)
 
 plotcondresponse(cmpsth,xs,ys;colormaps,titles,layer)
 foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
-return
+
 # LFP and CSD
-lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
-lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
-dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
-time = mapreduce(i->[i["time"],i["time"]],append!,lfps)
-depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
-lfplim=absmax(lfp)
-csdlim=absmax(dcsd)
+lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
+cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
+cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
+times = map(i->i["times"],lfs)
+depths = map(i->i["depths"],lfs)
+cm = cgrad(:jet,rev=true)
 
-plotflashdepthresponse(lfp,lfplim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LFP$ext")),figfmt)
+plotcondresponse(cmlfp,times,depths;colormaps,titles,layer)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+plotcondresponse(cmcsd,times,depths;colormaps,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-plotflashdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dCSD$ext")),figfmt)
+# σ=1(20μm): 5(80μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
 
-# 5x1 gaussian kernal(80μm)
-fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
-plotflashdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_fdCSD$ext")),figfmt)
+# σ=2(40μm): 9(160μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+
+# σ=3(60μm): 13(240μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
 end
 
 
@@ -400,26 +439,34 @@ ys = map(i->first(values(i["cpsth"])).y,cpsths)
 
 plotcondresponse(cmpsth,xs,ys;minmaxcolors,titles,layer)
 foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
-return
+
 # LFP and CSD
-lfps = load.(joinpath.(siteresultdir,testids,"lfp$ii.jld2"))
-lfp = mapreduce(i->[1e6v for v in values(i["cmlfp"])],append!,lfps)
-dcsd = mapreduce(i->[v for v in values(i["cdcsd"])],append!,lfps)
-time = mapreduce(i->[i["time"],i["time"]],append!,lfps)
-depths = mapreduce(i->[i["depths"],i["depths"]],append!,lfps)
-lfplim=absmax(lfp)
-csdlim=absmax(dcsd)
+lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
+cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
+cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
+times = map(i->i["times"],lfs)
+depths = map(i->i["depths"],lfs)
+cm = cgrad(:jet,rev=true)
 
-plotflashdepthresponse(lfp,lfplim,time,depths,colors,titles)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_LFP$ext")),figfmt)
+plotcondresponse(cmlfp,times,depths;minmaxcolors,titles,layer)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+plotcondresponse(cmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-plotflashdepthresponse(dcsd,csdlim,time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_dCSD$ext")),figfmt)
+# σ=1(20μm): 5(80μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
 
-# 5x1 gaussian kernal(80μm)
-fdcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
-plotflashdepthresponse(fdcsd,absmax(fdcsd),time,depths,colors,titles,color=:RdBu)
-foreach(ext->savefig(joinpath(siteresultdir,"$(test)_fdCSD$ext")),figfmt)
+# σ=2(40μm): 9(160μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+
+# σ=3(60μm): 13(240μm) diameter gaussian kernal
+fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
 end
 
 
@@ -431,13 +478,11 @@ penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"
     # colordepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=nothing)
     # orisfdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=nothing)
     flashdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
-    colordepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
-    orisfdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
+    # colordepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
+    # orisfdepth(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
 end
 
 
-dcsd = mapreduce(i->[mapwindow(mean,v,(11,11),border=Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
-dcsd = mapreduce(i->[imfilter(v,Kernel.gaussian((1,1)),Fill(0)) for v in values(i["cdcsd"])],append!,lfps)
 
 dcsd = mapreduce(i->[csd(v[1:2:end,:],h=hy) for v in values(i["cmlfp"])],append!,lfps)
 dcsd = mapreduce(i->[imfilter(csd(v[1:2:end,:],h=hy),Kernel.gaussian((1,0)),Fill(0)) for v in values(i["cmlfp"])],append!,lfps)
@@ -447,54 +492,7 @@ depths = mapreduce(i->[i["depths"][1:2:end],i["depths"][1:2:end]],append!,lfps)
 
 
 
-## Set Layers
-# plotlayer=(o...;w=230,h=510)->begin
-#     cn = length(csds)
-#     p=plot(layout=(3,cn),link=:y,legend=false,grid=false,size=(cn*w,3h))
-#     for i in 1:cn
-#         yticks = i==1 ? true : false
-#         xlabel = i==1 ? "Time (ms)" : ""
-#         ylabel = i==1 ? "Depth (um)" : ""
-#         heatmap!(p,subplot=i,csdx,lfpdepths,csds[i].second,color=:RdBu,clims=(-csdclim,csdclim),title=csds[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-#         if !isnothing(layer)
-#             hline!(p,subplot=i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-#             annotations=[(csdx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-#         end
-#     end
-#     for i in 1:cn
-#         yticks = i==1 ? true : false
-#         xlabel = i==1 ? "Time (ms)" : ""
-#         ylabel = i==1 ? "Depth (um)" : ""
-#         heatmap!(p,subplot=cn+i,psthx,psthdepths,psths[i].second,color=:coolwarm,clims=(-psthclim,psthclim),title=psths[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-#         if i==1
-#             pn = maximum(psthx) .- psthdn./maximum(psthdn) .* maximum(psthx) .* 0.2
-#             plot!(p,subplot=cn+i,pn,psthdepths,label="Number of Units",color=:seagreen,lw=0.5)
-#         end
-#         if !isnothing(layer)
-#             hline!(p,subplot=cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-#             annotations=[(psthx[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-#         end
-#     end
-#     for i in 1:cn
-#         yticks = i==1 ? true : false
-#         xlabel = i==1 ? "Frequency (Hz)" : ""
-#         ylabel = i==1 ? "Depth (um)" : ""
-#         heatmap!(p,subplot=2cn+i,freq,lfpdepths,pcs[i].second,color=:vik,clims=(-pcclim,pcclim),title=pcs[i].first,titlefontsize=6,yticks=yticks,xlabel=xlabel,ylabel=ylabel)
-#         if !isnothing(layer)
-#             hline!(p,subplot=2cn+i,[l[1] for l in values(layer)],linestyle=:dash,linecolor=:gray25,legend=false,
-#             annotations=[(freq[1]+1,layer[k][1],text(k,4,:gray10,:bottom,:left)) for k in keys(layer)])
-#         end
-#     end
-#     p
-# end
-#
-# lw = Dict(k=>widget(0:3800,label=k,value=layer[k][1]) for k in keys(layer))
-# foreach(k->on(v->layer[k][1]=v,lw[k]),keys(lw))
-# lp = map(plotlayer,values(lw)...)
-# vbox(values(lw)...,lp)
-#
-# plotlayer()
-# foreach(ext->savefig(joinpath(siteresultdir,"Layer_dCSD_dPSTH_PowerContrast$ext")),figfmt)
+
 
 ln = ["1", "2", "3", "4A", "4B", "4Cα", "4Cβ", "5", "6", "WM"]
 
@@ -513,45 +511,6 @@ end
 
 
 
-
-# earliest response should be due to LGN M,P input to 4Ca,4Cb
-# ln = ["4Cb","4Ca","4B","4A","2/3","Out"]
-# lcsd = dropdims(mean(mncsd[:,epoch2samplerange([0.045 0.055],fs)],dims=2),dims=2)
-# ldepths = depths[1]:depths[end]
-# lcsd = Spline1D(depths,lcsd)(ldepths);threshold = 1.2std(lcsd)
-#
-# scipysignal = pyimport("scipy.signal")
-# di,dv=scipysignal.find_peaks(-lcsd,prominence=threshold,height=threshold)
-# peaks =ldepths[di.+1];bases = hcat(ldepths[dv["left_bases"].+1],ldepths[dv["right_bases"].+1])
-#
-# plot(lcsd,ldepths,label="CSD Profile")
-# vline!([-threshold,threshold],label="Threshold")
-# hline!(peaks,label="CSD Sink Peak")
-# hline!(bases[:,1],label="CSD Sink Low Border")
-# hline!(bases[:,2],label="CSD Sink High Border")
-#
-# layer = Dict(ln[i]=>bases[i,:] for i in 1:size(bases,1))
-# plotanalog(mncsd,fs=fs,color=:RdBu,layer=layer)
-#
-#
-# # Layers from Depth PSTH
-# depthpsth,depths,x = load(joinpath(resultdir,"depthpsth.jld2"),"depthpsth","depth","x")
-# plotpsth(depthpsth,x,depths,layer=layer)
-#
-# bw = x[2]-x[1]
-# lpsth = dropdims(mean(depthpsth[:,epoch2samplerange([0.045 0.055],1/bw)],dims=2),dims=2)
-# ldepths = depths[1]:depths[end]
-# lpsth = Spline1D(depths,lpsth)(ldepths);threshold = 1.2std(lpsth)
-#
-# scipysignal = pyimport("scipy.signal")
-# di,dv=scipysignal.find_peaks(lpsth,prominence=threshold,height=threshold)
-# peaks =ldepths[di.+1];bases = hcat(ldepths[dv["left_bases"].+1],ldepths[dv["right_bases"].+1])
-#
-# plot(lpsth,ldepths,label="PSTH Profile")
-# vline!([-threshold,threshold],label="Threshold")
-# hline!(peaks,label="PSTH Peak")
-# hline!(bases[:,1],label="PSTH Low Border")
-# hline!(bases[:,2],label="PSTH High Border")
 
 
 ## Collect Layers of All RecordSites
@@ -617,6 +576,8 @@ end
 plotlayer(resultroot)
 
 
+deleteat!(layerwidth,15)
+
 ## Aligned Depth Feature
 function collectunitdepthfeature!(indir;udf=DataFrame(),datafile="unitdepthfeature.jld2")
     for (root,dirs,files) in walkdir(indir)
@@ -629,26 +590,53 @@ function collectunitdepthfeature!(indir;udf=DataFrame(),datafile="unitdepthfeatu
     return udf
 end
 
+function collectflashfeature!(indir;aplf=DataFrame(),test="Flash2Color")
+    apfile = "$(test)_ap.jld2"
+    lffile = "$(test)_lf.jld2"
+    for (root,dirs,files) in walkdir(indir)
+        if apfile in files
+            ap = load(joinpath(root,apfile))
+            lf = load(joinpath(root,lffile))
+            df = DataFrame("siteid"=>ap["siteid"],"colors"=>[ap["colors"]],"titles"=>[ap["titles"]],
+                "aptimes"=>[ap["times"]],"apdepths"=>[ap["depths"]],"aptrials"=>[ap["trials"]],
+                "crms"=>[ap["crms"]],"pc"=>[ap["pc"]],"pdc"=>[ap["pdc"]],
+                "fccsd"=>[lf["fccsd"]],"lftimes"=>[lf["times"]],"lfdepths"=>[lf["depths"]])
+            append!(aplf,df,cols=:union)
+        end
+    end
+    return aplf
+end
+
+allflashf = collectflashfeature!(resultroot)
+leftjoin!(allflashf,alllayer[:,[:siteid,:e2cfun,:tcfun]],on=:siteid)
+transform!(allflashf,[:tcfun,:e2cfun,:apdepths]=>ByRow((g,f,x)->g.(f.(x)))=>:apdepths,
+            [:tcfun,:e2cfun,:lfdepths]=>ByRow((g,f,x)->g.(f.(x)))=>:lfdepths)
+transform!(allflashf,[:fccsd,:lfdepths]=>ByRow((c,d)->camn.(c,d))=>:nfccsd)
+camn(c,d) = c/maximum(abs.(c[0 .<= d .< 1,:]))
+
+
+
 alludf = collectunitdepthfeature!(resultroot)
 udf = select(alludf,[:siteid,:depth,:Density,:uppvinv,:downpvinv],[:upspread,:downspread]=>ByRow(.-)=>:spread,
     :uppvinv=>ByRow(i->inv.(i))=>:uppv,:downpvinv=>ByRow(i->inv.(i))=>:downpv)
 leftjoin!(udf,alllayer[:,[:siteid,:e2cfun,:tcfun]],on=:siteid)
 transform!(udf,[:tcfun,:e2cfun,:depth]=>ByRow((g,f,x)->g(f(x)))=>:depth)
+transform!(udf,[:depth,:Density]=>ByRow((y,d)->mean(d[0 .<= y .< 1]))=>:cmd)
 
 function getdffun(x,y)
     order = sortperm(x)
     i->Spline1D(x[order],y[order],k=3,bc="zero")(i)
 end
 
-plotfeature = (f;dir=nothing,color=:crimson,xlabel="",xlim=())->begin
+plotfeature = (udf,f;dir=nothing,color=:red,xlabel="",xlim=())->begin
 
-y = range(0,1,length=2000)
+y = range(0,1.2,length=2000)
 af = hcat(map((i,j)->getdffun(i,j)(y),udf.depth,udf[!,f])...)
 xmin,xmax = isempty(xlim) ? extrema(af) : xlim
 afm = mean(af,dims=2)
 afse = std(af,dims=2)/sqrt(size(af,2))
 
-p=plot(af,y;grid=false,yflip=true,color=:gray70,lw=0.5,size=(350,500),ylim=(0,1),xlim,ylabel="Normalized Depth",tickor=:out)
+p=plot(af,y;grid=false,yflip=true,color=:gray70,lw=0.5,size=(350,500),ylim=(0,1.2),xlim,ylabel="Normalized Depth",tickor=:out)
 plot!(p,[afm.-afse;reverse(afm.+afse)],[y;reverse(y)]; st=:shape,lw=0,alpha=0.2,color,xlabel)
 plot!(p,afm,y;label=false,lw=2,color)
 ann = [(xmin+0.02(xmax-xmin),mean(nlbt[i:i+1]),text(ln[i],7,:gray10,:left,:vcenter)) for i in 1:length(ln)]
@@ -657,9 +645,77 @@ hline!(p,nlbt;linecolor=:gray25,legend=false,lw=1,ann)
 isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"AlignedLayer_$f$ext")),figfmt)
 end
 
-plotfeature("Density",xlabel="Density (unit/mm³)",dir=nothing)
-plotfeature("spread",xlabel="Spread (μm)",dir=nothing)
-plotfeature("uppvinv",xlabel="1/Propagation Speed (ms/μm)",xlim=(-1e5,2e5),dir=nothing)
-plotfeature("downpvinv",xlabel="1/Propagation Speed (ms/μm)",xlim=(-1e5,2e5),dir=nothing)
-plotfeature("uppv",xlabel="Propagation Speed (μm/ms)",xlim=(-1e5,2e5),dir=nothing)
-plotfeature("downpv",xlabel="Propagation Speed (μm/ms)",xlim=(-1e5,2e5),dir=nothing)
+plotfeature(udf,"Density",xlabel="Density (unit/mm³)",dir=nothing)
+plotfeature(udf,"spread",xlabel="Spread (μm)",dir=nothing)
+plotfeature(udf,"uppvinv",xlabel="1/Propagation Speed (ms/μm)",xlim=(-1e5,2e5),dir=nothing)
+plotfeature(udf,"downpvinv",xlabel="1/Propagation Speed (ms/μm)",xlim=(-1e5,2e5),dir=nothing)
+plotfeature(udf,"uppv",xlabel="Propagation Speed (μm/ms)",xlim=(-1e5,2e5),dir=nothing)
+plotfeature(udf,"downpv",xlabel="Propagation Speed (μm/ms)",xlim=(-1e5,2e5),dir=nothing)
+
+cmdp = percentile.([udf.cmd],[0,25,50,75,100])
+t = filter(r->cmdp[3] <= r.cmd < cmdp[4],udf)
+
+plotfeature(t,"Density",xlabel="Density (unit/mm³)",dir=nothing)
+plotfeature(t,"spread",xlabel="Spread (μm)",dir=nothing)
+
+
+pyplot()
+
+plotcondresponse(allflashf.fccsd[1],allflashf.lftimes[1],allflashf.lfdepths[1];colors=allflashf.colors[1],titles=allflashf.titles[1],layer=layertemplate)
+
+
+allflashf.lfdepths
+
+t = allflashf.nfccsd[1][4]
+heatmap(t,yflip=true)
+heatmap(tt,yflip=true)
+heatmap(mnfccsd,yflip=true)
+heatmap(allflashf.lftimes[1],-allflashf.lfdepths[1],allflashf.nfccsd[1][4],yflip=true)
+
+
+
+function getdffun2(x,y,z)
+    (i,j)->evalgrid(Spline2D(x,y,z,kx=3,ky=3),i,j)
+end
+
+tt=getdffun2(reverse(allflashf.lfdepths[1][4]),collect(allflashf.lftimes[1][4]),reverse(allflashf.nfccsd[1][4],dims=1))(y,allflashf.lftimes[1][4])
+
+
+
+
+
+
+mnfccsd=mapreduce((d,t,c)->getdffun2(reverse(d[4]),collect(t[4]),reverse(c[4],dims=1))(y,t[4]),.+,allflashf.lfdepths,allflashf.lftimes,allflashf.nfccsd)/nrow(allflashf)
+
+
+
+
+
+t=ColorMaps["lms_mccsiso"].colors
+
+
+a=HSVA(t[1])
+a=HSVA(a.h,a.s,1,1)
+b=HSVA(t[end])
+b=HSVA(b.h,b.s,1,1)
+range(RGBA(a),t[180],RGBA(b),length=360)
+
+
+
+
+plotfeature2 = (allflashf,f;dir=nothing,color=:red,xlabel="",xlim=())->begin
+
+y = range(0,1,length=2000)
+af = hcat(map((i,j)->getdffun(i,j)(y),udf.depth,udf[!,f])...)
+xmin,xmax = isempty(xlim) ? extrema(af) : xlim
+afm = mean(af,dims=2)
+afse = std(af,dims=2)/sqrt(size(af,2))
+
+p=plot(af,y;grid=false,yflip=true,color=:gray70,lw=0.5,size=(350,500),ylim=(0,1.2),xlim,ylabel="Normalized Depth",tickor=:out)
+plot!(p,[afm.-afse;reverse(afm.+afse)],[y;reverse(y)]; st=:shape,lw=0,alpha=0.2,color,xlabel)
+plot!(p,afm,y;label=false,lw=2,color)
+ann = [(xmin+0.02(xmax-xmin),mean(nlbt[i:i+1]),text(ln[i],7,:gray10,:left,:vcenter)) for i in 1:length(ln)]
+hline!(p,nlbt;linecolor=:gray25,legend=false,lw=1,ann)
+
+isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"AlignedLayer_$f$ext")),figfmt)
+end

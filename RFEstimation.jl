@@ -2,7 +2,7 @@ using NeuroAnalysis,FileIO,JLD2,Images,StatsBase,StatsPlots,Interact,ProgressMet
 
 ccode = Dict("DKL_X"=>'A',"DKL_Y"=>'Y',"DKL_Z"=>'S',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S',
              "LMS_X"=>'L',"LMS_Y"=>'M',"LMS_Z"=>'S',"DKL_Hue_L0"=>"DKL_L0","HSL_Hue_Ym"=>"HSL_Ym",
-             "DKL_HueL0"=>"DKL_L0","HSL_HueYm"=>"HSL_Ym")
+             "DKL_HueL0"=>"DKL_L0","HSL_HueYm"=>"HSL_Ym","DKL_L0"=>"DKL","HSL_Ym"=>"HSL")
 
 getccode(k,ccode) = haskey(ccode,k) ? ccode[k] : k
 
@@ -13,8 +13,7 @@ function joinsta(indir;ccode=ccode,btw=-100:0,rtw=10:130,datafile="sta.jld2")
             push!(stas,load(joinpath(root,datafile)))
         end
     end
-    unitid1 = collect(keys(stas[1]["usta"]))
-    unitgood1 = stas[1]["unitgood"]
+    ugood1 = stas[1]["ugood"]
     siteid = stas[1]["siteid"]
     sizepx = stas[1]["sizepx"]
     sizedeg = stas[1]["sizedeg"]
@@ -49,7 +48,7 @@ function joinsta(indir;ccode=ccode,btw=-100:0,rtw=10:130,datafile="sta.jld2")
                 csta[cii[xi],d,j] = zsta[d,:]
             end
         end
-        ugood[u] = unitgood1[findfirst(unitid1.==u)]
+        ugood[u] = ugood1[u]
         usta[u] = csta
         uresponsive[u] = false
     end
@@ -77,8 +76,8 @@ function responsivesta!(dataset;w=0.5,sdfactor=6,roimargin=0.1,peakroirlim=(0.15
             uresponsive[u] = true
             vroi = cproi[ucresponsive[u]]
             roi = mergeroi(vroi;roimargin,imgsize=sizepx,issquare=true)
-            ulroi[u] = (roi...,centerdeg=roi.center/ppd,radiusdeg=roi.radius/ppd)
-            ulsta[u] = usta[u][map(i->i.+(-roi.radius:roi.radius),roi.center)...,:,:]
+            ulroi[u] = (roi...,centerdeg=roi.center./ppd,radiideg=roi.radii./ppd,radiusdeg=roi.radius/ppd)
+            ulsta[u] = usta[u][map((c,r)->c.+(-r:r),roi.center,roi.radii)...,:,:]
             ulcroi[u] = cproi
             ulcsdd[u] = crsdd
         else
@@ -128,7 +127,7 @@ plotstas=(dataset,u,d;dir=nothing,figfmt=[".png"])->begin
     x = range(xlims...,length=sizepx[2])
     y = range(ylims...,length=sizepx[1])
 
-    title = "$(ugood ? "Single-" : "Multi-")Unit_$(u)_STA_$(delays[d])"
+    title = "$(ugood ? "S" : "M")U$(u)_STA_$(delays[d])"
     p = plot(;layout=(1,cn),legend=false,size=(400cn,450),titlefontcolor=uresponsive ? :green : :match,title)
     @views foreach(i->heatmap!(p[i],x,y,usta[:,:,d,i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
         xlims,ylims,xticks=xlims,yticks=ylims,yflip=true,xlabel=dataset["color"][i]),1:cn)
@@ -156,8 +155,8 @@ plotlstas=(dataset,u;dir=nothing,figfmt=[".png"])->begin
     bar!(p[1],dataset["color"],ulcdex,frame=:zerolines,ylabel="extrema",leftmargin=8mm)
     @views foreach(i->heatmap!(p[i+1],x,y,ulsta[:,:,ulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
     titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
-    xlabel=dataset["color"][i],title="$(ugood ? "Single-" : "Multi-")Unit_$(u)_STA_$(delays[ulcd[i]])"),1:cn)
-    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "Single-" : "Multi-")Unit_$(u)_STA$ext")),figfmt)
+    xlabel=dataset["color"][i],title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
+    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_STA$ext")),figfmt)
 end
 
 plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
@@ -180,7 +179,7 @@ plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     p = plot(layout=(3,cn),legend=false,size=(300cn,3*320))
     @views foreach(i->heatmap!(p[1,i],x,y,ulsta[:,:,ulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
     titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
-    title="$(ugood ? "Single-" : "Multi-")Unit_$(u)_STA_$(delays[ulcd[i]])"),1:cn)
+    title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
 
     umfit=dataset["ulfit"][u][m]
     rspx = (diameterpx.-1)./2
@@ -196,11 +195,10 @@ plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     @views foreach(i->ismissing(fs[i]) ? plot!(p[3,i],frame=:none) :
     heatmap!(p[3,i],x,y,ulsta[end:-1:1,:,ulcd[i],i].-fs[i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims,ylims,
     xticks=false,yticks=false,xlabel="Residual",titlefontcolor=ucresponsive[i] ? :green : :match,title="r = $(round(umfit[i].r,digits=3))"),1:cn)
-    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "Single-" : "Multi-")Unit_$(u)_Fit_$(m)$ext")),figfmt)
+    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_Fit_$(m)$ext")),figfmt)
 end
 
 stainfo = (siteresultdir) -> begin
-
 dataset = joinsta(siteresultdir)
 dataset = responsivesta!(dataset)
 dataset = fitsta!(dataset,model=[:edog,:gabor])
@@ -219,13 +217,12 @@ mkpath(lstafitdir)
 for u in keys(dataset["ulfit"]),m in keys(first(values(dataset["ulfit"])))
     plotfitstas(dataset,u,m,dir=lstafitdir)
 end
-
 end
 
 
 ## process all stas
 resultroot = "Z:/"
-subject = "AG2";recordsession = "V1";recordsite = "ODR1"
+subject = "AG1";recordsession = "V1";recordsite = "ODL1"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
@@ -238,7 +235,7 @@ end
 # stadir = joinpath(siteresultdir,"sta")
 # isdir(stadir) || mkpath(stadir)
 # for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
-#     u == 112 || continue
+#     u == 265 || continue
 #     plotstas(dataset,u,d,dir=stadir)
 # end
 

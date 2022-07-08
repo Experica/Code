@@ -776,14 +776,10 @@ Plots.plot(tv)
 pvalue(ApproximateTwoSampleKSTest(tv,ob))
 
 
-
-
-
-
-
 savefig("test.png")
+save("test.png",p)
 
-
+savefig("test.svg")
 ##
 using MultivariateStats
 
@@ -800,5 +796,34 @@ pp = cat(values(cdrms)...,dims=2)
 heatmap(pp)
 
 
+pyplot()
+gr()
 
-ugs = map(i->i ? "Single-" : "Multi-",unitgood)
+
+function takeroi(imgsize,ppd;roi=missing,roimaxresize=32,issquare=false)
+    if ismissing(roi)
+        idxrange = map(i->1:i,imgsize)
+        roisize = imgsize
+    else
+        cs = round.(Int,roi.centerdeg*ppd)
+        # rs = round.(Int,roi.radiideg*ppd)
+        r = round(Int,roi.radiusdeg*ppd)
+        rs = (r,r)
+        cs,rs,r = clamproi(cs,rs,imgsize;issquare)
+        idxrange = map((c,r)->(-r:r).+c,cs,rs)
+        roisize = length.(idxrange)
+        roi = (centerdeg=cs./ppd,radiideg=rs./ppd,radiusdeg=r/ppd)
+    end
+    d = max(roisize...)
+    f = min(roimaxresize,d)/d
+    roiresize = round.(Int,roisize.*f)
+    (;idxrange,roiresize,roi)
+end
+
+
+
+pp= filter(r->r.Subject_ID == "AG1",penetration)
+
+@showprogress "Batch All STAs ... " for r in eachrow(pp)
+    stainfo(joinpath(resultroot,r.Subject_ID,r.siteid))
+end

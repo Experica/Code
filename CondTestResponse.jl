@@ -1,8 +1,5 @@
-using NeuroAnalysis,FileIO,Statistics,DataFrames,StatsPlots,StatsBase
-
-# import Base: sum,getproperty
-# getproperty(x::Missing,f::Symbol) = missing
-# sum(x::Missing) = missing
+using NeuroAnalysis,FileIO,JLD2,Statistics,DataFrames,StatsPlots,StatsBase,XLSX,Dierckx,VegaLite,
+    DataStructures,Combinatorics
 
 function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafile="factorresponse.jld2")
     for (root,dirs,files) in walkdir(indir)
@@ -13,14 +10,13 @@ function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafil
             siteid = fr["siteid"]
             id = map((u,g)->g ? "$(siteid)_SU$u" : "$(siteid)_MU$u",fr["unitid"],fr["unitgood"])
             c = getccode(fr["exenv"]["color"],ccode)
-            ks = ["responsive","modulative","enoughresponse","fa"]
+            ks = ["responsive","modulative","enoughresponse","fms"]
             isempty(fr["f1f0"]) || push!(ks,"f1f0")
             kv1 = ("$(k)!$c"=>fr[k] for k in ks)
             kv2 = ("frf_$(k)!$c"=>fr["frf"][k] for k in keys(fr["frf"]))
-            # df3 = ("pzfr_$(k)!$c"=>map((i,p,m)->(m[i...].-mean(p[i...]))/std(p[i...]),fr["optfri"][k],fr["pfms"],fr["fms"]) for k in keys(fr["fa"]))
-            # df4 = ("f_$(k)!$c"=>fill(fr["fa"][k],length(id)) for k in keys(fr["fa"]))
-            # df = DataFrame(df1...,df2...,df3...,df4...)
-            df = DataFrame(kv1...,kv2...)
+            kv3 = ("maxfri_$(k)!$c"=>fr["maxfri"][k] for k in keys(fr["maxfri"]))
+            df = DataFrame(kv1...,kv2...,kv3...)
+            foreach(k->insertcols!(df,"fa_$(k)!$c"=>fill(fr["fa"][k],nrow(df))),keys(fr["fa"]))
             df.siteid .= siteid
             df.id = id
             append!(unit,df,cols=:union)
@@ -32,193 +28,495 @@ end
 resultroot = "Z:/"
 figfmt = [".png"]
 
+allcu = load(joinpath(resultroot,"allcu.jld2"),"allcu")
+layer = load(joinpath(resultroot,"layertemplate.jld2"),"layertemplate")
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
+penetration = select(penetration,[:siteid,:od,:cofd],:cofd=>ByRow(i->i∈["L/M","S/LM","L/M, S/LM"])=>:incofd,
+                :cofd=>ByRow(i->i∈["B","W","B, W"])=>:inbw,:cofd=>ByRow(i->i=="None")=>:none)
+
 ## Collect All Color Tests
-# colorunit = collectcondtest(joinpath(resultroot,"AG2","AG2_V1_ODR1"),exid="Color")
-colortests = collectcondtest(resultroot,exid="Color")
+colortest = collectcondtest(resultroot,exid="Color")
 
+function colorunit(unit;color="DKL_L0",ccode=ccode)
+    df = dropmissing(unit,"responsive!$color")
+    df.c .= getccode(color,ccode)
+    select!(df,Not(r"\w*!\w*"),
+        ["responsive!$color","enoughresponse!$color"] => ByRow(&) => :er,
+        "fa_Angle!$color" => :fl,
+        ["fms!$color","maxfri_Angle!$color"]=>ByRow((fm,fi)->fm[fi...])=>:fr,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : (;i.fit.mfit.model,i.fit.mfit.fun,i.fit.mfit.param)) => :fit,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.up) => :up,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.cm) => :cm,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.cv) => :cv,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.aup) => :aup,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.acm) => :acm,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.acv) => :acv,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.fit.pa) => :pa,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.fit.asi2) => :asi,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : sum(i.fit.ahw)) => :ahw,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : i.fit.mfit.r) => :cor,
+        "frf_Angle!$color" => ByRow(i->ismissing(i) ? missing : 1-i.fit.mfit.r2) => :fvu)
+end
 
-names(colorunits)
-
+# allcolorunit = mapreduce(c->colorunit(colortest,color=c),(i,j)->append!(i,j,cols=:union),["DKL_L0","HSL_Ym"])
+# transform!(allcolorunit,:up=>(i->i.<0.05)=>:s,:aup=>(i->i.<0.05)=>:as)
+# jldsave(joinpath(resultroot,"allcolorunit.jld2");allcolorunit)
+allcolorunit = load(joinpath(resultroot,"allcolorunit.jld2"),"allcolorunit")
 dklcg = cgrad(ColorMaps["lidkl_mcchue_l0"].colors)
 hslcg = cgrad(ColorMaps["hsl_mshue_l0.4"].colors)
+# dklcm = ColorMaps["lidkl_mcchue_l0"].colors
+# hslcm = ColorMaps["hsl_mshue_l0.4"].colors
 
-function colorunit(unit;ccode="DKL_L0")
-    select!(dropmissing(unit,"responsive!$ccode"),Not(r"\w*!\w*"),
-        # ["responsive!$ccode","modulative!$ccode"] => ByRow((i,j)->i|j) => :sr,
-        # ["responsive!$ccode","modulative!$ccode","enoughresponse!$ccode"] => ByRow((i,j,k)->i&j&k) => :rme,
-        # ["pzfr_HueAngle!$ccode","f_HueAngle!$ccode"] => ByRow((r,f)->r[f.==0][1]-r[f.==180][1]) => :L_M,
-        # ["pzfr_HueAngle!$ccode","f_HueAngle!$ccode"] => ByRow((r,f)->r[f.==90][1]-r[f.==270][1]) => :S_LM,
-        "frf_Angle!$ccode" => ByRow(i->(;i.fit.mfit.model,i.fit.mfit.fun,i.fit.mfit.param)) => :fit,
-        "frf_Angle!$ccode" => ByRow(i->i.up) => :up,
-        "frf_Angle!$ccode" => ByRow(i->i.cm) => :cm,
-        "frf_Angle!$ccode" => ByRow(i->i.cv) => :cv,
-        "frf_Angle!$ccode" => ByRow(i->i.acm) => :acm,
-        "frf_Angle!$ccode" => ByRow(i->i.acv) => :acv,
-        "frf_Angle!$ccode" => ByRow(i->i.fit.pa) => :pa,
-        "frf_Angle!$ccode" => ByRow(i->i.fit.asi2) => :asi,
-        "frf_Angle!$ccode" => ByRow(i->sum(i.fit.ahw)) => :ahw,
-        "frf_Angle!$ccode" => ByRow(i->i.fit.mfit.r) => :cor
-        "frf_Angle!$ccode" => ByRow(i->1-i.fit.mfit.r2) => :fvu)
+## color responsive
+colorcu = innerjoin(allcu,allcolorunit,on=[:siteid,:id])
+leftjoin!(colorcu,penetration,on=:siteid)
+colorcsu = subset(colorcu,:good)
+dklcsu = filter(r->r.c=="DKL",colorcsu)
+hslcsu = filter(r->r.c=="HSL",colorcsu)
+dklrcsu = subset(dklcsu,:er)
+hslrcsu = subset(hslcsu,:er)
+
+allcolorcsu = combine(groupby(colorcsu,[:id,:siteid]),
+            :aligndepth=>first=>identity,
+            :layer=>first=>identity,
+            :er=>any=>:eresponsive,
+            [:c,:er]=>((c,r)->join(c[r]))=>:RTYPE,
+            [:c,:er,:cm]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last)
+allcolorrcsu = subset(allcolorcsu,:eresponsive)
+
+
+plotdepthhist = (unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=nothing,title="CorticalDepth_$g",ylabel="Number of Units",palette=:tab20,leg=:best) -> begin
+p = groupedhist(unit.aligndepth;group=unit[!,g],barpositions=:stack,bin=0:0.02:1,permute=(:y,:x),xflip=true,grid=false,legendfontsize=6,
+    xlims=(0,1),lw=0,size=(350,500),tickor=:out,xlabel="Cortical Depth",ylabel,palette,leg)
+if !isnothing(layer)
+    ann = [(1,mean(layer[k]),Plots.text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+end
+isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
 end
 
-dklunit = colorunit(colorunits,ccode="DKL_L0")
-hslcell = colorcell(cell,ccode="HSL_Ym")
 
-dklcell |> Voyager()
-
-hslcell |>
-    [@vlplot(:bar,y={"site",title="Recording Site"},x={"count()",title="Number of Cells"},color={"sr:n",title="Color"});
-     @vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Cells"},color={"sr:n",title="Color"});
-     @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"sr:n",title="Color"})]
-
-dklcell |> @vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth (μm)"},x={"count()",title="Number of Cells"},color={"rme:n"})
-dklcell |> @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"rme:n"})
-
-filter(r->r.rme,dklcell) |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth (μm)"},x={"L_M"},color={"layer",scale={scheme=:category10}},
-            column={"site",title=""})
-filter(r->r.rme,dklcell) |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth (μm)"},x={"S_LM"},color={"layer",scale={scheme=:category10}},
-            column={"site",title=""})
-
-filter(r->r.rme,dklcell) |> @vlplot(:bar,transform=[{calculate="datum.L_M > 0 ? 'L+' : 'L-'","as"="Dominance"},{calculate="datum.L_M > 0 ? 1 : -1","as"="sign"}],
-        y={"layer",title="Cortical Layer"},x={"sign",title="Number of rme Cells"},color={"Dominance",scale={range="#" .* hex.(get(dklcg,[0,0.5]),:rgb)}},column={"site",title=""})
-filter(r->r.rme,dklcell) |> @vlplot(:bar,transform=[{calculate="datum.S_LM > 0 ? 'S+' : 'S-'","as"="Dominance"},{calculate="datum.S_LM > 0 ? 1 : -1","as"="sign"}],
-        y={"layer",title="Cortical Layer"},x={"sign",title="Number of rme Cells"},color={"Dominance",scale={range="#" .* hex.(get(dklcg,[0.25,0.75]),:rgb)}},column={"site",title=""})
+plotdepthhist(allcolorcsu;g=:eresponsive,layer)
+plotdepthhist(allcolorrcsu;g=:RTYPE,layer)
 
 
-filter(r->r.sr,hslcell) |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth (μm)"},x={"hcv"},color={"layer",scale={scheme=:category10}})
-filter(r->r.rme,dklcell)
-dklcell |> @vlplot(:tick,y={"layer",title="Cortical Layer"},x={"hcv"},color={"layer",scale={scheme=:category10}})
-
-filter(r->r.rme && r.hcv <= 0.8,dklcell)
-hslcell |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth (μm)"},x={"oh",axis={values=0:90:360}},
-            color={"layer",scale={scheme=:category10}},column={"site",title=""})
-
-dklcell |> @vlplot(:bar,transform=[{bin={step=30},field="oh","as"="boh"}],
-            y={"count()",title="Number of Cells"},x={"oh",bin={step=30},title="Optimal Hue",axis={values=0:90:360}},
-            color={"boh",scale={range="#" .* hex.(get(dklcg,range(1/24,length=12,step=1/12)),:rgb)},legend=false},column={"site",title=""})
-
-hslcell |> @vlplot(:bar,transform=[{bin={step=30},field="oh","as"="boh"}],
-            y={"count()",title="Number of Cells"},x={"oh",bin={step=30},title="Optimal Hue",axis={values=0:90:360}},
-            color={"boh",scale={range="#" .* hex.(get(hslcg,range(1/24,length=12,step=1/12)),:rgb)},legend=false},column={"site",title=""})
-
-filter(r->r.rme && r.hcv <= 0.8,dklcell) |> @vlplot(:tick,y={"layer",title="Cortical Layer"},x={"oh",axis={values=0:90:360}},
-            color={"layer",scale={scheme=:category10}},column={"site",title=""})
-
-
-
-
-
-
-
-dklcs = "#" .* hex.(dklcg.colors.colors,:rgb)
-hslcs = "#" .* hex.(hslcg.colors.colors,:rgb)
-
-
-dklcell |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth"},x={"hcv",title="Number of Cells"},
-                        color={"oh",scale={range=dklcs}},column={"site"})
-
-dklcells |> @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"dkl_oh",scale={range=dklcs}},column={"site"})
-
-hslcell |> @vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Cells"},
-                        color={"oh",scale={range=hslcs}},column={"site"})
-
-hslcell |> @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"oh",scale={range=hslcs}},column={"site"})
-
-
-plothuehist=(df;w=700,h=700,hue="oh",cs="dkl",cg=dklcg)->begin
-    sites = sort(unique(df.site));n=length(sites);cshue="$(cs)_$hue"
-    p=plot(layout=(n,1),legend=false,grid=true,size=(w,n*h))
-    for i in 1:n
-        ys,ns,ws,is = epochspiketrain(df[df.site.==sites[i],cshue],0:30:360)
-        if !isnothing(cg)
-            x = 2*π*cg.values
-            y = fill(1.1maximum(ns),length(x))
-            scatter!(p,subplot=i,x,y,projection=:polar,color=cg.colors.colors,markerstrokewidth=0,markersize=12)
-        end
-        plot!(p,subplot=i,deg2rad.(mean.([ws;ws[1]])),[ns;ns[1]],title="$(sites[i])--$cshue",projection=:polar,linewidth=5,linecolor=:gray30)
-    end
-    p
+## color tuning
+plotcolortuning = (unit;type=:data,cg=dklcg,dir=nothing,figfmt=[".png"],layer=nothing,title="ColorTuning") -> begin
+x = 0:0.04:2π # 2.3 deg
+if type == :fit
+    tc = hcat(map(f->predict(f,x),unit.fit)...)
+elseif type == :data
+    tc = hcat(map((l,r)->Spline1D([deg2rad.(l);2π],[r;r[1]],k=1)(x),unit.fl,unit.fr)...)
+end
+tc./=maximum(tc,dims=1)
+p=plot(leg=false,proj=:polar,yticks=[],xticks=range(0,3π/2,length=4),xformatter=x->round(Int,rad2deg(x)),size=(500,500))
+for i in 1:size(tc,2)
+    ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
+    @views plot!(p,x,tc[:,i],color=ccg,lz=x)
+end
+if !isnothing(layer)
+    ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+end
+isnothing(dir) && return p
+mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
 end
 
-plothuehist(dklcells,hue="oh",cs="dkl",cg=dklcg)
-foreach(ext->savefig(joinpath(resultroot,"DKLOptHueHist$ext")),figfmt)
-plothuehist(hslcells,hue="oh",cs="hsl",cg=hslcg)
-foreach(ext->savefig(joinpath(resultroot,"HSLOptHueHist$ext")),figfmt)
+# foreach(siteid->plotcolortuning(filter(r->r.siteid==siteid,dklrcsu);
+#     cg=dklcg,dir=joinpath(resultroot,"Tuning"),type=:fit,title="$(siteid)_DKL_ColorTuning_fit"),
+#     levels(dklrcsu.siteid))
+# foreach(siteid->plotcolortuning(filter(r->r.siteid==siteid,hslrcsu);
+#     cg=hslcg,dir=joinpath(resultroot,"Tuning"),type=:fit,title="$(siteid)_HSL_ColorTuning_fit"),
+#     levels(hslrcsu.siteid))
+
+plotcolortuning(filter(r->r.siteid=="AG2_V1_ODL4",dklrcsu),cg=dklcg,type=:fit)
+plotcolortuning(filter(r->r.siteid=="AG2_V1_ODL4",hslrcsu),cg=hslcg,type=:fit)
 
 
 
 
-plothueposition=(;w=800,h=700)->begin
-    p=plot(layout=(1,testn),legend=false,grid=false,size=(testn*w,h))
-    for i in 1:testn
-        xlims = extrema(upos[i][:,1]).+[-2,1]
-        if !isnothing(layer)
-            lx = xlims[1]+1
-            hline!(p,subplot=i,[layer[k][1] for k in keys(layer)],linestyle=:dash,
-            annotations=[(lx,layer[k][1],text(k,7,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray70,legend=false)
-        end
-        scatter!(p,subplot=i,upos[i][:,1],upos[i][:,2],title=testlogs[i],markersize=(1 .-hcvs[i])*5 .+2, color=cms[i][ohs[i]/360],
-        xlims=xlims,markerstrokewidth=0)
-    end
-    p
+# tall=unitdensity(dklcu.aligndepth,spacerange=(0,1),bw=0.02,step=0.02)
+# ter = unitdensity(dklcu.aligndepth[dklcu.er],spacerange=(0,1),bw=0.02,step=0.02)
+# plot(tall.n,tall.y,yflip=true,size=(350,500))
+# plot!(ter.n,ter.y,yflip=true)
+
+# plot(ter.n./tall.n*100,tall.y,yflip=true,size=(350,500))
+
+# bar(tall.y,ter.n./tall.n*100,permute=(:y,:x),xflip=true,size=(350,500),lw=0,barwidths=0.02)
+# ann = [(0,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+# hline!([l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+
+
+
+
+
+
+
+# cunit = filter(r->r.er && r.siteid=="AG2_V1_ODR6",dklcu)
+# cunit = filter(r->r.er,dklcu)
+# cunit = filter(r->r.er,hslcu)
+# x = 0:0.04:2π # 2.3 deg
+# tc = hcat(map(f->predict(f,x),cunit.fit)...)
+# tc./=maximum(tc,dims=1)
+# d =repeat(cunit.aligndepth',inner=(length(x),1))
+
+# plot(x,tc,d,leg=false,color=dklcg,lz=x)
+
+# xx = cos.(x).*tc
+# yy = sin.(x).*tc
+
+# plot(xx,yy,d,leg=false,frame=:origin,xlims=(-1,1),ylims=(-1,1),zlims=(0,1),color=dklcg,lz=x,zflip=true)
+
+
+
+# y = 0:0.005:1
+# is = [findall(y[i] .<= cunit.aligndepth .< y[i+1]) for i in 1:length(y)-1]
+
+# tt = [mean(tc[i,j]) for j in is, i in eachindex(x)]
+# replace!(tt,NaN=>0)
+# tt=clampscale(tt)
+
+# heatmap(tt,yflip=true,size=(350,500))
+
+# ccg = dklcg[range(0,1,length=158)]
+# ccg = hslcg[range(0,1,length=158)]
+# dmc = coloralpha.(color.(ccg'),tt);
+
+# plot(dmc)
+
+
+
+
+
+plotdepthscatter = (unit;x=:cv,dir=nothing,siteid="all",figfmt=[".png"],layer=nothing,xlabel="",xticks=:auto,xlims=:auto,
+    title="$(siteid)_CorticalDepth",wfun=x->isempty(x) ? 0 : median(x),color=:auto,palette=:tab20,leg=:best) -> begin
+cunit = siteid=="all" ? unit : filter(r->r.siteid==siteid,unit)
+x = cunit[!,x]
+xmin,xmax = xlims==:auto ? extrema(x) : xlims
+p = scatter(x,cunit.aligndepth;yflip=true,legendfontsize=6,xticks,xlims,color,
+    ms=3,msw=0,ma=0.7,ylims=(0,1),size=(350,500),tickor=:out,ylabel="Cortical Depth",xlabel,palette,leg)
+if !isnothing(wfun)
+    n,y = unitdensity(cunit.aligndepth;w=x,wfun,spacerange=(0,1),bw=0.05,step=0.05)
+    plot!(p,n,y,color=:gray40,label="Average")
+end
+if !isnothing(layer)
+    ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+end
+isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
 end
 
-plothueposition()
-foreach(ext->savefig(joinpath(siteresultdir,"OptHue_UnitPosition$ext")),figfmt)
 
+plotdepthscatter(hslrcsu;x=:cv,layer,xlabel="cv",leg=false)
+plotdepthscatter(hslrcsu;x=:cm,layer,xlabel="cm",leg=false,xticks=0:90:360)
 
-## Tuning map
-vi = uresponsive.&umodulative.&unitgood
-colorspace = ex["Param"]["ColorSpace"]
-hues = ex["Param"]["Color"]
-# for orisf test
-title = "UnitPosition_OptimalOriDirSF"
-p=plotunitpositionproperty(unitposition[vi,:],title=title,ori=map(i->i.oo,ufs[:Ori_Final][vi]),os=map(i->1-i.ocv,ufs[:Ori_Final][vi]),
-dir = map(i->i.od,ufs[:Ori_Final][vi]),ds=map(i->1-i.dcv,ufs[:Ori_Final][vi]),sf=map(i->i.osf,ufs[:SpatialFreq][vi]),layer=layer)
+p=select(hslrcsu,[:cm,:cv,:cor,:fvu,:pa,:ahw,:layer,:siteid]) |>
+[@vlplot(:bar,y={"siteid"},x={"count()"});
+@vlplot(:tick,y={"layer"},x={"cv"});
+@vlplot(:tick,y={"layer"},x={"cm",axis={values=0:90:360}});
+@vlplot(:bar,y={"count()"},x={"cor",bin={step=0.05}});
+@vlplot(:bar,y={"count()"},x={"fvu",bin={step=0.05}});
+@vlplot(:tick,y={"layer"},x={"ahw"});
+@vlplot(:tick,y={"layer"},x={"pa",axis={values=0:90:360}})]
 
-save("testup.svg",p)
-pfactor=intersect([:Ori,:Ori_Final],keys(ufs))
+plotdepthscatter(dklrcsu;siteid="AG2_V1_ODL4",x=:cm,layer,wfun=nothing,xlabel="cm",leg=false,xticks=0:90:360,xlims=(-5,365))
 
-oos = map(i->i.oo,ufs[:Ori_Final][vi])
-oos = [oos;oos.+180]
-ys,ns,ws,is = histrv(oos,0,360,nbins=20)
-oa = deg2rad.(mean.([ws;ws[1]]))
-oh = [ns;ns[1]]./2
-
-ys,ns,ws,is = histrv(map(i->i.od,ufs[:Ori_Final][vi]),0,360,nbins=20)
-da = deg2rad.(mean.([ws;ws[1]]))
-dh = [ns;ns[1]]
-
-title = "$(colorspace)_$(hues)_OptOriDir_Distribution"
-plot([oa da],[oh dh],title=title,projection=:polar,linewidth=2,label=["Ori" "Dir"])
+p=subset(select(hslrcsu,[:s,:cm,:cv,:pa,:layer,:siteid,:aligndepth]),:s) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"cm",axis={values=0:90:360}},color={"layer",scale={scheme=:category10}},
+    columns=9,wrap={"siteid"})
 
 
 
-title = "UnitPosition_OptimalOri"
-plotunitposition(unitposition,color=map((i,j)->j ? HSV(i.oo,1-i.ocv/2,1) : RGBA(0.5,0.5,0.5,0.1),ufs[:Ori_Final],vi),title=title)
-foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
-title = "UnitPosition_OptimalDir"
-plotunitposition(unitposition,color=map((i,j)->j ? HSV(i.od,1-i.dcv/2,1) : RGBA(0.5,0.5,0.5,0.1),ufs[:Ori_Final],vi),title=title)
-foreach(i->savefig(joinpath(resultdir,"UnitPosition_DirTuning$i")),[".png",".svg"])
-plotunitposition(unitposition,color=map((i,j)->j ? HSV(i.oh,1-i.hcv,1) : HSVA(0,0,0.5,0.2),ufs[:ColorID],umodulative))
-foreach(i->savefig(joinpath(resultdir,"UnitPosition_HueTuning$i")),[".png",".svg"])
 
-@df DataFrame(ufs[:Ori]) corrplot([:oo :od :ocv :dcv],nbins=30)
 
-# for color test
-colorspace = ex["Param"]["ColorSpace"]
-hues = ex["Param"]["Color"]
-title = "UnitPosition_$(colorspace)_$(hues)_OptimalHue"
+# filter(r->r.rme,dklcell) |> @vlplot(:bar,transform=[{calculate="datum.L_M > 0 ? 'L+' : 'L-'","as"="Dominance"},{calculate="datum.L_M > 0 ? 1 : -1","as"="sign"}],
+#         y={"layer",title="Cortical Layer"},x={"sign",title="Number of rme Cells"},color={"Dominance",scale={range="#" .* hex.(get(dklcg,[0,0.5]),:rgb)}},column={"site",title=""})
+# filter(r->r.rme,dklcell) |> @vlplot(:bar,transform=[{calculate="datum.S_LM > 0 ? 'S+' : 'S-'","as"="Dominance"},{calculate="datum.S_LM > 0 ? 1 : -1","as"="sign"}],
+#         y={"layer",title="Cortical Layer"},x={"sign",title="Number of rme Cells"},color={"Dominance",scale={range="#" .* hex.(get(dklcg,[0.25,0.75]),:rgb)}},column={"site",title=""})
 
-ha = ccond[!,:HueAngle]
-hac = map(i->cond[findfirst(cond[!,:HueAngle].==i),:Color],ha)
 
-plotunitposition(unitposition[vi,:],color=map(i->RGBA(clamp.(cond[findclosestangle(deg2rad(i.oh),deg2rad.(cond[!,:HueAngle])),:Color],0,1)...),ufs[:HueAngle][vi]),
-markersize=map(i->(1-i.hcv)*5+2,ufs[:HueAngle][vi]),layer=layer,title=title)
 
-foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
+# dklcell |> @vlplot(:bar,transform=[{bin={step=30},field="oh","as"="boh"}],
+#             y={"count()",title="Number of Cells"},x={"oh",bin={step=30},title="Optimal Hue",axis={values=0:90:360}},
+#             color={"boh",scale={range="#" .* hex.(get(dklcg,range(1/24,length=12,step=1/12)),:rgb)},legend=false},column={"site",title=""})
 
-ys,ns,ws,is = histrv(map(i->i.oh,ufs[:HueAngle][vi]),0,360,nbins=10)
-title = "$(colorspace)_$(hues)_OptimalHue_Distribution"
-plot(deg2rad.(mean.(ws)),ns,title=title,projection=:polar)
-foreach(i->savefig(joinpath(resultdir,"$title$i")),[".png",".svg"])
+# hslcell |> @vlplot(:bar,transform=[{bin={step=30},field="oh","as"="boh"}],
+#             y={"count()",title="Number of Cells"},x={"oh",bin={step=30},title="Optimal Hue",axis={values=0:90:360}},
+#             color={"boh",scale={range="#" .* hex.(get(hslcg,range(1/24,length=12,step=1/12)),:rgb)},legend=false},column={"site",title=""})
+
+
+
+# dklcs = "#" .* hex.(dklcg.colors.colors,:rgb)
+# hslcs = "#" .* hex.(hslcg.colors.colors,:rgb)
+
+
+# dklcell |> @vlplot(:point,y={"depth",sort="descending",title="Cortical Depth"},x={"hcv",title="Number of Cells"},
+#                         color={"oh",scale={range=dklcs}},column={"site"})
+
+# dklcells |> @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"dkl_oh",scale={range=dklcs}},column={"site"})
+
+# hslcell |> @vlplot(:bar,y={"depth",bin={maxbins=20},sort="descending",title="Cortical Depth"},x={"count()",title="Number of Cells"},
+#                         color={"oh",scale={range=hslcs}},column={"site"})
+
+# hslcell |> @vlplot(:bar,y={"layer",title="Cortical Layer"},x={"count()",title="Number of Cells"},color={"oh",scale={range=hslcs}},column={"site"})
+
+
+
+
+
+
+## Collect All OriSF Tests
+orisftest = collectcondtest(resultroot,exid="OriSF")
+
+function orisfunit(unit;ccode='A')
+    df = dropmissing(unit,"responsive!$ccode")
+    df.c .= ccode
+    select!(df,Not(r"\w*!\w*"),
+        ["responsive!$ccode","enoughresponse!$ccode"] => ByRow(&) => :er,
+        "f1f0!$ccode" => :f1f0,
+        "fa_Ori_Final!$ccode" => :ori,
+        "fa_SpatialFreq!$ccode" => :sf,
+        ["fms!$ccode","maxfri_Ori_Final!$ccode"]=>ByRow((fm,fi)->fm[fi...])=>:orir,
+        ["fms!$ccode","maxfri_SpatialFreq!$ccode"]=>ByRow((fm,fi)->fm[fi...])=>:sfr,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : (;i.fit.mfit.model,i.fit.mfit.fun,i.fit.mfit.param)) => :ofit,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.oup) => :oup,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.ocm) => :ocm,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.ocv) => :ocv,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.dup) => :dup,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.dcm) => :dcm,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.dcv) => :dcv,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.po) => :po,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.osi2) => :osi,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : sum(i.fit.ohw)) => :ohw,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.mfit.r) => :ocor,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : 1-i.fit.mfit.r2) => :ofvu,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : (;i.fit.mfit.model,i.fit.mfit.fun,i.fit.mfit.param)) => :sffit,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.up) => :sfup,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.msf) => :msf,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.psf) => :psf,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.sftype) => :sftype,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.sfbw) => :sfbw,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.sfpw) => :sfpw,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.mfit.r) => :sfcor,
+        "frf_SpatialFreq!$ccode" => ByRow(i->ismissing(i) ? missing : 1-i.fit.mfit.r2) => :sffvu)
+end
+
+allorisfunit = mapreduce(c->orisfunit(orisftest,ccode=c),(i,j)->append!(i,j,cols=:union),['A','L','M','S'])
+transform!(allorisfunit,:f1f0=>ByRow(i->i<=1 ? "Complex" : "Simple")=>:sctype,
+            :oup=>(i->i.<0.05)=>:os,
+            :dup=>(i->i.<0.05)=>:ds,
+            :sfup=>(i->i.<0.05)=>:sfs)
+jldsave(joinpath(resultroot,"allorisfunit.jld2");allorisfunit)
+allorisfunit = load(joinpath(resultroot,"allorisfunit.jld2"),"allorisfunit")
+acolor = RGB(0.3,0.3,0.3)
+lcolor = ColorMaps["lms_mccliso"].colors[end]
+mcolor = ColorMaps["lms_mccmiso"].colors[end]
+scolor = ColorMaps["lms_mccsiso"].colors[end]
+aoricg = cgrad(fill(acolor,2))
+loricg = cgrad(fill(lcolor,2))
+moricg = cgrad(fill(mcolor,2))
+soricg = cgrad(fill(scolor,2))
+
+## orisf responsive
+orisfcu = innerjoin(allorisfunit,allcu,on=[:siteid,:id])
+leftjoin!(orisfcu,penetration,on=:siteid)
+orisfcsu = subset(orisfcu,:good)
+aorisfcsu = filter(r->r.c=='A',orisfcsu)
+lorisfcsu = filter(r->r.c=='L',orisfcsu)
+morisfcsu = filter(r->r.c=='M',orisfcsu)
+sorisfcsu = filter(r->r.c=='S',orisfcsu)
+aorisfrcsu = subset(aorisfcsu,:er)
+lorisfrcsu = subset(lorisfcsu,:er)
+morisfrcsu = subset(morisfcsu,:er)
+sorisfrcsu = subset(sorisfcsu,:er)
+
+allorisfcsu = combine(groupby(orisfcsu,[:id,:siteid]),
+                :aligndepth=>first=>identity,
+                :layer=>first=>identity,
+                :er=>any=>:eresponsive,
+                [:c,:er]=>((c,r)->join(c[r]))=>:RTYPE,
+                [:c,:er,:ocm]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:dcm]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:msf]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:f1f0]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:sctype]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last)
+allorisfrcsu = subset(allorisfcsu,:eresponsive)
+
+plotdepthhist(allorisfcsu;g=:eresponsive,layer)
+plotdepthhist(allorisfrcsu;g=:RTYPE,layer)
+
+
+## orisf tuning
+plotorituning = (unit;type=:data,cg=aoricg,dir=nothing,figfmt=[".png"],layer=nothing,title="OriTuning") -> begin
+x = 0:0.04:2π # 2.3 deg
+if type == :fit
+    tc = hcat(map(f->predict(f,x),unit.ofit)...)
+elseif type == :data
+    tc = hcat(map((l,r)->Spline1D([deg2rad.(l);2π],[r;r[1]],k=1)(x),unit.ori,unit.orir)...)
+end
+tc./=maximum(tc,dims=1)
+p=plot(leg=false,proj=:polar,yticks=[],xticks=range(0,3π/2,length=4),xformatter=x->round(Int,rad2deg(x)),size=(500,500))
+for i in 1:size(tc,2)
+    ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
+    @views plot!(p,x,tc[:,i],color=ccg,lz=x)
+end
+if !isnothing(layer)
+    ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+end
+isnothing(dir) && return p
+mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
+end
+
+plotsftuning = (unit;type=:data,cg=aoricg,dir=nothing,figfmt=[".png"],layer=nothing,title="SFTuning") -> begin
+x = 0.2:0.05:6.4
+if type == :fit
+    tc = hcat(map(f->predict(f,x),unit.sffit)...)
+elseif type == :data
+    tc = hcat(map((l,r)->Spline1D(l,r,k=1)(x),unit.sf,unit.sfr)...)
+end
+tc./=maximum(tc,dims=1)
+p=plot(leg=false,yticks=[],xticks=0.1 .* 2 .^ (1:6))
+for i in 1:size(tc,2)
+    ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
+    @views plot!(p,x,tc[:,i],color=ccg,lz=x)
+end
+if !isnothing(layer)
+    ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+end
+isnothing(dir) && return p
+mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
+end
+
+foreach(siteid->plotorituning(filter(r->r.siteid==siteid,aorisfrcsu);
+    cg=aoricg,dir=joinpath(resultroot,"Tuning"),type=:data,title="$(siteid)_A_OriTuning_data"),
+    levels(aorisfrcsu.siteid))
+foreach(siteid->plotsftuning(filter(r->r.siteid==siteid,aorisfrcsu);
+    cg=aoricg,dir=joinpath(resultroot,"Tuning"),type=:data,title="$(siteid)_A_SFTuning_data"),
+    levels(aorisfrcsu.siteid))
+
+plotorituning(filter(r->r.siteid=="AG2_V1_ODL4",sorisfrcsu),cg=soricg,type=:fit)
+plotsftuning(filter(r->r.siteid=="AG2_V1_ODL4",sorisfrcsu),cg=soricg,type=:data)
+
+
+p=select(hslrcsu,[:cm,:cv,:cor,:fvu,:pa,:ahw,:layer,:siteid]) |>
+[@vlplot(:bar,y={"siteid"},x={"count()"});
+@vlplot(:tick,y={"layer"},x={"cv"});
+@vlplot(:tick,y={"layer"},x={"cm",axis={values=0:90:360}});
+@vlplot(:bar,y={"count()"},x={"cor",bin={step=0.05}});
+@vlplot(:bar,y={"count()"},x={"fvu",bin={step=0.05}});
+@vlplot(:tick,y={"layer"},x={"ahw"});
+@vlplot(:tick,y={"layer"},x={"pa",axis={values=0:90:360}})]
+
+
+plotdepthscatter(aorisfrcsu;x=:ocv,layer,xlabel="ocv",leg=false,color=acolor)
+plotdepthscatter(aorisfrcsu;x=:ocm,layer,xlabel="ocm",leg=false,color=acolor,xticks=0:90:180)
+plotdepthscatter(sorisfrcsu;x=:dcv,layer,xlabel="dcv",leg=false,color=scolor)
+plotdepthscatter(aorisfrcsu;x=:dcm,layer,xlabel="dcm",leg=false,color=acolor,xticks=0:90:360)
+plotdepthscatter(aorisfrcsu;x=:f1f0,layer,xlabel="f1f0",leg=false,color=acolor)
+
+plotdepthhist(sorisfrcsu;g=:sctype,layer)
+plotdepthhist(sorisfrcsu;g=:sftype,layer)
+
+p=subset(select(aorisfrcsu,[:os,:ocm,:ocv,:po,:ohw,:layer,:siteid,:aligndepth]),:os) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"ocm",axis={values=0:90:180}},color={"layer",scale={scheme=:category10}},
+    columns=9,wrap={"siteid"})
+
+p=subset(select(aorisfrcsu,[:ds,:dcm,:dcv,:po,:ohw,:layer,:siteid,:aligndepth]),:ds) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"dcm",axis={values=0:90:360}},color={"layer",scale={scheme=:category10}},
+    columns=9,wrap={"siteid"})
+
+p=subset(select(aorisfrcsu,[:sfs,:msf,:psf,:layer,:siteid,:aligndepth]),:sfs) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"msf"},color={"layer",scale={scheme=:category10}},
+    columns=9,wrap={"siteid"})
+
+
+## Relation of OriSF between Spectral Channels
+function plotorisfpair(unit,sp;w=350,h=350,sflim=nothing,f1f0lim=nothing)
+    punit = filter(r->contains(r.RTYPE,sp.first) && contains(r.RTYPE,sp.second),unit)
+
+    p = plot(layout=(4,1),leg=false,size=(w,4h))
+    pn = :ocm
+    x = getindex.(punit[!,pn],sp.first)
+    y = getindex.(punit[!,pn],sp.second)
+    xticks=yticks=0:45:180
+    scatter!(p[1],x,y;xlabel="$(sp.first) (deg)",ylabel="$(sp.second) (deg)",title="$pn",
+    xticks,yticks,ms=3,msw=0,ma=0.7,ratio=1)
+    plot!(p[1],[0,180],[0,180],color=:gray30)
+
+    pn = :dcm
+    x = getindex.(punit[!,pn],sp.first)
+    y = getindex.(punit[!,pn],sp.second)
+    xticks=yticks=0:45:360
+    scatter!(p[2],x,y;xlabel="$(sp.first) (deg)",ylabel="$(sp.second) (deg)",title="$pn",
+    xticks,yticks,ms=3,msw=0,ma=0.7,ratio=1)
+    plot!(p[2],[0,360],[0,360],color=:gray30)
+
+    pn = :msf
+    x = getindex.(punit[!,pn],sp.first)
+    y = getindex.(punit[!,pn],sp.second)
+    lim = isnothing(sflim) ? max(maximum(x),maximum(y)) : sflim
+    scatter!(p[3],x,y;xlabel="$(sp.first) (cycle/deg)",ylabel="$(sp.second) (cycle/deg)",title="$pn",
+    ms=3,msw=0,ma=0.7,ratio=1)
+    plot!(p[3],[0,lim],[0,lim],color=:gray30)
+
+    pn = :f1f0
+    x = log2.(getindex.(punit[!,pn],sp.first))
+    y = log2.(getindex.(punit[!,pn],sp.second))
+    lim = isnothing(f1f0lim) ? max(maximum(abs.(x)),maximum(abs.(y))) : f1f0lim
+    scatter!(p[4],x,y;xlabel="$(sp.first)",ylabel="$(sp.second)",title="Log₂(F1/F0)",
+    ms=3,msw=0,ma=0.7,ratio=1)
+    plot!(p[4],[-lim,lim],[-lim,lim],color=:gray30)
+    vline!(p[4],[0],color=:gray30)
+    hline!(p[4],[0],color=:gray30)
+end
+
+plotorisfpair(allorisfrcsu,'A'=>'L')
+plot((plotorisfpair(allorisfrcsu,i=>j,sflim=6,f1f0lim=9) for (i,j) in combinations(['A','L','M','S'],2))...,
+            layout=(1,6),size=(6*350,4*350))
+
+
+
+
+
+
+
+
+
+## non-sta but orisf responsive
+stanrcsu = load(joinpath(resultroot,"stanrcsu.jld2"),"stanrcsu")
+nstaorisfrcsu = innerjoin(select(stanrcsu,[:id,:roi]),allorisfrcsu,on=:id)
+anstaorisfrcsu = innerjoin(select(stanrcsu,[:id,:roi]),aorisfrcsu,on=:id)
+lnstaorisfrcsu = innerjoin(select(stanrcsu,[:id,:roi]),lorisfrcsu,on=:id)
+mnstaorisfrcsu = innerjoin(select(stanrcsu,[:id,:roi]),morisfrcsu,on=:id)
+snstaorisfrcsu = innerjoin(select(stanrcsu,[:id,:roi]),sorisfrcsu,on=:id)
+
+plotdepthhist(nstaorisfrcsu;g=:RTYPE,layer)
+
+
+plotdepthscatter(anstaorisfrcsu;x=:ocv,layer,xlabel="ocv",leg=false,color=acolor)
+plotdepthscatter(anstaorisfrcsu;x=:dcv,layer,xlabel="dcv",leg=false,color=acolor)
+plotdepthhist(anstaorisfrcsu;g=:sftype,layer)
+plotdepthhist(anstaorisfrcsu;g=:sctype,layer,palette=[:tomato,:deepskyblue])
+
+
+
+
+
+batchunit = filter(r->r.siteid=="AG1_V1_ODL1"&&r.layer=="3",anstaorisfrcsu)
+
+
+batchunit.roi[3]=(centerdeg=[1.1,1.0],radiideg=(0.8,0.8),radiusdeg=0.8)
+
+batchunit=batchunit[3:3,:]
+
+
+
+batchunit=nothing
+
+
+savefig("test.png")
+save("test.png",p)
+
+

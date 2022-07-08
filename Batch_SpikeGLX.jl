@@ -78,7 +78,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         exenv["binfile"] = binfile
 
         # Depth AP RMS
-        epoch = [-10 150]
+        epoch = [-40 150]
         epochs = synccondon.+epoch
         # All AP epochs(mapped to concat file), unwhiten, gain corrected(voltage), bandpass filtered,
         # with all channels mapped in the shape of probe where excluded channels are replaced with rand local average
@@ -86,7 +86,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # 3 fold downsampling(10kHz)
         ys = resample(ys,1//3,dims=3)
         fs = spike["fs"]/3
-        baseindex = epoch2sampleindex([0 20],fs)
+        baseindex = epoch2sampleindex([0 50],fs)
 
         # RMS of combined columns
         @views ys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
@@ -150,11 +150,11 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         jldsave(joinpath(resultdir,"ap$(ii).jld2");prms,pc,pbc,crms,wprms,wpc,wpbc,wcrms,times,depths,fs,siteid,exenv)
 
         # Depth Unit PSTH
-        epoch = [-10 150]
+        epoch = [-40 150]
         epochs = synccondon.+epoch
         bw = 2
         psthbins = epoch[1]:bw:epoch[2]
-        baseindex = epoch2sampleindex([0 20],1/(bw*SecondPerUnit))
+        baseindex = epoch2sampleindex([0 50],1/(bw*SecondPerUnit))
         # All Unit
         ui = unitsync.==ii
         @views unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true,shift=-epoch[1]).y,psthbins,israte=true,ismean=false),unitspike[ui])
@@ -172,8 +172,6 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
         jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");cpsth,siteid,exenv)
 
-        break
-
 
         # Prepare LFP
         d = "lf$ii"
@@ -182,21 +180,32 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # lfbin = matchfile(Regex("^$(testid)\\w*.imec.lf.bin"),dir = datadir,join=true)[1]
         nsavedch = meta["nSavedChans"]
         nsample = meta["nFileSamp"]
-        fs = meta["fs"]
         nch = nsavedch-1 # exclude sync channel
         hx,hy,hz = meta["probespacing"]
+        t0 = 0 # not concat drift correct binary yet
         exchmask = exchmasknp(dataset,imecindex=ii,datatype=d)
         pnrow,pncol = size(exchmask)
         depths = hy*(0:(pnrow-1))
         mmbinfile = mmap(binfile,Matrix{Int16},(nsavedch,nsample),0)
+        synccondon = ref2sync(condon,dataset,ii)
+        exenv["t0"] = t0
+        exenv["synccondon"] = synccondon
+        exenv["exchmask"] = exchmask
+        exenv["nch"] = nch
+        exenv["nsample"] = nsample
+        exenv["fs"] = meta["fs"]
+        exenv["binfile"] = binfile
 
         # Depth LFP and CSD
-        epochdur = timetounit(150)
-        epoch = [0 epochdur]
-        epochs = ref2sync(condon.+epoch,dataset,ii)
+        epoch = [-40 150]
+        epochs = synccondon.+epoch
         # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered,
-        # in the same shape of probe where excluded channels are replaced with local average
-        ys = reshape2mask(epochsamplenp(mmbinfile,fs,epochs,1:nch,meta=meta,bandpass=[1,100]),exchmask)
+        # with all channels mapped in the shape of probe where excluded channels are replaced with local average
+        ys = fill2mask(epochsamplenp(mmbinfile,meta["fs"],epochs.+t0,1:nch;meta,bandpass=[1,100]),exchmask)
+        # 2.5 fold downsampling(1kHz)
+        ys = resample(ys,1/2.5,dims=3)
+        fs = meta["fs"]/2.5
+        baseindex = epoch2sampleindex([0 50],fs)
 
         # if plot
         #     for c in 1:pncol
@@ -212,54 +221,52 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         #     end
         # end
 
-        # LFP and ΔCSD of combined columns
-        @views pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-        cmlfp = Dict(condstring(r)=>dropdims(mean(pys[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
-        basedur = timetounit(15)
-        baseindex = epoch2sampleindex([0 basedur],fs)
-        cdcsd = Dict(k=>stfilter(csd(v,h=hy),temporaltype=:sub,ti=baseindex) for (k,v) in cmlfp)
-        time = (1/fs/SecondPerUnit)*(0:(size(pys,2)-1))
+        # LFP and CSD of combined columns
+        @views ys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+        @views clfp = Dict(condstring(r)=>
+            dropdims(mean(ys[:,:,vcat((r.i .+ c*nrow(ctc) for c in 0:pncol-1)...)],dims=3),dims=3)
+            for r in eachrow(cond))
+        ccsd = Dict(k=>stfilter(csd(v,h=hy),temporaltype=:sub,ti=baseindex) for (k,v) in clfp)
+        times = range(start=epoch[1],step=1/fs/SecondPerUnit,length=size(ys,2))
         if plot
-            llim = mapreduce(y->maximum(abs.(y)),max,values(cmlfp))
-            clim = mapreduce(y->maximum(abs.(y)),max,values(cdcsd))
-            for k in keys(cmlfp)
-                plotanalog(cmlfp[k];fs,hy,clims=(-llim,llim))
+            lfplim = mapreduce(x->maximum(abs.(x)),max,values(clfp))
+            csdlim = mapreduce(x->maximum(abs.(x)),max,values(ccsd))
+            for k in keys(clfp)
+                plotanalog(clfp[k];x=times,hy,clims=(-lfplim,lfplim))
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_LFP$ext")),figfmt)
-
-                plotanalog(cdcsd[k];fs,color=:RdBu,hy,clims=(-clim,clim))
+                plotanalog(ccsd[k];x=times,color=:RdBu,hy,clims=(-csdlim,csdlim))
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_dCSD$ext")),figfmt)
             end
         end
-        jldsave(joinpath(resultdir,"lfp$(ii).jld2");cmlfp,cdcsd,time,depths,fs,siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])")
-        return
+        jldsave(joinpath(resultdir,"lf$(ii).jld2");clfp,ccsd,times,depths,fs,siteid,exenv)
 
         # Depth Power Spectrum
-        epochdur = timetounit(300)
-        epoch = [0 epochdur]
-        epochs = ref2sync(condon.+epoch,dataset,ii)
-        nw = 2
-        ys = reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
-        pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-        ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
-
-        epoch = [-epochdur 0]
-        epochs = ref2sync(condon.+epoch,dataset,ii)
-        ys = reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
-        pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-        bps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
-
-        pcs = ps./bps.-1
-        cmpcs = Dict(condstring(r)=>dropdims(mean(pcs[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
-        if plot
-            fcmpcs = Dict(k=>imfilter(cmpcs[k],Kernel.gaussian((1,1))) for k in keys(cmpcs))
-            lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcmpcs))
-            for k in keys(fcmpcs)
-                plotanalog(fcmpcs[k],x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],clims=(-lim,lim),color=:vik)
-                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_PowerContrast$ext")),figfmt)
-            end
-        end
-        save(joinpath(resultdir,"lfp$(ii).jld2"),"cmlfp",cmys,"cmcsd",cmdcsd,"cmpc",cmpcs,"freq",freq,"time",x,"depth",depths,"fs",fs,
-        "siteid",siteid,"eye",eye,"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
+        # epochdur = timetounit(300)
+        # epoch = [0 epochdur]
+        # epochs = ref2sync(condon.+epoch,dataset,ii)
+        # nw = 2
+        # ys = reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
+        # pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+        # ps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
+        #
+        # epoch = [-epochdur 0]
+        # epochs = ref2sync(condon.+epoch,dataset,ii)
+        # ys = reshape2mask(epochsamplenp(mmlf,fs,epochs,1:nch,meta=lfmeta,bandpass=[1,100]),exchmask)
+        # pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+        # bps,freq = powerspectrum(pys,fs,freqrange=[1,100],nw=nw)
+        #
+        # pcs = ps./bps.-1
+        # cmpcs = Dict(condstring(r)=>dropdims(mean(pcs[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(cond))
+        # if plot
+        #     fcmpcs = Dict(k=>imfilter(cmpcs[k],Kernel.gaussian((1,1))) for k in keys(cmpcs))
+        #     lim = mapreduce(pc->maximum(abs.(pc)),max,values(fcmpcs))
+        #     for k in keys(fcmpcs)
+        #         plotanalog(fcmpcs[k],x=freq,y=depths,xlabel="Freqency",xunit="Hz",timeline=[],clims=(-lim,lim),color=:vik)
+        #         foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_PowerContrast$ext")),figfmt)
+        #     end
+        # end
+        # save(joinpath(resultdir,"lfp$(ii).jld2"),"cmlfp",cmys,"cmcsd",cmdcsd,"cmpc",cmpcs,"freq",freq,"time",x,"depth",depths,"fs",fs,
+        # "siteid",siteid,"eye",eye,"color","$(exparam["ColorSpace"])_$(exparam["Color"])")
 
     end
 
@@ -410,7 +417,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         sizepx = imageset[:sizepx]
         xi = imagestimuli[:unmaskindex]
         xin = length(xi)
-        uy=Dict();usta = Dict();uŷ=Dict();ugof=Dict()
+        ugood=Dict();uy=Dict();usta = Dict();uŷ=Dict();ugof=Dict()
         epochs = [condon condoff]
         delays = -40:5:180
 
@@ -438,6 +445,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                     stas[d,:] = k
                     ŷs[d,:] = x*k
                 end
+                ugood[unitid[u]]=unitgood[u]
                 uy[unitid[u]]=ys
                 usta[unitid[u]]=stas
                 uŷ[unitid[u]]=ŷs
@@ -463,6 +471,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                     stas[d,:] = k
                     ŷs[d,:] = x*k
                 end
+                ugood[unitid[u]]=unitgood[u]
                 uy[unitid[u]]=ys
                 usta[unitid[u]]=stas
                 uŷ[unitid[u]]=ŷs
@@ -470,62 +479,55 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
             end
         end
 
-        jldsave(joinpath(resultdir,"sta.jld2");sizepx,x,xi,xcond,uy,uŷ,usta,ugof,delays,siteid,sizedeg,unitgood,exenv)
+        jldsave(joinpath(resultdir,"sta.jld2");sizepx,x,xi,xcond,ugood,uy,uŷ,usta,ugof,delays,siteid,sizedeg,exenv)
     end
 
+    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : timetounit(40)
+    batchunit = haskey(param,:batchunit) ? param[:batchunit] : nothing
+    maxxsize = haskey(param,:maxxsize) ? param[:maxxsize] : 32
     if :ePPR in param[:model]
         sizepx = imageset[:sizepx]
         xi = imagestimuli[:unmaskindex]
-        cell = haskey(param,:cell) ? param[:cell] : nothing
-        roir = haskey(param,:roir) ? param[:roir] : 16
-        xscale=255
+        xscale = 255
         bg = xscale*gray(bgcolor)
-        d = 60
-        umodel=Dict();umodels=Dict();uhp=Dict()
+        epochs = [condon condoff] .+ responsedelay
+        mp = haskey(param,:epprparam) ? param[:epprparam] : (ndelay=1, nft=[3,3,3], lambda=320000)
+        uroi=Dict();ugood=Dict();umodel=Dict();umodels=Dict();uhp=Dict()
 
         for u in eachindex(unitspike)
-            unitgood[u] || continue
-            # unitid[u]!=127 && continue
+            # unitid[u]==630 || continue
 
-            if isnothing(cell)
-                c = round.(Int,sizepx./2)
-                r = minimum(c)
-                r = clamproi(c,r,sizepx)
+            if isnothing(batchunit)
+                roi=missing
             else
-                id = "$(siteid)_SU$(unitid[u])"
-                i = findfirst(cell.id.==id)
-                if isnothing(i) || ismissing(cell.roicenter[i])
-                    c = round.(Int,sizepx./2)
-                    r = minimum(c)
-                    r = clamproi(c,r,sizepx)
-                else
-                    c = round.(Int,cell.roicenter[i]*ppd)
-                    r = round(Int,cell.roiradius[i]*ppd)
-                    r = clamproi(c,r,sizepx)
-                end
+                id = "$(siteid)_$(unitgood[u] ? "S" : "M")U$(unitid[u])"
+                i = findfirst(j->j==id,batchunit.id)
+                isnothing(i) && continue
+                roi = batchunit.roi[i]
             end
-            xr = min(r,roir)
-            xsize = (2xr+1,2xr+1)
+            idxrange,xsize,roi=takeroi(sizepx,ppd;roimaxresize=maxxsize,roi,issquare=true)
             x = Array{Float64}(undef,nrow(ctc),prod(xsize))
-            foreach(i->x[i,:]=xscale*gray.(imresize_antialiasing(imagestimuli[:stimuli][condidx[i]][map(i->(-r:r).+i,c)...],xsize)),1:size(x,1))
+            foreach(i->x[i,:]=xscale*gray.(imresize_antialiasing(imagestimuli[:stimuli][condidx[i]][idxrange...],xsize)),1:size(x,1))
 
-            y = epochspiketrainresponse_ono(unitspike[u],condon.+d,condoff.+d,israte=true,isnan2zero=true)
-            unitresultdir = joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_ePPR_$d")
+            sepochs = ref2sync(epochs,dataset,unitsync[u])
+            y = epochspiketrainresponse_ono(unitspike[u],sepochs,israte=true,isnan2zero=true)
+            unitresultdir = joinpath(resultdir,"IMEC$(unitsync[u])$(unitgood[u] ? "S" : "M")U$(unitid[u])_ePPR_$responsedelay")
             rm(unitresultdir,force=true,recursive=true)
-            log = ePPRLog(debug=true,plot=plot,dir=unitresultdir)
-            hp = ePPRHyperParams(xsize...,blankcolor=bg,ndelay=param[:eppr_ndelay],nft=param[:eppr_nft],lambda=param[:eppr_lambda])
-            model,models = epprcv(x,y,hp,log)
+            mlog = ePPRLog(debug=true,plot=true,dir=unitresultdir)
+            mhp = ePPRHyperParams(xsize...;blankcolor=bg,mp.ndelay,mp.nft,mp.lambda)
+            model,models = epprcv(x,y,mhp,mlog)
 
-            if plot && !isnothing(model)
-                log(plotmodel(model,hp),file="Model_Final (λ=$(hp.lambda)).png")
+            if true && !isnothing(model)
+                mlog(plotmodel(model,mhp),file="Model_Final (λ=$(mhp.lambda)).png")
             end
 
+            uroi[unitid[u]]=roi
+            ugood[unitid[u]]=unitgood[u]
             umodel[unitid[u]] = isnothing(model) ? model : clean!(model)
             umodels[unitid[u]] = clean!.(models)
-            uhp[unitid[u]] = hp
+            uhp[unitid[u]] = mhp
         end
-        jldsave(joinpath(resultdir,"eppr.jld2");umodel,umodels,uhp,delay=d,
-        siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])",maxcolor,mincolor)
+        jldsave(joinpath(resultdir,"eppr.jld2");umodel,umodels,uhp,responsedelay,siteid,ugood,uroi,exenv)
     end
 end
 
@@ -614,7 +616,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         exenv["binfile"] = binfile
 
         # Depth AP RMS
-        epoch = [-10 150]
+        epoch = [-40 150]
         epochs = syncccondon.+epoch
         # All AP epochs(mapped to concat file), unwhiten, gain corrected(voltage), bandpass filtered,
         # with all channels mapped in the shape of probe where excluded channels are replaced with rand local average
@@ -622,7 +624,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # 3 fold downsampling(10kHz)
         ys = resample(ys,1//3,dims=3)
         fs = spike["fs"]/3
-        baseindex = epoch2sampleindex([0 20],fs)
+        baseindex = epoch2sampleindex([0 50],fs)
 
         # RMS of combined columns
         @views ys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
@@ -686,11 +688,11 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         jldsave(joinpath(resultdir,"ap$(ii).jld2");prms,pc,pbc,crms,wprms,wpc,wpbc,wcrms,times,depths,fs,siteid,exenv)
 
         # Depth Unit PSTH
-        epoch = [-10 150]
+        epoch = [-40 150]
         epochs = syncccondon.+epoch
         bw = 2
         psthbins = epoch[1]:bw:epoch[2]
-        baseindex = epoch2sampleindex([0 20],1/(bw*SecondPerUnit))
+        baseindex = epoch2sampleindex([0 50],1/(bw*SecondPerUnit))
         # All Unit
         ui = unitsync.==ii
         @views unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true,shift=-epoch[1]).y,psthbins,israte=true,ismean=false),unitspike[ui])
@@ -708,7 +710,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
         jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");cpsth,siteid,exenv)
 
-        break
+
         # Prepare LFP
         d = "lf$ii"
         meta = dataset[d]["meta"]
@@ -716,41 +718,51 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # lfbin = matchfile(Regex("^$(testid)\\w*.imec.lf.bin"),dir = datadir,join=true)[1]
         nsavedch = meta["nSavedChans"]
         nsample = meta["nFileSamp"]
-        fs = meta["fs"]
         nch = nsavedch-1 # exclude sync channel
         hx,hy,hz = meta["probespacing"]
+        t0 = 0 # not concat drift correct binary yet
         exchmask = exchmasknp(dataset,imecindex=ii,datatype=d)
         pnrow,pncol = size(exchmask)
         depths = hy*(0:(pnrow-1))
         mmbinfile = mmap(binfile,Matrix{Int16},(nsavedch,nsample),0)
+        synccondon = ref2sync(condon,dataset,ii)
+        exenv["t0"] = t0
+        exenv["synccondon"] = synccondon
+        exenv["exchmask"] = exchmask
+        exenv["nch"] = nch
+        exenv["nsample"] = nsample
+        exenv["fs"] = meta["fs"]
+        exenv["binfile"] = binfile
 
         # Depth LFP and CSD
-        epochdur = timetounit(150)
-        epoch = [0 epochdur]
-        epochs = ref2sync(ccondon.+epoch,dataset,ii)
+        epoch = [-40 150]
+        epochs = synccondon.+epoch
         # All LFP epochs, gain corrected(voltage), line noise(60,120,180Hz) removed, bandpass filtered,
-        # in the same shape of probe where excluded channels are replaced with local average
-        ys = reshape2mask(epochsamplenp(mmbinfile,fs,epochs,1:nch,meta=meta,bandpass=[1,100]),exchmask)
+        # with all channels mapped in the shape of probe where excluded channels are replaced with local average
+        ys = fill2mask(epochsamplenp(mmbinfile,meta["fs"],epochs.+t0,1:nch;meta,bandpass=[1,100]),exchmask)
+        # 2.5 fold downsampling(1kHz)
+        ys = resample(ys,1/2.5,dims=3)
+        fs = meta["fs"]/2.5
+        baseindex = epoch2sampleindex([0 50],fs)
 
-        # LFP and ΔCSD of combined columns
-        @views pys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
-        cmlfp = Dict(condstring(r)=>dropdims(mean(pys[:,:,[r.i;r.i.+nrow(ctc)]],dims=3),dims=3) for r in eachrow(ccond))
-        basedur = timetounit(15)
-        baseindex = epoch2sampleindex([0 basedur],fs)
-        cdcsd = Dict(k=>stfilter(csd(v,h=hy),temporaltype=:sub,ti=baseindex) for (k,v) in cmlfp)
-        time = (1/fs/SecondPerUnit)*(0:(size(pys,2)-1))
+        # LFP and CSD of combined columns
+        @views ys = cat((ys[:,i,:,:] for i in 1:pncol)...,dims=3)
+        @views clfp = Dict(condstring(r)=>
+            dropdims(mean(ys[:,:,vcat((r.i .+ c*nrow(ctc) for c in 0:pncol-1)...)],dims=3),dims=3)
+            for r in eachrow(cond))
+        ccsd = Dict(k=>stfilter(csd(v,h=hy),temporaltype=:sub,ti=baseindex) for (k,v) in clfp)
+        times = range(start=epoch[1],step=1/fs/SecondPerUnit,length=size(ys,2))
         if plot
-            llim = mapreduce(y->maximum(abs.(y)),max,values(cmlfp))
-            clim = mapreduce(y->maximum(abs.(y)),max,values(cdcsd))
-            for k in keys(cmlfp)
-                plotanalog(cmlfp[k];fs,hy,clims=(-llim,llim))
+            lfplim = mapreduce(x->maximum(abs.(x)),max,values(clfp))
+            csdlim = mapreduce(x->maximum(abs.(x)),max,values(ccsd))
+            for k in keys(clfp)
+                plotanalog(clfp[k];x=times,hy,clims=(-lfplim,lfplim))
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_LFP$ext")),figfmt)
-
-                plotanalog(cdcsd[k];fs,color=:RdBu,hy,clims=(-clim,clim))
+                plotanalog(ccsd[k];x=times,color=:RdBu,hy,clims=(-csdlim,csdlim))
                 foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_dCSD$ext")),figfmt)
             end
         end
-        jldsave(joinpath(resultdir,"lfp$(ii).jld2");cmlfp,cdcsd,time,depths,fs,siteid,eye,color="$(exparam["ColorSpace"])_$(exparam["Color"])")
+        jldsave(joinpath(resultdir,"lf$(ii).jld2");clfp,ccsd,times,depths,fs,siteid,exenv)
 
         # Depth Power Spectrum
         # epochdur = timetounit(preicidur)
@@ -817,7 +829,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
         if plot && length(factors)==2
             plotcondresponse(rs,cctc)
-            foreach(ext->savefig(joinpath(resultdir,"$(ugs[u])Unit_$(unitid[u])_CondResponse$ext")),figfmt)
+            foreach(ext->savefig(joinpath(resultdir,"IMEC$(unitsync[u])_$(unitgood[u] ? "Single-" : "Multi-")Unit_$(unitid[u])_CondResponse$ext")),figfmt)
         end
     end
 
@@ -846,7 +858,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
             prdf[:,f]=fa[f]
             srdf=DataFrame(m=sfms[u][fi...],se=sfses[u][fi...],u=fill(unitid[u],fdn),ug=fill("Suf_$ut",fdn))
             srdf[:,f]=fa[f]
-            frf = uenoughresponse[u] ? factorresponsefeature(fa[f],frs[u][fi...],fm=fms[u][fi...],factor=f) : missing
+            frf = (uresponsive[u] && uenoughresponse[u]) ? factorresponsefeature(fa[f],frs[u][fi...],fm=fms[u][fi...],factor=f) : missing
             # frf = factorresponsefeature(fa[f],frs[u][fi...],fm=fms[u][fi...],factor=f)
             push!(ufrf[f],frf)
             if plot
@@ -866,7 +878,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     if getparam(envparam,"GratingType") == "Sinusoidal" && tf > 0
         epoch = [0 minconddur]
         bw = 10;fs = 1/(bw/1000)
-        binedges = epoch[1]:timetounit(bw):epoch[2]
+        binedges = epoch[1]:bw:epoch[2]
         for u in eachindex(fms)
             # epochs of max mean response condition
             epochs = ccondon[fis[u][umaxi[u]...]] .+ epoch .+ responsedelay
