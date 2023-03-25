@@ -8,10 +8,6 @@ param = Dict{Any,Any}(
     :resultroot => "Z:/",
     :stimuliroot => "S:/",
     :spikesorter => "kilosort3")
-# param = Dict{Any,Any}(
-#     :dataroot => "I:\\AG1\\AG1_V1V2_Full",
-#     :dataexportroot => "I:\\",
-#     :resultroot => "I:\\ISI_analysis")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 
@@ -20,13 +16,18 @@ tests = select!(filter(meta) do r
                     r.Subject_ID in ["AG1", "AG2"] &&
                     # r.RecordSession == "V1" &&
                     # r.RecordSite == "ODR1" &&
-                    r.ID == "HartleySubspace" &&
+                    r.ID == "Flash2Color" &&
                     r.sourceformat == "SpikeGLX"
                 end,
                 [:files,:ID,:UUID,:sourceformat])
-## Setup Param
 
-files = ".\\AG1\\AG1_V1_ODL1_HartleySubspace_0.mat"
+
+## Setup Param
+files = ".\\AG1\\AG1_V1V2_Full_ISICycleOri_0.mat"
+tests[1:4,:].files
+tests=tests[1:4,:]
+
+files = ".\\AG2\\AG2_V1_ODR1_Flash2Color_3.mat"
 pyplot()
 
 param[:model] = [:STA]

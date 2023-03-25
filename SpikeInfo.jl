@@ -35,98 +35,119 @@ end
 
 ## Merge Spike Data of a RecordSite
 resultroot = "Z:/"
-indir = joinpath(resultroot,"AG2","AG2_V1_ODR2")
+figfmt = [".svg"]
+indir = joinpath(resultroot,"AG1","AG1_V1_ODL2")
+layer = load(joinpath(indir,"layer.jld2"),"layer")
 
 
-spikeinfo = (indir,layer=nothing,figfmt=[".png"]) -> begin
+spikeinfo = (indir;layer=nothing,figfmt=[".png"]) -> begin
 
-unit = mergespike!(indir)
-save(joinpath(indir,"unit.jld2"),"unit",unit)
-unit = load(joinpath(indir,"unit.jld2"),"unit")
+    unit = load(joinpath(indir,"unit.jld2"),"unit")
 
-unitid = unit["unitid"];unitgood=unit["unitgood"]
-unittempposition=unit["unittemplateposition"];unittempamp = unit["unittemplatemeanamplitude"]
-unittempwave=unit["unittemplatewaveform"];unittempfeature=unit["unittemplatefeature"]
-unitposition=unit["unitposition"];unitwave = unit["unitwaveform"];unitfeature = unit["unitfeature"]
-unitqm=unit["qm"];siteid = unit["siteid"]
+    unitid = unit["unitid"];unitgood=unit["unitgood"]
+    unittempposition=unit["unittemplateposition"];unittempamp = unit["unittemplatemeanamplitude"]
+    unittempwave=unit["unittemplatewaveform"];unittempfeature=unit["unittemplatefeature"]
+    unitposition=unit["unitposition"];unitwave = unit["unitwaveform"];unitfeature = unit["unitfeature"]
+    unitqm=unit["qm"];siteid = unit["siteid"]
+
+    if layer == :batch
+        layerpath = joinpath(indir, "layer.jld2")
+        layer = ispath(layerpath) ? load(layerpath, "layer") : nothing
+    end
+
+    # Unit Position
+    plotunitposition(unitposition;unitgood,chposition=unit["chposition"],size=(400,700),layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitPosition$ext")), figfmt)
+
+    # Unit Density
+    muc=1.2
+    r=100
+    w = replace(unitgood,0=>muc)
+
+    # n,y = unitdensity(unitposition[unitgood,2];bw=40,step=20,r,s=1.4)
+    n,y = unitdensity(unitposition[:,2];w,bw=40,step=20,r,s=1.4)
+    plot(1e9n,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(350,700),grid=false,tickdir=:out,
+        lw=2,left_margin=4Plots.mm,title="Count(MU)=$muc, r=$(r)μm")
+    if !isnothing(layer)
+        xmin,xmax = extrema(1e9n)
+        xm = 0.02(xmax-xmin)
+        xmin-=xm;xmax+=xm
+        ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+        hline!([l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,xlims=(xmin,xmax),
+        yticks=0:200:3820)
+    end
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitDensity$ext")), figfmt)
+
+    df=Dict("feature"=>["Density";;],"depth"=>y,"depthfeature"=>[1e9n;;],"siteid"=>siteid)
+
+    # Unit Feature
+    un,wn = size(unitwave)
+    wx = range(-wn/2,step=1,length=wn)
+
+    uwy = [1e-2*unitwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
+    uwx = [0.05*wx[j]+unitposition[i,1] for i in 1:un,j in 1:wn]
+
+    plot(uwx',uwy',leg=false,size=(350,700),xlabel="X (μm)",ylabel="Y (μm)",grid=false,lw=1,left_margin=4Plots.mm,alpha=0.6,tickdir=:out,
+        color=permutedims(map(i->i ? RGB(0,0.55,0) : RGB(0),unitgood)),title="Unit Waveform")
+    if !isnothing(layer)
+        xmin=1.5;xmax=43
+        ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+        hline!([l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,xlims=(xmin,xmax),
+        yticks=0:200:3820)
+    end
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitWaveform$ext")), figfmt)
 
 
-# Unit Position
-plotunitposition(unitposition;unitgood,chposition=unit["chposition"],size=(400,700))
-foreach(ext->savefig(joinpath(indir,"UnitPosition$ext")),figfmt)
+    # n=findfirst(unitid.==432)
+    # plot!(uwx[n,:],uwy[n,:],leg=false,lw=1,color=:red)
+    # plot(0.1*(-40:40) .+ unit["chposition"][:,1]',  0.03*unit["unitwaveforms"][n,:,:] .+ unit["chposition"][:,2]';
+    #     leg=false,ratio=0.1,size=(600,3840),color=:dodgerblue,lw=2,frame=:none)
 
-# Unit Density
-muc=1.2
-r=100
-w = replace(unitgood,0=>muc)
+    plotdepthfeature(unittempfeature,unitposition,["upspread" "downspread"];xlabel="Spread (μm)",layer,grid=false,vl=[0])
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")Spread$ext")), figfmt)
+    plotdepthfeature(unitfeature,unitposition,["duration"];kw=1000,xlabel="Time (ms)",layer,grid=false,vl=[0])
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")Duration$ext")), figfmt)
+    plotdepthfeature(unitfeature,unitposition,["peaktroughratio"];xlabel="Peak/Trough",layer,grid=false,xticks=-1:-2:-15,vl=[-1])
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")PTRatio$ext")), figfmt)
 
-n,y = unitdensity(unitposition[:,2];w,bw=40,step=20,r,s=1.4)
-plot(1e9n,y;xlabel="Density (unit/mm³)",ylabel="Depth (μm)",leg=false,size=(400,700),
-    lw=2,left_margin=4Plots.mm,title="Count(MU)=$muc, r=$(r)μm")
-if !isnothing(layer)
-    xmin,xmax = extrema(1e9n)
-    ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-    hline!([l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,yticks=[layer["1"][2],layer["WM"][2]],
-    yformatter=x->Int(layer["1"][2]-x),xlims=[xmin,xmax])
+    # plotdepthfeature(unittempfeature,unitposition,["upspread" "downspread" "leftspread" "rightspread"];xlabel="Spread (μm)",df,layer,good=unitgood)
+    plotdepthfeature(unittempfeature,unitposition,["upspread" "downspread" "leftspread" "rightspread"];xlabel="Spread (μm)",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_spread$ext")), figfmt)
+
+    # plotdepthfeature(unittempfeature,unitposition,["uppvinv" "downpvinv"],kw=1000;xlabel="1/Propagation Speed (ms/μm)",df,layer,good=unitgood)
+    plotdepthfeature(unittempfeature,unitposition,["uppvinv" "downpvinv"],kw=1000;xlabel="1/Propagation Speed (ms/μm)",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_invspeed$ext")), figfmt)
+
+
+    # plotdepthfeature(unitfeature,unitposition,["amplitude" "peaktroughratio"];kw=[1e-3 1],xlabel="A.U.",df,layer,good=unitgood)
+    plotdepthfeature(unitfeature,unitposition,["amplitude" "peaktroughratio"];kw=[1e-3 1],xlabel="A.U.",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_amp$ext")), figfmt)
+
+    # plotdepthfeature(unitfeature,unitposition,["halftroughwidth" "halfpeakwidth" "duration"];kw=1000,xlabel="Time (ms)",df,layer,good=unitgood)
+    plotdepthfeature(unitfeature,unitposition,["halftroughwidth" "halfpeakwidth" "duration"];kw=1000,xlabel="Time (ms)",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_width$ext")), figfmt)
+
+    # plotdepthfeature(unitfeature,unitposition,["repolarrate" "recoverrate"];kw=1e-3,xlabel="A.U.",df,layer,good=unitgood)
+    plotdepthfeature(unitfeature,unitposition,["repolarrate" "recoverrate"];kw=1e-3,xlabel="A.U.",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_rate$ext")), figfmt)
+
+    # plotdepthfeature(unitqm,unitposition,["fr" "fp" "pisi"];xlabel="A.U.",df,layer,good=unitgood)
+    plotdepthfeature(unitqm,unitposition,["fr" "fp" "pisi"];xlabel="A.U.",df,layer)
+    foreach(ext -> savefig(joinpath(indir, "$(isnothing(layer) ? "" : "Layer_")UnitFeature_qm$ext")), figfmt)
+
+    save(joinpath(indir,"unitdepthfeature.jld2"),"df",df)
 end
-foreach(ext->savefig(joinpath(indir,"UnitDensity$ext")),figfmt)
 
-df=Dict("feature"=>["Density";;],"depth"=>y,"depthfeature"=>[1e9n;;],"siteid"=>siteid)
-
-# Unit Feature
-un,wn = size(unitwave)
-wx = range(-wn/2,step=1,length=wn)
-
-uwy = [1e-2*unitwave[i,j]+unitposition[i,2] for i in 1:un,j in 1:wn]
-uwx = [0.05*wx[j]+unitposition[i,1] for i in 1:un,j in 1:wn]
-
-plot(uwx',uwy',leg=false,size=(400,700),xlabel="X (μm)",ylabel="Y (μm)",grid=false,lw=1,left_margin=4Plots.mm,alpha=0.6,
-    color=permutedims(map(i->i ? :darkgreen : :gray30,unitgood)),title="Unit Waveform")
-if !isnothing(layer)
-    xmin=3;xmax=43
-    ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-    hline!([l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,yticks=[layer["1"][2],layer["WM"][2]],
-    yformatter=x->Int(layer["1"][2]-x),xlims=[xmin,xmax])
-end
-foreach(ext->savefig(joinpath(indir,"UnitWaveform$ext")),figfmt)
-
-# n=228
-# plot!(uwx[n,:],uwy[n,:],leg=false,lw=1,color=:red)
-# plot(0.1*(-40:40) .+ unit["chposition"][:,1]',  0.03*unit["unitwaveforms"][n,:,:] .+ unit["chposition"][:,2]';
-#     leg=false,ratio=0.1,size=(600,3840),color=:dodgerblue,lw=2,frame=:none)
-# plotdepthfeature(unittempfeature,unitposition,["upspread" "downspread"];xlabel="Spread (μm)",layer)
-
-plotdepthfeature(unittempfeature,unitposition,["upspread" "downspread" "leftspread" "rightspread"];xlabel="Spread (μm)",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_spread$ext")),figfmt)
-
-plotdepthfeature(unittempfeature,unitposition,["uppvinv" "downpvinv"],kw=1000;xlabel="1/Propagation Speed (ms/μm)",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_invspeed$ext")),figfmt)
-
-
-plotdepthfeature(unitfeature,unitposition,["amplitude" "peaktroughratio"];kw=[1e-3 1],xlabel="A.U.",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_amp$ext")),figfmt)
-
-plotdepthfeature(unitfeature,unitposition,["halftroughwidth" "halfpeakwidth" "duration"];kw=1000,xlabel="Time (ms)",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_width$ext")),figfmt)
-
-plotdepthfeature(unitfeature,unitposition,["repolarrate" "recoverrate"];kw=1e-3,xlabel="A.U.",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_rate$ext")),figfmt)
-
-plotdepthfeature(unitqm,unitposition,["fr" "fp" "pisi"];xlabel="A.U.",df)
-foreach(ext->savefig(joinpath(indir,"UnitFeature_qm$ext")),figfmt)
-
-save(joinpath(indir,"unitdepthfeature.jld2"),"df",df)
-end
-
-
-plotdepthfeature = (feature,position,ks;kw=ones(1,length(ks)),size=(350,700),xlabel="",df=nothing,layer=nothing) -> begin
+plotdepthfeature = (feature,position,ks;good=trues(size(position,1)),kw=ones(1,length(ks)),size=(350,700),xlabel="",df=nothing,layer=nothing,grid=true,xticks=:auto,vl=[]) -> begin
     kn = length(ks)
-    vs = hcat(map(k->feature[k],ks)...).*kw
+    vs = hcat(map(k->feature[k][good],ks)...).*kw
     cs = permutedims(palette(:default).colors.colors[1:kn])
-    p=scatter(vs,position[:,2],label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,size=size,
-        xlabel=xlabel,ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
+    p=plot(;size,grid,tickdir=:out)
+    isempty(vl) || vline!(p,vl;linecolor=:gray10,legend=false,lw=1)
+    scatter!(p,vs,position[good,2];label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,xticks,
+        xlabel,ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
 
-    yms = [unitdensity(position[:,2],w=vs[:,i],wfun=mean,bw=40,step=20,s=1.4) for i in 1:kn]
+    yms = [unitdensity(position[good,2],w=vs[:,i],wfun=mean,bw=40,step=20,s=1.4) for i in 1:kn]
     y = yms[1].y
     yms = hcat(map(i->i.n,yms)...)
     if df isa Dict
@@ -145,9 +166,11 @@ plotdepthfeature = (feature,position,ks;kw=ones(1,length(ks)),size=(350,700),xla
     plot!(p,yms,y;label=false,lw=2,color=cs)
     if !isnothing(layer)
         xmin,xmax=extrema(vs)
+        xm = 0.02(xmax-xmin)
+        xmin-=7xm; xmax+=xm
         ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-        hline!(p,[l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,yticks=[layer["1"][2],layer["WM"][2]],
-        yformatter=x->Int(layer["1"][2]-x),xlims=[xmin,xmax])
+        hline!(p,[l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,xlims=(xmin,xmax),
+        yticks=0:200:3820)
     end
     p
 end
@@ -159,9 +182,15 @@ end
 # XLSX.writetable(joinpath(resultroot,"penetration.xlsx"),collect(eachcol(penetration)),names(penetration))
 
 ## Batch RecordSites
-penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
+@showprogress "Batch Merge Spike ... " for r in eachrow(penetration)
+    indir = joinpath(resultroot,r.Subject_ID,r.siteid)
+    unit = mergespike!(indir)
+    save(joinpath(indir,"unit.jld2"),"unit",unit)
+end
 @showprogress "Batch Spike Info ... " for r in eachrow(penetration)
-    spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
+    # spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
+    spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
 end
 
 
@@ -202,6 +231,9 @@ usi = map(i->findfirst(j->j==i,alllayer.siteid),allunit["siteid"])
 allunit["unitaligndepth"] = [alllayer.e2cfun[usi[i]](allunit["unitposition"][i,2]) |> alllayer.tcfun[usi[i]] for i in eachindex(usi)]
 allunit["unitlayer"] = assignlayer.(allunit["unitaligndepth"],[layertemplate])
 save(joinpath(resultroot,"allunit.jld2"),"allunit",allunit)
+
+
+
 
 
 ## Single Unit Feature

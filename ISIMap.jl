@@ -1,9 +1,12 @@
-using NeuroAnalysis,FileIO,HypothesisTests,Images,ImageEdgeDetection,ImageBinarization,Contour,PyCall
+using NeuroAnalysis,FileIO,JLD2,HypothesisTests,Images,ImageBinarization,ImageEdgeDetection,PyCall,Contour
 
+dataroot = "I:/"
+dataexportroot = "Y:/"
 resultroot = "Z:/"
 subject = "AG2";recordsession = "";recordsite = ""
 siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
+skid = pyimport("skimage.draw")
 
 function drawcontour!(img,ct;color=1)
     for line in lines(ct)
@@ -32,123 +35,129 @@ function fillcontour!(img,ct,skid;color=1)
 end
 
 ## blood vessel
+bvdatadir = joinpath(dataroot,subject,"blood_vessel")
 h = 2080
 w = 2080
-bv1 = clampscale(readrawim_Mono12Packed("I:\\AG2\\blood_vessel_before\\blood_vessel_before-Epoch0-Frame1.Raw",w,h))
+bv1 = clampscale(readrawim_Mono12Packed(joinpath(bvdatadir,"blood_vessel2-Epoch0-Frame4.Raw"),w,h))
 save(joinpath(siteresultdir,"bloodvessel1.png"),bv1)
-bv2 = clampscale(readrawim_Mono12Packed("I:\\AG1\\blood_vessel\\blood_vessel-Epoch0-Frame4.Raw",w,h))
+bv2 = clampscale(readrawim_Mono12Packed(joinpath(bvdatadir,"blood_vessel2-Epoch0-Frame5.Raw"),w,h))
 save(joinpath(siteresultdir,"bloodvessel2.png"),bv2)
 
-bv1ce = adjust_histogram(bv1, AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.85))
-clamp01!(bv1ce)
-save(joinpath(siteresultdir,"bloodvessel1_Enhanced.png"),bv1ce)
+bv1e = adjust_histogram(bv1, AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.85))
+clamp01!(bv1e)
+save(joinpath(siteresultdir,"bloodvessel1_Enhanced.png"),bv1e)
 
-bv2ce = adjust_histogram(bv2, AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.85))
-clamp01!(bv2ce)
-save(joinpath(siteresultdir,"bloodvessel2_Enhanced.png"),bv2ce)
+bv2e = adjust_histogram(bv2, AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.85))
+clamp01!(bv2e)
+save(joinpath(siteresultdir,"bloodvessel2_Enhanced.png"),bv2e)
 
-## blood vessel mask
-bv1m = imfilter(-bv1ce,Kernel.DoG((20,20)))
-bv1m = binarize(bv1m,Otsu())
+bv1m = binarize(-bv1e,AdaptiveThreshold())
 save(joinpath(siteresultdir,"bloodvessel1_mask.png"),bv1m)
 
-bv2m = imfilter(-bv2ce,Kernel.DoG((20,20)))
-bv2m = binarize(bv2m,Otsu())
+bv2m = binarize(-bv2e,AdaptiveThreshold())
 save(joinpath(siteresultdir,"bloodvessel2_mask.png"),bv2m)
 
 
+bvsdatadir = joinpath(dataroot,subject,"blood_vessel_after")
+bv1s = clampscale(readrawim_Mono12Packed(joinpath(bvsdatadir,"blood_vessel_after-Epoch0-Frame2.Raw"),w,h))
+save(joinpath(siteresultdir,"bloodvessel1_scale.png"),bv1s)
 
-## ocular dominence
-eye1,epochresponse1 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_3","isi.jld2"),"eye","epochresponse")
-eye2,epochresponse2 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_4","isi.jld2"),"eye","epochresponse")
-h,w = size(epochresponse1)
 
-ht = [@views UnequalVarianceTTest(epochresponse1[i,j,:],epochresponse2[i,j,:]) for i = 1:h,j=1:w] # Welch's t-test
-t = map(i->i.t,ht)
-replace!(t,NaN=>0)
-p1 = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:left),ht)
-p2 = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:right),ht)
 
-od = adjust_histogram(clampscale(t), AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.1))
+## ocular dominance
+isi0 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_3","isi.jld2"))
+isi1 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_4","isi.jld2"))
+eye0 = isi0["exenv"]["eye"]; epochresponse0 = isi0["epochresponse"]
+eye1 = isi1["exenv"]["eye"]; epochresponse1 = isi1["epochresponse"]
+h,w,ne = size(epochresponse0)
+
+ht = [@views UnequalVarianceTTest(epochresponse0[i,j,:],epochresponse1[i,j,:]) for i = 1:h,j=1:w] # Welch's t-test
+tmap = map(i->i.t,ht)
+replace!(tmap,NaN=>0)
+pmapl = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:left),ht)
+pmapr = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:right),ht)
+
+od = adjust_histogram(clampscale(tmap), AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.1))
 clamp01!(od)
-save(joinpath(siteresultdir,"OD.png"),od)
+save(joinpath(siteresultdir,"OD_$(eye0).png"),od)
+
 
 ## OD inpainting
-cv = pyimport("cv2")
-od = cv.inpaint(round.(UInt8,od.*255),UInt8.(bv1m),5,cv.INPAINT_TELEA)
-save(joinpath(siteresultdir,"OD_inpaint.png"),od)
-
-od = Gray.(load(joinpath(siteresultdir, "OD_nvidia_inpaint.png")))
+od = Gray.(load(joinpath(siteresultdir,"OD_inpaint1.png")))
 od = imresize(gray.(od),h,w)
 
 
-Gray.(odc1)
 ## OD border
 od = imfilter(od,Kernel.gaussian(5))
-od = adjust_histogram(od, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.5))
-odb = detect_edges(od, Canny(spatial_scale=15, high=ImageEdgeDetection.Percentile(80),low=ImageEdgeDetection.Percentile(70)))
+od = adjust_histogram(od, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.9))
+odb = detect_edges(od, Canny(spatial_scale=10, high=ImageEdgeDetection.Percentile(70),low=ImageEdgeDetection.Percentile(30)))
 save(joinpath(siteresultdir,"OD_border.png"),odb)
 odbm = map(i->GrayA(i,i),odb)
 save(joinpath(siteresultdir,"OD_border_mask.png"),odbm)
 
-odct = contours(1:h,1:w,od,[0.25,0.75])
-odc1 = drawcontour!(similar(od),Contour.levels(odct)[1])
-odc2 = drawcontour!(similar(od),Contour.levels(odct)[2])
-save(joinpath(siteresultdir,"OD_contour_left.png"),odc1)
-save(joinpath(siteresultdir,"OD_contour_right.png"),odc2)
 
-odcm1 = drawcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[1],color=RGBA{N0f8}(1,1,1,1))
-odcm2 = drawcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[2],color=RGBA{N0f8}(1,1,1,1))
-save(joinpath(siteresultdir,"OD_contour_mask_left.png"),odcm1)
-save(joinpath(siteresultdir,"OD_contour_mask_right.png"),odcm2)
+cl=[0.25,0.75]
+odct = contours(1:h,1:w,od,cl)
+odc0 = drawcontour!(similar(od),Contour.levels(odct)[1])
+odc1 = drawcontour!(similar(od),Contour.levels(odct)[2])
+save(joinpath(siteresultdir,"OD_contour_$(eye0).png"),odc0)
+save(joinpath(siteresultdir,"OD_contour_$(eye1).png"),odc1)
 
-skid = pyimport("skimage.draw")
-odcf1 = fillcontour!(similar(od),Contour.levels(odct)[1],skid)
-odcf2 = fillcontour!(similar(od),Contour.levels(odct)[2],skid)
-save(joinpath(siteresultdir,"OD_contourfill_left.png"),odcf1)
-save(joinpath(siteresultdir,"OD_contourfill_right.png"),odcf2)
+odcm0 = drawcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[1],color=RGBA{N0f8}(1,1,1,1))
+odcm1 = drawcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[2],color=RGBA{N0f8}(1,1,1,1))
+save(joinpath(siteresultdir,"OD_contour_mask_$(eye0).png"),odcm0)
+save(joinpath(siteresultdir,"OD_contour_mask_$(eye1).png"),odcm1)
 
-odcfm1 = fillcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[1],skid,color=RGBA{N0f8}(1,0,0,0.02))
-odcfm2 = fillcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[2],skid,color=RGBA{N0f8}(0,1,0,0.02))
-save(joinpath(siteresultdir,"OD_contourfill_mask_left.png"),odcfm1)
-save(joinpath(siteresultdir,"OD_contourfill_mask_right.png"),odcfm2)
+odcf0 = fillcontour!(similar(od),Contour.levels(odct)[1],skid)
+odcf1 = fillcontour!(similar(od),Contour.levels(odct)[2],skid)
+save(joinpath(siteresultdir,"OD_contourfill_$(eye0).png"),odcf0)
+save(joinpath(siteresultdir,"OD_contourfill_$(eye1).png"),odcf1)
+
+odcfm0 = fillcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[1],skid,color=RGBA{N0f8}(1,0,0,0.02))
+odcfm1 = fillcontour!(similar(od,RGBA{N0f8}),Contour.levels(odct)[2],skid,color=RGBA{N0f8}(0,1,0,0.02))
+save(joinpath(siteresultdir,"OD_contourfill_mask_$(eye0).png"),odcfm0)
+save(joinpath(siteresultdir,"OD_contourfill_mask_$(eye1).png"),odcfm1)
 
 
 
 ## Cone Domain
-eye,color,mincolor,maxcolor,cone = load(joinpath(siteresultdir,"AG1_V1V2_Full_ISICycle2Color_3","isi.jld2"),"eye","color","mincolor","maxcolor","F1polarity")
+isi = load(joinpath(siteresultdir,"AG1_V1V2_Full_ISICycle2Color_28","isi.jld2"))
+color = isi["exenv"]["color"];minmaxcolor = isi["exenv"]["minmaxcolor"]
+cone = isi["F1polarity"]
 cone = adjust_histogram(cone, AdaptiveEqualization(nbins = 256, rblocks = 30, cblocks = 30, clip = 0.1))
 clamp01!(cone)
 save(joinpath(siteresultdir,"$(color)_COFD.png"),cone)
 
+
+## Cone inpainting
+cone = Gray.(load(joinpath(siteresultdir,"$(color)_COFD_inpaint1.png")))
+cone = imresize(gray.(cone),h,w)
+
+
 ## Cone Domain contour
 cone = imfilter(cone,Kernel.gaussian(5))
-cone = adjust_histogram(cone, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.85))
-nlevel = 40
-cdct = contours(1:h,1:w,cone,nlevel)
+cone = adjust_histogram(cone, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.9))
 
-ilevel = 12
-cdc = drawcontour!(similar(cone),levels(cdct)[ilevel])
-save(joinpath(siteresultdir,"$(color)_COFD_contour_$(round(ilevel/nlevel,digits=2)).png"),cdc)
+cl = [0.25,0.75]
+cdct = contours(1:h,1:w,cone,cl)
+cdc0 = drawcontour!(similar(cone),Contour.levels(cdct)[1])
+cdc1 = drawcontour!(similar(cone),Contour.levels(cdct)[2])
+save(joinpath(siteresultdir,"$(color)_COFD_contour_low.png"),cdc0)
+save(joinpath(siteresultdir,"$(color)_COFD_contour_high.png"),cdc1)
 
-cdcm = drawcontour!(similar(cone,RGBA{Float64}),levels(cdct)[ilevel],color=mincolor)
-save(joinpath(siteresultdir,"$(color)_COFD_contour_$(round(ilevel/nlevel,digits=2))_mask.png"),cdcm)
+cdcm0 = drawcontour!(similar(cone,RGBA{Float64}),Contour.levels(cdct)[1],color=minmaxcolor.mincolor)
+cdcm1 = drawcontour!(similar(cone,RGBA{Float64}),Contour.levels(cdct)[2],color=minmaxcolor.maxcolor)
+save(joinpath(siteresultdir,"$(color)_COFD_contour_mask_low.png"),cdcm0)
+save(joinpath(siteresultdir,"$(color)_COFD_contour_mask_high.png"),cdcm1)
 
-cdcf = fillcontour!(similar(cone),levels(cdct)[ilevel],skid)
-save(joinpath(siteresultdir,"$(color)_COFD_contourfill_$(round(ilevel/nlevel,digits=2)).png"),cdcf)
+cdcf0 = fillcontour!(similar(cone),Contour.levels(cdct)[1],skid)
+cdcf1 = fillcontour!(similar(cone),Contour.levels(cdct)[2],skid)
+save(joinpath(siteresultdir,"$(color)_COFD_contourfill_low.png"),cdcf0)
+save(joinpath(siteresultdir,"$(color)_COFD_contourfill_high.png"),cdcf1)
 
-cdcfm = fillcontour!(similar(cone,RGBA{Float64}),levels(cdct)[ilevel],skid,color=coloralpha(mincolor,0.1))
-save(joinpath(siteresultdir,"$(color)_COFD_contourfill_$(round(ilevel/nlevel,digits=2))_mask.png"),cdcfm)
+cdcfm0 = fillcontour!(similar(cone,RGBA{Float64}),Contour.levels(cdct)[1],skid,color=coloralpha(minmaxcolor.mincolor,0.1))
+cdcfm1 = fillcontour!(similar(cone,RGBA{Float64}),Contour.levels(cdct)[2],skid,color=coloralpha(minmaxcolor.maxcolor,0.1))
+save(joinpath(siteresultdir,"$(color)_COFD_contourfill_mask_low.png"),cdcfm0)
+save(joinpath(siteresultdir,"$(color)_COFD_contourfill_mask_high.png"),cdcfm1)
 
-ilevel = 28
-cdc = drawcontour!(similar(cone),levels(cdct)[ilevel])
-save(joinpath(siteresultdir,"$(color)_COFD_contour_$(round(ilevel/nlevel,digits=2)).png"),cdc)
 
-cdcm = drawcontour!(similar(cone,RGBA{Float64}),levels(cdct)[ilevel],color=maxcolor)
-save(joinpath(siteresultdir,"$(color)_COFD_contour_$(round(ilevel/nlevel,digits=2))_mask.png"),cdcm)
-
-cdcf = fillcontour!(similar(cone),levels(cdct)[ilevel],skid)
-save(joinpath(siteresultdir,"$(color)_COFD_contourfill_$(round(ilevel/nlevel,digits=2)).png"),cdcf)
-
-cdcfm = fillcontour!(similar(cone,RGBA{Float64}),levels(cdct)[ilevel],skid,color=coloralpha(maxcolor,0.1))
-save(joinpath(siteresultdir,"$(color)_COFD_contourfill_$(round(ilevel/nlevel,digits=2))_mask.png"),cdcfm)

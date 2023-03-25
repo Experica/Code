@@ -8,7 +8,7 @@ function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafil
             ctexid == exid || continue
             fr = load(joinpath(root,datafile))
             siteid = fr["siteid"]
-            id = map((u,g)->g ? "$(siteid)_SU$u" : "$(siteid)_MU$u",fr["unitid"],fr["unitgood"])
+            id = map((u,g)->"$(siteid)_$(g ? "S" : "M")U$u",fr["unitid"],fr["unitgood"])
             c = getccode(fr["exenv"]["color"],ccode)
             ks = ["responsive","modulative","enoughresponse","fms"]
             isempty(fr["f1f0"]) || push!(ks,"f1f0")
@@ -286,7 +286,7 @@ function orisfunit(unit;ccode='A')
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.dcm) => :dcm,
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.dcv) => :dcv,
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.po) => :po,
-        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.osi2) => :osi,
+        "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? [missing,missing] : i.fit.osi2) => [:dsi,:osi],
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : sum(i.fit.ohw)) => :ohw,
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : i.fit.mfit.r) => :ocor,
         "frf_Ori_Final!$ccode" => ByRow(i->ismissing(i) ? missing : 1-i.fit.mfit.r2) => :ofvu,
@@ -303,9 +303,11 @@ end
 
 allorisfunit = mapreduce(c->orisfunit(orisftest,ccode=c),(i,j)->append!(i,j,cols=:union),['A','L','M','S'])
 transform!(allorisfunit,:f1f0=>ByRow(i->i<=1 ? "Complex" : "Simple")=>:sctype,
-            :oup=>(i->i.<0.05)=>:os,
-            :dup=>(i->i.<0.05)=>:ds,
-            :sfup=>(i->i.<0.05)=>:sfs)
+            :oup=>(i->i.<0.05)=>:oselective,
+            :dup=>(i->i.<0.05)=>:dselective,
+            :sfup=>(i->i.<0.05)=>:sfselective,
+            :po=>:pd,
+            :po=>(i->mod.(i,180))=>:po)
 jldsave(joinpath(resultroot,"allorisfunit.jld2");allorisfunit)
 allorisfunit = load(joinpath(resultroot,"allorisfunit.jld2"),"allorisfunit")
 acolor = RGB(0.3,0.3,0.3)
@@ -338,6 +340,9 @@ allorisfcsu = combine(groupby(orisfcsu,[:id,:siteid]),
                 [:c,:er,:ocm]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
                 [:c,:er,:dcm]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
                 [:c,:er,:msf]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:po]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:pd]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
+                [:c,:er,:psf]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
                 [:c,:er,:f1f0]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last,
                 [:c,:er,:sctype]=>((c,r,v)->OrderedDict((c[r].=>v[r])...))=>last)
 allorisfrcsu = subset(allorisfcsu,:eresponsive)
@@ -348,45 +353,45 @@ plotdepthhist(allorisfrcsu;g=:RTYPE,layer)
 
 ## orisf tuning
 plotorituning = (unit;type=:data,cg=aoricg,dir=nothing,figfmt=[".png"],layer=nothing,title="OriTuning") -> begin
-x = 0:0.04:2π # 2.3 deg
-if type == :fit
-    tc = hcat(map(f->predict(f,x),unit.ofit)...)
-elseif type == :data
-    tc = hcat(map((l,r)->Spline1D([deg2rad.(l);2π],[r;r[1]],k=1)(x),unit.ori,unit.orir)...)
-end
-tc./=maximum(tc,dims=1)
-p=plot(leg=false,proj=:polar,yticks=[],xticks=range(0,3π/2,length=4),xformatter=x->round(Int,rad2deg(x)),size=(500,500))
-for i in 1:size(tc,2)
-    ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
-    @views plot!(p,x,tc[:,i],color=ccg,lz=x)
-end
-if !isnothing(layer)
-    ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
-    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
-end
-isnothing(dir) && return p
-mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
+    x = 0:0.04:2π # 2.3 deg
+    if type == :fit
+        tc = hcat(map(f->predict(f,x),unit.ofit)...)
+    elseif type == :data
+        tc = hcat(map((l,r)->Spline1D([deg2rad.(l);2π],[r;r[1]],k=1)(x),unit.ori,unit.orir)...)
+    end
+    tc./=maximum(tc,dims=1)
+    p=plot(leg=false,proj=:polar,yticks=[],xticks=range(0,3π/2,length=4),xformatter=x->round(Int,rad2deg(x)),size=(500,500))
+    for i in 1:size(tc,2)
+        ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
+        @views plot!(p,x,tc[:,i],color=ccg,lz=x)
+    end
+    if !isnothing(layer)
+        ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+        hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+    end
+    isnothing(dir) && return p
+    mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
 end
 
 plotsftuning = (unit;type=:data,cg=aoricg,dir=nothing,figfmt=[".png"],layer=nothing,title="SFTuning") -> begin
-x = 0.2:0.05:6.4
-if type == :fit
-    tc = hcat(map(f->predict(f,x),unit.sffit)...)
-elseif type == :data
-    tc = hcat(map((l,r)->Spline1D(l,r,k=1)(x),unit.sf,unit.sfr)...)
-end
-tc./=maximum(tc,dims=1)
-p=plot(leg=false,yticks=[],xticks=0.1 .* 2 .^ (1:6))
-for i in 1:size(tc,2)
-    ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
-    @views plot!(p,x,tc[:,i],color=ccg,lz=x)
-end
-if !isnothing(layer)
-    ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
-    hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
-end
-isnothing(dir) && return p
-mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
+    x = 0.2:0.05:6.4
+    if type == :fit
+        tc = hcat(map(f->predict(f,x),unit.sffit)...)
+    elseif type == :data
+        tc = hcat(map((l,r)->Spline1D(l,r,k=1)(x),unit.sf,unit.sfr)...)
+    end
+    tc./=maximum(tc,dims=1)
+    p=plot(leg=false,yticks=[],xticks=0.1 .* 2 .^ (1:6))
+    for i in 1:size(tc,2)
+        ccg = cgrad(map(j->coloralpha(color(get(cg,j/length(x))),tc[j,i]),eachindex(x)))
+        @views plot!(p,x,tc[:,i],color=ccg,lz=x)
+    end
+    if !isnothing(layer)
+        ann = [(1,mean(layer[k]),text(k,7,:gray10,:left,:vcenter)) for k in keys(layer)]
+        hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
+    end
+    isnothing(dir) && return p
+    mkpath(dir);foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
 end
 
 foreach(siteid->plotorituning(filter(r->r.siteid==siteid,aorisfrcsu);
@@ -400,35 +405,38 @@ plotorituning(filter(r->r.siteid=="AG2_V1_ODL4",sorisfrcsu),cg=soricg,type=:fit)
 plotsftuning(filter(r->r.siteid=="AG2_V1_ODL4",sorisfrcsu),cg=soricg,type=:data)
 
 
-p=select(hslrcsu,[:cm,:cv,:cor,:fvu,:pa,:ahw,:layer,:siteid]) |>
+p=select(sorisfrcsu,[:ocm,:ocv,:dcm,:dcv,:ocor,:ofvu,:sfcor,:sffvu,:msf,:layer,:siteid]) |>
 [@vlplot(:bar,y={"siteid"},x={"count()"});
-@vlplot(:tick,y={"layer"},x={"cv"});
-@vlplot(:tick,y={"layer"},x={"cm",axis={values=0:90:360}});
-@vlplot(:bar,y={"count()"},x={"cor",bin={step=0.05}});
-@vlplot(:bar,y={"count()"},x={"fvu",bin={step=0.05}});
-@vlplot(:tick,y={"layer"},x={"ahw"});
-@vlplot(:tick,y={"layer"},x={"pa",axis={values=0:90:360}})]
+@vlplot(:tick,y={"layer"},x={"ocv"});
+@vlplot(:tick,y={"layer"},x={"ocm",axis={values=0:90:180}});
+@vlplot(:tick,y={"layer"},x={"dcv"});
+@vlplot(:tick,y={"layer"},x={"dcm",axis={values=0:90:360}});
+@vlplot(:bar,y={"count()"},x={"ocor",bin={step=0.05}});
+@vlplot(:bar,y={"count()"},x={"ofvu",bin={step=0.05}});
+@vlplot(:bar,y={"count()"},x={"sfcor",bin={step=0.05}});
+@vlplot(:bar,y={"count()"},x={"sffvu",bin={step=0.05}});
+@vlplot(:tick,y={"layer"},x={"msf"})]
 
 
 plotdepthscatter(aorisfrcsu;x=:ocv,layer,xlabel="ocv",leg=false,color=acolor)
 plotdepthscatter(aorisfrcsu;x=:ocm,layer,xlabel="ocm",leg=false,color=acolor,xticks=0:90:180)
-plotdepthscatter(sorisfrcsu;x=:dcv,layer,xlabel="dcv",leg=false,color=scolor)
+plotdepthscatter(aorisfrcsu;x=:dcv,layer,xlabel="dcv",leg=false,color=acolor)
 plotdepthscatter(aorisfrcsu;x=:dcm,layer,xlabel="dcm",leg=false,color=acolor,xticks=0:90:360)
 plotdepthscatter(aorisfrcsu;x=:f1f0,layer,xlabel="f1f0",leg=false,color=acolor)
 
-plotdepthhist(sorisfrcsu;g=:sctype,layer)
+plotdepthhist(aorisfrcsu;g=:sctype,layer)
 plotdepthhist(sorisfrcsu;g=:sftype,layer)
 
-p=subset(select(aorisfrcsu,[:os,:ocm,:ocv,:po,:ohw,:layer,:siteid,:aligndepth]),:os) |>
-@vlplot(:point,y={"aligndepth",sort="descending"},x={"ocm",axis={values=0:90:180}},color={"layer",scale={scheme=:category10}},
+p=subset(select(aorisfrcsu,[:oselective,:ocm,:ocv,:po,:ohw,:layer,:siteid,:aligndepth]),:oselective) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"po",axis={values=0:90:180}},color={"layer",scale={scheme=:category10}},
     columns=9,wrap={"siteid"})
 
-p=subset(select(aorisfrcsu,[:ds,:dcm,:dcv,:po,:ohw,:layer,:siteid,:aligndepth]),:ds) |>
-@vlplot(:point,y={"aligndepth",sort="descending"},x={"dcm",axis={values=0:90:360}},color={"layer",scale={scheme=:category10}},
+p=subset(select(aorisfrcsu,[:dselective,:dcm,:dcv,:pd,:ohw,:layer,:siteid,:aligndepth]),:dselective) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"pd",axis={values=0:90:360}},color={"layer",scale={scheme=:category10}},
     columns=9,wrap={"siteid"})
 
-p=subset(select(aorisfrcsu,[:sfs,:msf,:psf,:layer,:siteid,:aligndepth]),:sfs) |>
-@vlplot(:point,y={"aligndepth",sort="descending"},x={"msf"},color={"layer",scale={scheme=:category10}},
+p=subset(select(aorisfrcsu,[:sfselective,:msf,:psf,:layer,:siteid,:aligndepth]),:sfselective) |>
+@vlplot(:point,y={"aligndepth",sort="descending"},x={"psf"},color={"layer",scale={scheme=:category10}},
     columns=9,wrap={"siteid"})
 
 
@@ -437,7 +445,7 @@ function plotorisfpair(unit,sp;w=350,h=350,sflim=nothing,f1f0lim=nothing)
     punit = filter(r->contains(r.RTYPE,sp.first) && contains(r.RTYPE,sp.second),unit)
 
     p = plot(layout=(4,1),leg=false,size=(w,4h))
-    pn = :ocm
+    pn = :po
     x = getindex.(punit[!,pn],sp.first)
     y = getindex.(punit[!,pn],sp.second)
     xticks=yticks=0:45:180
@@ -445,7 +453,7 @@ function plotorisfpair(unit,sp;w=350,h=350,sflim=nothing,f1f0lim=nothing)
     xticks,yticks,ms=3,msw=0,ma=0.7,ratio=1)
     plot!(p[1],[0,180],[0,180],color=:gray30)
 
-    pn = :dcm
+    pn = :pd
     x = getindex.(punit[!,pn],sp.first)
     y = getindex.(punit[!,pn],sp.second)
     xticks=yticks=0:45:360
@@ -453,7 +461,7 @@ function plotorisfpair(unit,sp;w=350,h=350,sflim=nothing,f1f0lim=nothing)
     xticks,yticks,ms=3,msw=0,ma=0.7,ratio=1)
     plot!(p[2],[0,360],[0,360],color=:gray30)
 
-    pn = :msf
+    pn = :psf
     x = getindex.(punit[!,pn],sp.first)
     y = getindex.(punit[!,pn],sp.second)
     lim = isnothing(sflim) ? max(maximum(x),maximum(y)) : sflim

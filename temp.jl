@@ -795,9 +795,24 @@ pp = cat(values(cdrms)...,dims=2)
 
 heatmap(pp)
 
-
 pyplot()
 gr()
+
+F2phase01e = adjust_histogram(F2phase01, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.8))
+        clamp01!(ori)
+
+
+F2phase01e = adjust_histogram(F2phase01, LinearStretching())
+
+bglp = imfilter(F2phase01,Kernel.gaussian(50))
+
+tt = clampscale(F2phase01.-bglp)
+tte = adjust_histogram(tt, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.8))
+tte = adjust_histogram(tt, LinearStretching())
+
+tt = als(F2phase01,rb=15,cb=15)
+Gray.(F2mag01e)
+Gray.(F2phase01e)
 
 
 function takeroi(imgsize,ppd;roi=missing,roimaxresize=32,issquare=false)
@@ -827,3 +842,42 @@ pp= filter(r->r.Subject_ID == "AG1",penetration)
 @showprogress "Batch All STAs ... " for r in eachrow(pp)
     stainfo(joinpath(resultroot,r.Subject_ID,r.siteid))
 end
+
+
+
+## adaptive linear straching
+
+function als(img;rb=5,cb=5)
+    h,w = size(img)
+    rn = round(Int,h/rb)
+    cn = round(Int,w/cb)
+    rs = [intersect((1:rn).+i*rn,1:h) for i in 0:rb-1]
+    cs = [intersect((1:cn).+i*cn,1:w) for i in 0:cb-1]
+    m = similar(img)
+    for i in rs, j in cs
+        @views m[i,j]=adjust_histogram(img[i,j], LinearStretching())
+    end
+    m
+end
+img=F2mag01
+cb=5
+
+
+## test jitter
+
+using NeuroAnalysis,Distributions,StatsBase,Plots
+
+xs = collect(1:10)
+ps = fill(0.1,10)
+
+dd = DiscreteNonParametric(xs,ps)
+
+rand(dd,5)
+
+sample(1:10,Weights(ps),5,replace=false)
+
+
+plot(rand(10),ann=[(5,0.5,text("▮▮",15,:red))])
+
+scatter(rand(10),rand(10),marker=text("t"))
+
