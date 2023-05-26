@@ -1,4 +1,4 @@
-using NeuroAnalysis,FileIO,JLD2,Images,StatsBase,StatsPlots,Interact,ProgressMeter,DataFrames,XLSX
+using NeuroAnalysis,FileIO,JLD2,Images,StatsBase,StatsPlots,ProgressMeter,DataFrames,XLSX
 
 ccode = Dict("DKL_X"=>'A',"DKL_Y"=>'Y',"DKL_Z"=>'S',"LMS_Xmcc"=>'L',"LMS_Ymcc"=>'M',"LMS_Zmcc"=>'S',
              "LMS_X"=>'L',"LMS_Y"=>'M',"LMS_Z"=>'S',"DKL_Hue_L0"=>"DKL_L0","HSL_Hue_Ym"=>"HSL_Ym",
@@ -36,15 +36,15 @@ function joinsta(indir;ccode=ccode,btw=-100:0,rtw=10:130,datafile="sta.jld2")
     ugood=Dict();usta = Dict();uresponsive=Dict()
 
     uns = map(i->length(keys(stas[i]["usta"])),corder)
-    @info "Number of units for each RF test: $uns "
-    uids = mapreduce(i->keys(stas[i]["usta"]),intersect,corder) # only for unit that spikes in all tests
+    @info "Number of units for each RF test: $uns"
+    uids = mapreduce(i->keys(stas[i]["usta"]),intersect,corder) # only include units that spikes in all tests
     @showprogress "Join STAs ... " for u in uids
         csta = Array{Float64}(undef,sizepx...,length(delays),length(corder))
         for j in eachindex(corder)
             zsta = stas[corder[j]]["usta"][u]
             @views for d in eachindex(delays)
-                m = median(zsta[d,:]);sd = mad(zsta[d,:],normalize=true)
-                csta[cii[notxi],d,j] = m .+ sd*randn(length(notxi)) # white noise with the same distribution
+                m = median(zsta[d,:]);sd = mad(zsta[d,:],center=m,normalize=true)
+                csta[cii[notxi],d,j] = m .+ sd*randn(length(notxi)) # fill white noise with the same distribution in masked region
                 csta[cii[xi],d,j] = zsta[d,:]
             end
         end
@@ -57,8 +57,8 @@ function joinsta(indir;ccode=ccode,btw=-100:0,rtw=10:130,datafile="sta.jld2")
     dataset["uresponsive"] = uresponsive
     return dataset
 end
-"check unit sta responsive and cut local sta"
-function responsivesta!(dataset;w=0.5,sdfactor=6,roimargin=0.1,peakroirlim=(0.15,1.5))
+"check unit sta responsive and cut sta in local roi"
+function responsivesta!(dataset;w=0.5,fun=i->mdsd(i,0.35),sdfactor=5,roimargin=0.1,peakroirlim=(0.15,1.5))
     sizepx = dataset["sizepx"]
     ppd = dataset["ppd"]
     bdi = dataset["bdi"]
@@ -66,33 +66,33 @@ function responsivesta!(dataset;w=0.5,sdfactor=6,roimargin=0.1,peakroirlim=(0.15
     usta = dataset["usta"]
     uresponsive=dataset["uresponsive"]
 
-    ulsta=Dict();ulcsdd=Dict();ulcroi=Dict();ulroi=Dict();ucresponsive=Dict()
+    ulcrpd=Dict();ulcroi=Dict();ulroi=Dict();ulsta=Dict();ucresponsive=Dict()
     @showprogress "Test STAs ... " for u in keys(usta)
-        clc = localcontrast(usta[u],round(Int,w*ppd))
-        @views cproi = map(i->peakroi(clc[:,:,:,i]),1:size(clc,4))
-        @views crsdd = map(i->isresponsive(usta[u][cproi[i].i,:,i];bi=bdi,ri=rdi,sdfactor),1:size(clc,4))
-        ucresponsive[u] = map(i->(peakroirlim[1] <= cproi[i].radius/ppd <= peakroirlim[2]) ? crsdd[i].r : false,1:size(clc,4))
+        clc = localcontrast(usta[u],round(Int,w*ppd);fun) # local contrast for each slice of spatial sta image
+        @views croi = map(i->peakroi(clc[:,:,:,i]),1:size(clc,4)) # roi from peak local contrast for each color channel
+        @views crpd = map(i->isresponsive(usta[u][croi[i].i,:,i];fun,bi=bdi,ri=rdi,sdfactor),1:size(clc,4)) # test significent local contrast in roi
+        ucresponsive[u] = map(i->(peakroirlim[begin] <= croi[i].radius/ppd <= peakroirlim[end]) ? crpd[i].r : false,1:size(clc,4))
         if any(ucresponsive[u])
             uresponsive[u] = true
-            vroi = cproi[ucresponsive[u]]
+            vroi = croi[ucresponsive[u]]
             roi = mergeroi(vroi;roimargin,imgsize=sizepx,issquare=true)
             ulroi[u] = (roi...,centerdeg=roi.center./ppd,radiideg=roi.radii./ppd,radiusdeg=roi.radius/ppd)
             ulsta[u] = usta[u][map((c,r)->c.+(-r:r),roi.center,roi.radii)...,:,:]
-            ulcroi[u] = cproi
-            ulcsdd[u] = crsdd
+            ulcroi[u] = croi
+            ulcrpd[u] = crpd
         else
             uresponsive[u] = false
         end
     end
-    dataset["ulsta"]=ulsta
+    dataset["ulcrpd"]=ulcrpd
     dataset["ulcroi"]=ulcroi
     dataset["ulroi"]=ulroi
-    dataset["ulcsdd"]=ulcsdd
+    dataset["ulsta"]=ulsta
     dataset["ucresponsive"]=ucresponsive
     return dataset
 end
-"fit responsive sta to models"
-function fitsta!(dataset;model=[:gabor,:edog])
+"fit responsive local sta to RF models"
+function fitsta!(dataset;model=[:gabor,:edog],w=0.5,fun=i->mdsd(i,0.35))
     ulsta = dataset["ulsta"]
     ppd = dataset["ppd"]
 
@@ -105,9 +105,10 @@ function fitsta!(dataset;model=[:gabor,:edog])
             ulfit[u] = Dict()
         end
         rs = dataset["ucresponsive"][u]
-        ds = map(i->i.d,dataset["ulcsdd"][u])
+        ds = map(i->i.d,dataset["ulcrpd"][u])
         for m in model
-            ulfit[u][m] = [rs[i] ? fitmodel2(m,ulsta[u][:,:,ds[i],i],ppd) : missing for i in 1:length(rs)]
+            # fit responsive local sta at delay of peak local contrast to spatial RF model
+            ulfit[u][m] = [rs[i] ? fitmodel2(m,ulsta[u][:,:,ds[i],i],ppd;w,fun) : missing for i in 1:length(rs)]
         end
     end
     return dataset
@@ -140,10 +141,10 @@ plotlstas=(dataset,u;dir=nothing,figfmt=[".png"])->begin
     ulsta = dataset["ulsta"][u]
     ugood = dataset["ugood"][u]
     delays = dataset["delays"]
+    ucresponsive = dataset["ucresponsive"][u]
+    ulcd = map(i->i.d,dataset["ulcrpd"][u])
     diameterpx = size(ulsta)[1:2]
     diameterdeg = diameterpx./ppd
-    ucresponsive = dataset["ucresponsive"][u]
-    ulcd = map(i->i.d,dataset["ulcsdd"][u])
     @views ulcdex = map((d,i)->exd(ulsta[:,:,d,i]).ex,ulcd,1:cn)
     clim = maximum(abs.(ulcdex))
     xlims = [0,round(diameterdeg[2],digits=1)]
@@ -152,23 +153,23 @@ plotlstas=(dataset,u;dir=nothing,figfmt=[".png"])->begin
     y = range(ylims...,length=diameterpx[1])
 
     p = plot(layout=(1,cn+1),grid=false,legend=false,size=(350(cn+1),450))
-    bar!(p[1],dataset["color"],ulcdex,frame=:zerolines,ylabel="extrema",leftmargin=8mm)
+    bar!(p[1],dataset["color"],ulcdex,frame=:zerolines,ylabel="extrema",leftmargin=8Plots.mm)
     @views foreach(i->heatmap!(p[i+1],x,y,ulsta[:,:,ulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
-    titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
-    xlabel=dataset["color"][i],title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
+        titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
+        xlabel=dataset["color"][i],title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
     isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_STA$ext")),figfmt)
 end
 
-plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
+plotfitlstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     cn = length(dataset["ccode"])
+    ppd = dataset["ppd"]
     ulsta = dataset["ulsta"][u]
     ugood = dataset["ugood"][u]
     delays = dataset["delays"]
-    ppd = dataset["ppd"]
+    ucresponsive = dataset["ucresponsive"][u]
+    ulcd = map(i->i.d,dataset["ulcrpd"][u])
     diameterpx = size(ulsta)[1:2]
     diameterdeg = diameterpx./ppd
-    ucresponsive = dataset["ucresponsive"][u]
-    ulcd = map(i->i.d,dataset["ulcsdd"][u])
     @views ulcdex = map((d,i)->exd(ulsta[:,:,d,i]).ex,ulcd,1:cn)
     clim = maximum(abs.(ulcdex))
     xlims = [0,round(diameterdeg[2],digits=1)]
@@ -176,10 +177,10 @@ plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     x = range(xlims...,length=diameterpx[2])
     y = range(ylims...,length=diameterpx[1])
 
-    p = plot(layout=(3,cn),legend=false,size=(300cn,3*320))
+    p = plot(layout=(3,cn),grid=false,legend=false,size=(300cn,3*320))
     @views foreach(i->heatmap!(p[1,i],x,y,ulsta[:,:,ulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
-    titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
-    title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
+        titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
+        title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
 
     umfit=dataset["ulfit"][u][m]
     rspx = (diameterpx.-1)./2
@@ -187,47 +188,49 @@ plotfitstas=(dataset,u,m;dir=nothing,figfmt=[".png"])->begin
     y = range(-rspx[1],rspx[1],length=diameterpx[1])./ppd
     xlims=[round.(extrema(x),digits=2)...]
     ylims=[round.(extrema(y),digits=2)...]
-    fs = map(f->ismissing(f) ? missing : predict(f,x,y),umfit)
-    foreach(i->ismissing(fs[i]) ? plot!(p[2,i],frame=:none) :
-    heatmap!(p[2,i],x,y,fs[i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims,ylims,
-    xticks=xlims,yticks=false,xlabel=dataset["color"][i],titlefontcolor=ucresponsive[i] ? :green : :match,title="Fit_$(m)"),1:cn)
+    zs = map(f->ismissing(f) ? missing : predict(f,x,y),umfit)
+    foreach(i->ismissing(zs[i]) ? plot!(p[2,i],frame=:none) :
+        heatmap!(p[2,i],x,y,zs[i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims,ylims,xticks=xlims,yticks=false,
+        xlabel=dataset["color"][i],titlefontcolor=ucresponsive[i] ? :green : :match,title="Fit_$(m)"),1:cn)
 
-    @views foreach(i->ismissing(fs[i]) ? plot!(p[3,i],frame=:none) :
-    heatmap!(p[3,i],x,y,ulsta[end:-1:1,:,ulcd[i],i].-fs[i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims,ylims,
-    xticks=false,yticks=false,xlabel="Residual",titlefontcolor=ucresponsive[i] ? :green : :match,title="r = $(round(umfit[i].r,digits=3))"),1:cn)
-    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_Fit_$(m)$ext")),figfmt)
+    @views foreach(i->ismissing(zs[i]) ? plot!(p[3,i],frame=:none) :
+        heatmap!(p[3,i],x,y,ulsta[end:-1:1,:,ulcd[i],i].-zs[i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),xlims,ylims,
+        xticks=false,yticks=false,xlabel="Residual",titlefontcolor=ucresponsive[i] ? :green : :match,title="r = $(round(umfit[i].r,digits=3))"),1:cn)
+    isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_Fit_$m$ext")),figfmt)
 end
 
-stainfo = (siteresultdir) -> begin
-dataset = joinsta(siteresultdir)
-dataset = responsivesta!(dataset)
-dataset = fitsta!(dataset,model=[:edog,:gabor])
-jldsave(joinpath(siteresultdir,"stadataset.jld2");dataset)
+stainfo = (siteresultdir;figfmt=[".png"]) -> begin
+    dataset = joinsta(siteresultdir)
+    dataset = responsivesta!(dataset)
+    dataset = fitsta!(dataset,model=[:edog,:gabor])
+    jldsave(joinpath(siteresultdir,"stadataset.jld2");dataset)
 
-lstadir = joinpath(siteresultdir,"lsta")
-rm(lstadir,force=true,recursive=true)
-mkpath(lstadir)
-for u in keys(dataset["ulsta"])
-    plotlstas(dataset,u,dir=lstadir)
+    lstadir = joinpath(siteresultdir,"lsta")
+    rm(lstadir,force=true,recursive=true)
+    mkpath(lstadir)
+    for u in keys(dataset["ulsta"])
+        plotlstas(dataset,u;dir=lstadir,figfmt)
+    end
+
+    lstafitdir = joinpath(siteresultdir,"lstafit")
+    rm(lstafitdir,force=true,recursive=true)
+    mkpath(lstafitdir)
+    for u in keys(dataset["ulfit"]),m in keys(first(values(dataset["ulfit"])))
+        plotfitlstas(dataset,u,m;dir=lstafitdir,figfmt)
+    end
 end
 
-lstafitdir = joinpath(siteresultdir,"lstafit")
-rm(lstafitdir,force=true,recursive=true)
-mkpath(lstafitdir)
-for u in keys(dataset["ulfit"]),m in keys(first(values(dataset["ulfit"])))
-    plotfitstas(dataset,u,m,dir=lstafitdir)
-end
-end
-
-
-## process all stas
 resultroot = "Z:/"
+
+
+## process all stas of a RecordSite
 subject = "AG1";recordsession = "V1";recordsite = "ODL1"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 dataset = load(joinpath(siteresultdir,"stadataset.jld2"),"dataset")
 
-## stas
+using Interact
+# plot stas
 @manipulate for u in sort(collect(keys(dataset["usta"]))),d in eachindex(dataset["delays"])
     plotstas(dataset,u,d)
 end
@@ -239,20 +242,79 @@ end
 #     plotstas(dataset,u,d,dir=stadir)
 # end
 
-## responsive local stas
+# plot local stas
 @manipulate for u in sort(collect(keys(dataset["ulsta"])))
     plotlstas(dataset,u)
 end
 
-## fit local stas
+# plot fit of local stas
 @manipulate for u in sort(collect(keys(dataset["ulfit"]))),m in collect(keys(first(values(dataset["ulfit"]))))
-    plotfitstas(dataset,u,m)
+    plotfitlstas(dataset,u,m)
 end
 
 
 
 ## Batch Penetration Sites
-penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1")...)
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
 @showprogress "Batch All STAs ... " for r in eachrow(penetration)
-    stainfo(joinpath(resultroot,r.Subject_ID,r.siteid))
+    stainfo(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt=[".png",".svg"])
 end
+
+
+
+
+
+
+# plotlstas2=(dataset,odataset,u;dir=nothing,figfmt=[".png"])->begin
+#     cn = length(dataset["ccode"])
+#     ppd = dataset["ppd"]
+#     p = plot(layout=(2,cn+1),grid=false,legend=false,size=(350(cn+1),450*2))
+#     if haskey(dataset["ulsta"],u)
+#     ulsta = dataset["ulsta"][u]
+#     ugood = dataset["ugood"][u]
+#     delays = dataset["delays"]
+#     ucresponsive = dataset["ucresponsive"][u]
+#     ulcd = map(i->i.d,dataset["ulcrpd"][u])
+#     diameterpx = size(ulsta)[1:2]
+#     diameterdeg = diameterpx./ppd
+#     @views ulcdex = map((d,i)->exd(ulsta[:,:,d,i]).ex,ulcd,1:cn)
+#     clim = maximum(abs.(ulcdex))
+#     xlims = [0,round(diameterdeg[2],digits=1)]
+#     ylims = [0,round(diameterdeg[1],digits=1)]
+#     x = range(xlims...,length=diameterpx[2])
+#     y = range(ylims...,length=diameterpx[1])
+
+
+#     bar!(p[1,1],dataset["color"],ulcdex,frame=:zerolines,ylabel="extrema",leftmargin=8mm)
+#     @views foreach(i->heatmap!(p[1,i+1],x,y,ulsta[:,:,ulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
+#     titlefontcolor=ucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
+#     xlabel=dataset["color"][i],title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[ulcd[i]])"),1:cn)
+#     end
+
+#     if haskey(odataset["ulsta"],u)
+#     oulsta = odataset["ulsta"][u]
+#     ugood = odataset["ugood"][u]
+#     delays = odataset["delays"]
+#     oucresponsive = odataset["ucresponsive"][u]
+#     oulcd = map(i->i.d,odataset["ulcrpd"][u])
+#     diameterpx = size(oulsta)[1:2]
+#     diameterdeg = diameterpx./ppd
+#     @views oulcdex = map((d,i)->exd(oulsta[:,:,d,i]).ex,oulcd,1:cn)
+#     clim = maximum(abs.(oulcdex))
+#     xlims = [0,round(diameterdeg[2],digits=1)]
+#     ylims = [0,round(diameterdeg[1],digits=1)]
+#     x = range(xlims...,length=diameterpx[2])
+#     y = range(ylims...,length=diameterpx[1])
+
+#     bar!(p[2,1],odataset["color"],oulcdex,frame=:zerolines,ylabel="extrema",leftmargin=8mm)
+#     @views foreach(i->heatmap!(p[2,i+1],x,y,oulsta[:,:,oulcd[i],i];aspect_ratio=:equal,frame=:grid,color=:coolwarm,clims=(-clim,clim),
+#     titlefontcolor=oucresponsive[i] ? :green : :match,xlims,ylims,xticks=xlims,yticks=false,yflip=true,
+#     xlabel=odataset["color"][i],title="$(ugood ? "S" : "M")U$(u)_STA_$(delays[oulcd[i]])"),1:cn)
+#     end
+
+#     isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$(ugood ? "S" : "M")U$(u)_STA$ext")),figfmt)
+# end
+
+# @manipulate for u in sort(bru)
+#     plotlstas2(dataset1,odataset,u)
+# end

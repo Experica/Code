@@ -1,6 +1,6 @@
-using NeuroAnalysis,FileIO,Statistics,StatsPlots,StatsBase,Images,ProgressMeter,DataFrames,XLSX,Dierckx
+using NeuroAnalysis,FileIO,JLD2,Statistics,StatsPlots,StatsBase,Images,ProgressMeter,DataFrames,XLSX,Dierckx
 
-function mergespike!(indir;unit=Dict(),datafile="spike.jld2")
+function mergespikeinfo!(indir;unit=Dict(),datafile="spike.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
             spike,siteid = load(joinpath(root,datafile),"spike","siteid")
@@ -32,13 +32,63 @@ function mergespike!(indir;unit=Dict(),datafile="spike.jld2")
     return unit
 end
 
-
-## Merge Spike Data of a RecordSite
 resultroot = "Z:/"
+
+# ## Penetration Sites
+# penetration = unique!(meta[:,[:Subject_ID,:RecordSession,:RecordSite]])
+# penetration = transform!(penetration,All()=>ByRow((a,b,c)->join(filter!(!isempty,[a,b,c]),"_"))=>:siteid)
+# XLSX.writetable(joinpath(resultroot,"penetration.xlsx"),collect(eachcol(penetration)),names(penetration))
+
+## Merge ALL Spike Info of a RecordSite
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
+@showprogress "Batch Merging Spike Info ... " for r in eachrow(penetration)
+    indir = joinpath(resultroot,r.Subject_ID,r.siteid)
+    unit = mergespikeinfo!(indir)
+    save(joinpath(indir,"unit.jld2"),"unit",unit)
+end
+
+
+## Spike Info of a RecordSite
 figfmt = [".svg"]
-indir = joinpath(resultroot,"AG1","AG1_V1_ODL2")
+indir = joinpath(resultroot,"AG2","AG2_V1_ODL3")
 layer = load(joinpath(indir,"layer.jld2"),"layer")
 
+plotdepthfeature = (feature,position,ks;good=trues(size(position,1)),kw=ones(1,length(ks)),size=(350,700),xlabel="",df=nothing,layer=nothing,grid=true,xticks=:auto,vl=[]) -> begin
+    kn = length(ks)
+    vs = hcat(map(k->feature[k][good],ks)...).*kw
+    cs = permutedims(palette(:default).colors.colors[1:kn])
+    p=plot(;size,grid,tickdir=:out)
+    isempty(vl) || vline!(p,vl;linecolor=:gray10,legend=false,lw=1)
+    scatter!(p,vs,position[good,2];label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,xticks,
+        xlabel,ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
+
+    yms = [unitdensity(position[good,2],w=vs[:,i],wfun=mean,bw=40,step=20,s=1.4) for i in 1:kn]
+    y = yms[1].y
+    yms = hcat(map(i->i.n,yms)...)
+    if df isa Dict
+        if haskey(df,"feature")
+            df["feature"] = [df["feature"] ks]
+            df["depth"] = y
+            df["depthfeature"] = [df["depthfeature"] yms]
+        else
+            df["feature"] = ks
+            df["depth"] = y
+            df["depthfeature"] = yms
+        end
+    end
+
+    plot!(p,[zeros(1,kn);yms;zeros(1,kn)],[minimum(y);y;maximum(y)], st=:shape,lw=0,label=false,alpha=0.2,color=cs)
+    plot!(p,yms,y;label=false,lw=2,color=cs)
+    if !isnothing(layer)
+        xmin,xmax=extrema(vs)
+        xm = 0.02(xmax-xmin)
+        xmin-=7xm; xmax+=xm
+        ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+        hline!(p,[l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,xlims=(xmin,xmax),
+        yticks=0:200:3820)
+    end
+    p
+end
 
 spikeinfo = (indir;layer=nothing,figfmt=[".png"]) -> begin
 
@@ -138,61 +188,11 @@ spikeinfo = (indir;layer=nothing,figfmt=[".png"]) -> begin
     save(joinpath(indir,"unitdepthfeature.jld2"),"df",df)
 end
 
-plotdepthfeature = (feature,position,ks;good=trues(size(position,1)),kw=ones(1,length(ks)),size=(350,700),xlabel="",df=nothing,layer=nothing,grid=true,xticks=:auto,vl=[]) -> begin
-    kn = length(ks)
-    vs = hcat(map(k->feature[k][good],ks)...).*kw
-    cs = permutedims(palette(:default).colors.colors[1:kn])
-    p=plot(;size,grid,tickdir=:out)
-    isempty(vl) || vline!(p,vl;linecolor=:gray10,legend=false,lw=1)
-    scatter!(p,vs,position[good,2];label=ks,markerstrokewidth=0,alpha=0.6,markersize=3,xticks,
-        xlabel,ylabel="Depth (μm)",color=cs,left_margin=4Plots.mm)
-
-    yms = [unitdensity(position[good,2],w=vs[:,i],wfun=mean,bw=40,step=20,s=1.4) for i in 1:kn]
-    y = yms[1].y
-    yms = hcat(map(i->i.n,yms)...)
-    if df isa Dict
-        if haskey(df,"feature")
-            df["feature"] = [df["feature"] ks]
-            df["depth"] = y
-            df["depthfeature"] = [df["depthfeature"] yms]
-        else
-            df["feature"] = ks
-            df["depth"] = y
-            df["depthfeature"] = yms
-        end
-    end
-
-    plot!(p,[zeros(1,kn);yms;zeros(1,kn)],[minimum(y);y;maximum(y)], st=:shape,lw=0,label=false,alpha=0.2,color=cs)
-    plot!(p,yms,y;label=false,lw=2,color=cs)
-    if !isnothing(layer)
-        xmin,xmax=extrema(vs)
-        xm = 0.02(xmax-xmin)
-        xmin-=7xm; xmax+=xm
-        ann = [(xmin+0.02(xmax-xmin),mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-        hline!(p,[l[2] for l in values(layer)];linecolor=:gray25,leg=false,lw=0.5,ann,xlims=(xmin,xmax),
-        yticks=0:200:3820)
-    end
-    p
-end
-
-
-## Penetration Sites
-# penetration = unique!(meta[:,[:Subject_ID,:RecordSession,:RecordSite]])
-# penetration = transform!(penetration,All()=>ByRow((a,b,c)->join(filter!(!isempty,[a,b,c]),"_"))=>:siteid)
-# XLSX.writetable(joinpath(resultroot,"penetration.xlsx"),collect(eachcol(penetration)),names(penetration))
-
-## Batch RecordSites
-penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
-@showprogress "Batch Merge Spike ... " for r in eachrow(penetration)
-    indir = joinpath(resultroot,r.Subject_ID,r.siteid)
-    unit = mergespike!(indir)
-    save(joinpath(indir,"unit.jld2"),"unit",unit)
-end
+## Batch Spike Info
 @showprogress "Batch Spike Info ... " for r in eachrow(penetration)
     # spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
     spikeinfo(joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
 end
-
 
 
 
@@ -226,22 +226,29 @@ end
 
 allunit = collectunit!(resultroot)
 
-## Layer info for all units
+# Add layer info for all units
+alllayer = load(joinpath(resultroot,"alllayer.jld2"),"alllayer")
+layertemplate,lbt = load(joinpath(resultroot,"layertemplate.jld2"),"layertemplate","lbt")
+transform!(alllayer,"1"=>ByRow(i->(x->last(i).-x))=>"e2cfun")
+transform!(alllayer,vcat.("e2cfun",names(alllayer,Not([:siteid,:e2cfun]))) .=> ByRow((f,x)->f(x)) => last)
+layerboundary = combine(alllayer,names(alllayer,Not([:siteid,:e2cfun])) .=> ByRow(last)=>identity)
+alllayer.tcfun = [gettcfun(collect(r),lbt,true) for r in eachrow(layerboundary)]
+
 usi = map(i->findfirst(j->j==i,alllayer.siteid),allunit["siteid"])
 allunit["unitaligndepth"] = [alllayer.e2cfun[usi[i]](allunit["unitposition"][i,2]) |> alllayer.tcfun[usi[i]] for i in eachindex(usi)]
 allunit["unitlayer"] = assignlayer.(allunit["unitaligndepth"],[layertemplate])
-save(joinpath(resultroot,"allunit.jld2"),"allunit",allunit)
+jldsave(joinpath(resultroot,"allunit.jld2");allunit)
 
 
 
-
-
-## Single Unit Feature
+## Unit Feature
 allunit = load(joinpath(resultroot,"allunit.jld2"),"allunit")
 unitid = allunit["id"];unitwave = allunit["unitwaveform"];unittempfeature = allunit["unittemplatefeature"]
 unitgood=allunit["unitgood"];unitposition=allunit["unitposition"];unitfeature = allunit["unitfeature"]
 unitaligndepth=allunit["unitaligndepth"];unitlayer=allunit["unitlayer"];unitqm=allunit["qm"]
-fs=allunit["fs"];figfmt = [".png"]
+figfmt = [".svg",".png"]
+unitfeaturedir = joinpath(resultroot,"UnitFeature")
+mkpath(unitfeaturedir)
 
 f1 = ["duration","peaktroughratio","lefthalftroughwidth","righthalftroughwidth","halftroughwidth","lefthalfpeakwidth","righthalfpeakwidth","halfpeakwidth","repolarrate","recoverrate","ttrough","amplitude"]
 f2 = ["upspread","downspread","leftspread","rightspread","uppvinv","downpvinv"]
@@ -250,119 +257,159 @@ f = [f1;f2;fqm]
 F = Float64[hcat(map(k->unitfeature[k],f1)...);;hcat(map(k->unittempfeature[k],f2)...);;hcat(map(k->unitqm[k],fqm)...)]
 replace!(F,NaN=>0,Inf=>0,-Inf=>0)
 
+@views Fz = hcat(map(i->zscore(F[:,i]),1:size(F,2))...)
+dotplot(permutedims(1:length(f)),Fz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(Fz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"unit_feature$ext")),figfmt)
+
+
 cui = 0 .<= unitaligndepth .<= 1 # cortical units
 csui = cui .& unitgood # cortical single units
-csuF = F[csui,:]
 
-foreach(i->csuF[:,i]=zscore(csuF[:,i]),1:size(csuF,2))
-dotplot(permutedims(1:length(f)),csuF,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
-        xlabel="Spike Feature",size=(750,600),ann=(18,15,"n=$(size(csuF,1))"))
-foreach(ext->savefig(joinpath(resultroot,"csu_feature$ext")),figfmt)
+cuF = F[cui,:]
+@views cuFz = hcat(map(i->zscore(cuF[:,i]),1:size(cuF,2))...)
+dotplot(permutedims(1:length(f)),cuFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="Cortical Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(cuFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"cu_feature$ext")),figfmt)
+
+csuF = F[csui,:]
+@views csuFz = hcat(map(i->zscore(csuF[:,i]),1:size(csuF,2))...)
+dotplot(permutedims(1:length(f)),csuFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="Cortical Single-Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(csuFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_feature$ext")),figfmt)
+
+
+
+## Cortical Single-Unit Classification
+using UMAP,Clustering,Distances,VegaLite
 
 wn = size(unitwave,2)
 wx = collect(range(-wn/2,step=1,length=wn))
 csuwy = permutedims(unitwave[csui,:])
 csuwx = repeat(wx,outer=(1,size(csuwy,2)))
 
-## Single Unit Classification
-using UMAP,Clustering,Distances
+# cf = filter(i->i ∉ ["ttrough","fp","leftspread","rightspread"],f) # all possible features
+# cf = filter(i->i ∉ ["ttrough","fp","leftspread","rightspread","fr","pisi","amplitude"],f) # all probable features
+# cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv","upspread","downspread"] # 1D+2D features
+cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv"] # 1D+2D features
+# cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate"] # 1D features
 
-ft = ["duration","lefthalftroughwidth","righthalftroughwidth","halftroughwidth",
-    "lefthalfpeakwidth","righthalfpeakwidth","halfpeakwidth","repolarrate","recoverrate",
-    "uppvinv","downpvinv"]
-ft = ["duration","lefthalftroughwidth","righthalftroughwidth","halftroughwidth",
-    "lefthalfpeakwidth","righthalfpeakwidth","halfpeakwidth","repolarrate","recoverrate"]
-ft = ["duration","halftroughwidth","halfpeakwidth","repolarrate","recoverrate"]
-ft = ["duration","halftroughwidth","halfpeakwidth"]
-Ft = csuF[:,indexin(ft,f)]
+cFz = csuFz[:,indexin(cf,f)]
+cFzD = pairwise(Euclidean(),cFz,dims=1)
 
-Ft2 = umap(Ft', 2, n_neighbors=25, min_dist=0.8, n_epochs=300,metric=Euclidean())
-scatter(Ft2[1,:], Ft2[2,:],leg=false,msw=0,ms=3,ma=0.8,size=(600,600),frame=:none,ratio=1)
-plot(Ft2[1,:]' .+ 1e-2*csuwx, Ft2[2,:]' .+ 3e-5*csuwy,color=:darkgreen,alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
-foreach(ext->savefig(joinpath(resultroot,"csu_umap$ext")),figfmt)
+dotplot(permutedims(1:length(cf)),cFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(cf),xformatter=i->cf[Int(i)],
+        xlabel="Cortical Single-Unit Clustering Feature",size=(750,600),ann=(2,10,"n=$(size(cFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature$ext")),figfmt)
 
-FtD = pairwise(Euclidean(),Ft,dims=1)
-hc = hclust(FtD,linkage=:ward,branchorder=:optimal)
-plot(hc,xticks=false)
-clu = cutree(hc,k=5)
-clu = replace(clu,1=>"En",2=>"E",3=>"I",4=>"Ei",5=>"Ib")
-
-scatter(Ft2[1,:], Ft2[2,:],group=clu,leg=:inline,frame=:none,msw=0,ms=3,ma=0.8,size=(600,600),ratio=1)
-foreach(ext->savefig(joinpath(resultroot,"csu_umap_clu$ext")),figfmt)
+cFz2 = umap(cFz', 2, n_neighbors=25, min_dist=0.8, n_epochs=300,metric=Euclidean())
+scatter(cFz2[2,:], cFz2[1,:],leg=false,msw=0,ms=2,ma=0.8,size=(600,600),frame=:none,ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap$ext")),figfmt)
+plot(cFz2[2,:]' .+ 0.85e-2*csuwx, cFz2[1,:]' .+ 2.8e-5*csuwy,color=:darkgreen,alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_wave$ext")),figfmt)
 
 
+# try to get optimal number of clusers
+function noclu(F,FD;ks=2:10,itr=100)
+    ok=ones(itr)
+    for i in 1:itr
+        cs = [kmeans(F',k) for k in ks]
+        ss = [mean(Clustering.silhouettes(c,FD)) for c in cs]
+        ok[i] = ks[argmax(ss)]
+    end
+    ok
+end
+
+ks = 4:6
+oks = noclu(cFz,cFzD;ks)
+density(oks,xticks=ks,xlabel="k",ylabel="Silhouette",leg=false)
+
+k=5
+kc = kmeans(cFz',k)
+clu = assignments(kc)
+
+# hc = hclust(cFzD,linkage=:ward,branchorder=:optimal)
+# plot(hc,xticks=false)
+# clu = cutree(hc;k)
+
+scatter(cFz2[2,:], cFz2[1,:],group=clu,c=cgrad(:tab10)[clu],leg=:inline,frame=:none,msw=0,ms=2,ma=0.8,size=(600,600),ratio=1,legendfontsize=12)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_clu$ext")),figfmt)
+plot(cFz2[2,:]' .+ 0.85e-2*csuwx, cFz2[1,:]' .+ 2.8e-5*csuwy,c=cgrad(:tab10)[clu'],alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_wave_clu$ext")),figfmt)
 
 
+plotclufeature=(F,f,clu;lim=maximum(abs.(F)))->begin
+    cluid = sort(unique(clu))
+    p = plot(leg=false,grid=false,size=(750,600),xlabel="Spike Feature",ylabel="Z Score",xrotation=20,ann=(2,lim-1,"n=$(size(F,1))"))
+    foreach(i->dotplot!(permutedims(1:length(f)),clamp!(F[clu.==i,:],-lim,lim),marker=(2,0.3, stroke(0),cgrad(:tab10)[i]),xticks=1:length(f),xformatter=i->f[Int(i)]),cluid)
+    p
+end
 
-# groupedhist(Ft[:,7],group=clu,bar_position = :stack)
+plotclufeature(cFz,cf,clu,lim=7)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu$ext")),figfmt)
 
-# dotplot(permutedims(ft),Ft[cid.==1,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:blue),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# # dotplot!(permutedims(ft),Ft[cid.==2,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:orange),
-# #         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),Ft[cid.==3,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:green),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),Ft[cid.==4,:],leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(1, stroke(0),:purple),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-
-
-
-# clim=4;ms=0.1
-# dotplot(permutedims(ft),clamp!(Ft[clu.==1,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[1]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),clamp!(Ft[clu.==2,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[2]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),clamp!(Ft[clu.==3,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[3]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),clamp!(Ft[clu.==4,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[4]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),clamp!(Ft[clu.==5,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[5]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# dotplot!(permutedims(ft),clamp!(Ft[clu.==6,:],-clim,clim),leg=false,grid=false,ylabel="Z Score",xrotation=20,marker=(ms, stroke(0),cs[6]),
-#         xlabel="Spike Feature",size=(750,600),ann=(15,17,"n=$(size(F,1))"))
-# foreach(ext->savefig(joinpath(resultroot,"SpikeFeature_UnitCluster$ext")),figfmt)
+pl = flatten(DataFrame(f=cf,F=[cFz[:,i] for i in eachindex(cf)],clu=fill(clu,length(cf))),[:F,:clu]) |> @vlplot(width=200,height=300,
+    mark={:boxplot, extent="min-max"},
+    x={"clu:n",axis={title="Cluster",titleFontSize=24,titleFontWeight="normal",labelAngle=0,labelFontSize=18}},
+    y={:F, axis={title="Z Score",titleFontSize=20,titleFontWeight="normal",grid=false,labelFontSize=14}},
+    color={"clu:n",scale={scheme=:category10}},
+    column={"f",sort=cf,header={labelFontSize=26,labelFontWeight="bold",title=""}}
+)
+foreach(ext->save(joinpath(unitfeaturedir,"csu_clu_cfeature$ext"),pl),figfmt)
 
 
+# @df DataFrame(f="duration",clu=clu,F=csuF[:,findfirst(i->i=="pisi",f)]) boxplot(:clu,:F,fillalpha=0.75, linewidth=2,ylabel="Duration (μm)",xlabel="Cluster")
+
+# DataFrame(f="duration",clu=clu,F=csuF[:,findfirst(i->i=="duration",f)]) |> @vlplot(width=200,height=300,
+# mark={:boxplot, extent="min-max"},
+# x={"clu:n",axis={title="Cluster",titleFontSize=24,titleFontWeight="normal",labelAngle=0,labelFontSize=18}},
+# y={:F, axis={title="Z Score",titleFontSize=20,titleFontWeight="normal",grid=false,labelFontSize=14}},
+# color={"clu:n",scale={scheme=:category10}}
+# )
 
 
-
-plotcluwaveform=(wys,clu;isalign=true,isnorm=true,ismean=true,n=30,color=:default)->begin
+plotcluwaveform=(wys,clu;fs=30e3,isalign=true,isnorm=true,ismean=true,n=50,color=:tab10,clucode=nothing)->begin
     wn,un=size(wys)
-    cluid = unique(clu)
-    ci = [c.==clu for c in cluid]
+    cluid = sort(unique(clu))
+    cluname = isnothing(clucode) ? cluid : map(i->clucode[i],cluid)
     if isalign
         wx = range(-round(Int,wn/2),step=1,length=wn)
-        iwx = -wn:0.25:wn
+        iwx = -wn:0.25:wn # double x range, upsampling 4 times
+        fs *= 4
         @views iwys = hcat(map(i->Spline1D(wx,wys[:,i],k=3,bc="nearest")(iwx),1:un)...)
-        r = range(4wx[begin],4wx[end],step=1)
+        r = 4wx[begin]:4wx[end] # original x range
         @views ws = hcat(map(i->iwys[r .+ argmax(abs.(iwys[:,i])),i],1:un)...)
     else
         ws = wys
     end
+    isnorm && (ws ./= maximum(abs.(ws),dims=1))
+    ci = [c.==clu for c in cluid]
     cws = map(i->ws[:,i],ci)
-    isnorm && map!(i->i./maximum(abs.(i),dims=1),cws,cws)
     if ismean
         cwm = hcat(map(i->mean(i,dims=2),cws)...)
         cwse = hcat(map(i->std(i,dims=2)/sqrt(size(i,2)),cws)...)
-        plot(cwm;ribbon=cwse,label=permutedims(cluid),palette=color,lw=2)
+        plot(cwm;ribbon=cwse,label=permutedims(cluname),color=cgrad(color)[cluid'],lw=2,xformatter=i->round(i/fs*1000,digits=2),xlabel="Time (ms)",ylabel="a.u.")
     else
-        colors = palette(color,length(cluid)).colors.colors
+        colors=cgrad(color)[cluid]
         @views csw = map(i->i[:,sample(1:size(i,2),min(n,size(i,2)),replace=false)],cws)
-        p=plot(leg=false)
+        p=plot(leg=false,xlabel="Time (ms)",ylabel="a.u.",xformatter=i->round(i/fs*1000,digits=2))
         for i in eachindex(csw)
-            plot!(p,csw[i],color=colors[i],alpha=0.8)
+            plot!(p,csw[i],color=colors[i],alpha=0.3,lw=1)
+        end
+        for i in eachindex(csw)
+            plot!(p,mean(csw[i],dims=2),color=colors[i],alpha=1,lw=3)
         end
         p
     end
 end
 
-plotcluwaveform(csuwy,clu,ismean=true)
-foreach(ext->savefig(joinpath(resultroot,"csu_clu_spikewave$ext")),figfmt)
+clucode = Dict(1=>"A",2=>"Ip",3=>"I",4=>"E",5=>"En")
+plotcluwaveform(csuwy,clu;ismean=true,clucode)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_mwave$ext")),figfmt)
+plotcluwaveform(csuwy,clu;ismean=false)
+foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_wave$ext")),figfmt)
 
 
+# Add spike type info for cortical units
 allcu = DataFrame(siteid = allunit["siteid"][cui],id = unitid[cui],good=unitgood[cui],aligndepth=unitaligndepth[cui],layer=unitlayer[cui])
-leftjoin!(allcu,DataFrame(id=unitid[csui],type=clu),on=:id)
-save(joinpath(resultroot,"allcu.jld2"),"allcu",allcu)
-
-allcsu = subset(allcu,:good)
-plotdepthhist(allcsu;g=:type,layer)
+leftjoin!(allcu,DataFrame(id=unitid[csui],spiketype=map(i->clucode[i],clu)),on=:id)
+jldsave(joinpath(resultroot,"allcu.jld2");allcu)

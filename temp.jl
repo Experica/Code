@@ -881,3 +881,9 @@ plot(rand(10),ann=[(5,0.5,text("▮▮",15,:red))])
 
 scatter(rand(10),rand(10),marker=text("t"))
 
+
+
+@manipulate for i in 100:500, n in 5:50, d in 0.001:0.001:3
+    Y2 = umap(permutedims(Y), 2, n_neighbors=n, min_dist=d, n_epochs=i)
+    Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
+end

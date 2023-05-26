@@ -1,7 +1,7 @@
 includet("Batch.jl")
 
 
-## Prepare Param and Metadata
+## Param and Metadata
 param = Dict{Any,Any}(
     :dataroot => "X:/",
     :dataexportroot => "Y:/",
@@ -16,7 +16,7 @@ tests = select!(filter(meta) do r
                     r.Subject_ID in ["AG1", "AG2"] &&
                     # r.RecordSession == "V1" &&
                     # r.RecordSite == "ODR1" &&
-                    r.ID == "Flash2Color" &&
+                    r.ID == "HartleySubspace" &&
                     r.sourceformat == "SpikeGLX"
                 end,
                 [:files,:ID,:UUID,:sourceformat])

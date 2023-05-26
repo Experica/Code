@@ -11,46 +11,47 @@ absmin(x) = mapreduce(i->minimum(abs.(i)),min,x)
 abspct(x,p=99.9) = percentile(vec(abs.(x)),p)
 abspct2(x,p=99.9) = percentile.((vec(abs.(x)),),(100-p,p))
 
-plotunitfeatureallen=(resps,depths;ylims=(0,3820),xlabels="",titles="",titlefontsize=7,w=140,h=600,colors=fill(:blue,length(resps)),layer=nothing,nss=nothing)->begin
+plotunitfeatureallen=(resps,depths;ylims=(0,3820),xl="",titles="",titlefontsize=7,w=140,h=600,color=:red,layers=[],nss=nothing)->begin
     n = length(resps)
     p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
     for i in 1:n
         yticks = i==1 ? (0:200:ylims[2]) : false
         leftmargin = i==1 ? 8Plots.mm : -4Plots.mm
-        bottommargin = 3Plots.mm
         ylabel = i==1 ? "Depth (μm)" : ""
-        xlabel = isempty(xlabels) ? xlabels : xlabels[i]
+        xlabel = i==1 ? xl : ""
         title = isempty(titles) ? titles : titles[i]
 
         xmin,xmax = extrema(resps[i])
-        annx = xmin+0.02(xmax-xmin)
-
-        plot!(p[i],resps[i],depths[i];color=colors[i],ylims,
-        title,titlefontsize,yticks,tickor=:out,xlabel,ylabel,lw=1.5,
-        xticks = range(start=round(xmin,sigdigits=1),stop=round(0.75xmax,sigdigits=1),length=2),
-        leftmargin,bottommargin=6Plots.mm,topmargin=12Plots.mm)
+        annxl = xmin+0.02(xmax-xmin)
+        annxr = xmin+0.98(xmax-xmin)
 
         if !isnothing(nss)
             ns = nss[i]
-            ann = [(xmin+0.01(xmax-xmin),mean(ns[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(ns)]
-            # hline!(p[i],[l[2] for l in values(ns)];linecolor=:gray25,legend=false,lw=0.5,ann)
-            hline!(p[i],mapreduce(l->[l...],append!,values(ns));linecolor=:gray25,legend=false,lw=0.5,ann)
+            ann = [(annxr,mean(ns[k]),text(k,6,:gray10,:right,:vcenter)) for k in keys(ns)]
+            hspan!(p[i],mapreduce(l->[l...],append!,values(ns));linecolor=:gray25,color=coloralpha(colorant"gray65",0.1),legend=false,lw=0.5,ann)
         end
 
-        if !isnothing(layer)
-            ann = [(annx,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-            hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann)
+        plot!(p[i],resps[i],depths[i];color,ylims,
+        title,titlefontsize,yticks,tickor=:out,xlabel,ylabel,lw=2,
+        xticks = range(start=ceil(xmin,sigdigits=1),stop=floor(0.75xmax,sigdigits=1),length=2),
+        leftmargin,bottommargin=6Plots.mm,topmargin=12Plots.mm)
+
+        if !isempty(layers)
+            layer = layers[i]
+            if !isempty(layer)
+                ann = [(annxl,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+                hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ls=:dash,ann)
+            end
         end
     end
     p
 end
 
 plotcondresponseallen=(resps,times,depths;colors=[],minmaxcolors=[],xl="Time (ms)",xt=[1000,2000],rl="",rlims=(0,1),rscale=1,
-                        rcolor=HSL(120,0.5,0.25),titles="",titlefontsize=7,w=140,h=600,color=:coolwarm,layer=nothing,nss=nothing)->begin
+                        rcolor=HSL(120,0.5,0.25),titles="",titlefontsize=7,w=140,h=600,color=:coolwarm,layers=[],nss=nothing)->begin
     n = length(resps)
     p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
     for i in 1:n
-        @views isnothing(layer) || (lim=abspct(resps[i][layer["WM"][2].<depths[i].<layer["1"][2],:]))
         yticks = i==1 ? (0:200:depths[i][end]) : false
         xticks = xl == "Time (ms)" ? (0:50:times[i][end]) : xt
         leftmargin = i==1 ? 8Plots.mm : -4Plots.mm
@@ -75,11 +76,12 @@ plotcondresponseallen=(resps,times,depths;colors=[],minmaxcolors=[],xl="Time (ms
 
         xmin,xmax = extrema(times[i])
         ymin,ymax = extrema(depths[i])
-        annx = xmin+0.02(xmax-xmin)
+        annxl = xmin+0.02(xmax-xmin)
+        annxr = xmin+0.98(xmax-xmin)
         anny = ymin+0.01(ymax-ymin)
         adx = 30
-        ann = isempty(colors) ? [] : [(annx,anny,Plots.text("■",15,colors[i],:left,:bottom))]
-        ann = isempty(minmaxcolors) ? ann : [(annx,anny,Plots.text("▮",15,minmaxcolors[i][2],:left,:bottom)),(annx+adx,anny,Plots.text("▮",15,minmaxcolors[i][1],:left,:bottom))]
+        ann = isempty(colors) ? [] : [(annxl,anny,Plots.text("■",15,colors[i],:left,:bottom))]
+        ann = isempty(minmaxcolors) ? ann : [(annxl,anny,Plots.text("▮",15,minmaxcolors[i][2],:left,:bottom)),(annxl+adx,anny,Plots.text("▮",15,minmaxcolors[i][1],:left,:bottom))]
 
         heatmap!(p[i],times[i],depths[i],resps[i];color,clims,ylims=extrema(depths[i]),
         title,titlefontsize,yticks,xticks,tickor=:out,xlabel,ylabel,
@@ -96,26 +98,27 @@ plotcondresponseallen=(resps,times,depths;colors=[],minmaxcolors=[],xl="Time (ms
 
         if !isnothing(nss)
             ns=nss[i]
-            ann = [(xmin+0.01(xmax-xmin),mean(ns[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(ns)]
-            # hline!(p[i],[l[2] for l in values(ns)];linecolor=:gray25,legend=false,lw=0.5,ann)
+            ann = [(annxr,mean(ns[k]),text(k,6,:gray10,:right,:vcenter)) for k in keys(ns)]
             hline!(p[i],mapreduce(l->[l...],append!,values(ns));linecolor=:gray25,legend=false,lw=0.5,ann)
         end
 
-        if !isnothing(layer)
-            ann = [(annx,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-            hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann)
+        if !isempty(layers)
+            layer = layers[i]
+            if !isempty(layer)
+                ann = [(annxl,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+                hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ls=:dash,ann)
+            end
         end
     end
     p
 end
 
 plottrialresponseallen=(resps,trials,depths;colors=[],minmaxcolors=[],xl="Trial",rl="",rlims=(0,1),rscale=1,
-                        rcolor=HSL(120,0.5,0.25),titles="",titlefontsize=7,w=140,h=600,color=:heat,layer=nothing,nss=nothing)->begin
+                        rcolor=HSL(120,0.5,0.25),titles="",titlefontsize=7,w=140,h=600,color=:heat,layers=[],nss=nothing)->begin
     n = length(resps)
     clims = (absmin(resps),absmax(resps))
     p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
     for i in 1:n
-        @views isnothing(layer) || (clims=abspct2(resps[i][layer["WM"][end].<=depths[i].<=layer["1"][end],:]))
         yticks = i==1 ? (0:200:depths[i][end]) : false
         xticks = range(start=1,stop=round(Int,0.75*trials[i][end]),length=2)
         leftmargin = i==1 ? 6Plots.mm : -4Plots.mm
@@ -132,11 +135,12 @@ plottrialresponseallen=(resps,trials,depths;colors=[],minmaxcolors=[],xl="Trial"
 
         xmin,xmax = extrema(trials[i])
         ymin,ymax = extrema(depths[i])
-        annx = xmin+0.02(xmax-xmin)
+        annxl = xmin+0.02(xmax-xmin)
+        annxr = xmin+0.98(xmax-xmin)
         anny = ymin+0.01(ymax-ymin)
         adx = 30
-        ann = isempty(colors) ? [] : [(annx,anny,Plots.text("▮",15,colors[2+2(i-1)],:left,:bottom)),(annx+adx,anny,Plots.text("▮",15,colors[1+2(i-1)],:left,:bottom))]
-        ann = isempty(minmaxcolors) ? ann : [(annx,anny,Plots.text("▮",15,minmaxcolors[i][2],:left,:bottom)),(annx+adx,anny,Plots.text("▮",15,minmaxcolors[i][1],:left,:bottom))]
+        ann = isempty(colors) ? [] : [(annxl,anny,Plots.text("▮",15,colors[2+2(i-1)],:left,:bottom)),(annxl+adx,anny,Plots.text("▮",15,colors[1+2(i-1)],:left,:bottom))]
+        ann = isempty(minmaxcolors) ? ann : [(annxl,anny,Plots.text("▮",15,minmaxcolors[i][2],:left,:bottom)),(annxl+adx,anny,Plots.text("▮",15,minmaxcolors[i][1],:left,:bottom))]
 
         heatmap!(p[i],trials[i],depths[i],resps[i];color,clims,ylims=extrema(depths[i]),
         title,titlefontsize,yticks,xticks,tickor=:out,xlabel,ylabel,
@@ -151,14 +155,16 @@ plottrialresponseallen=(resps,trials,depths;colors=[],minmaxcolors=[],xl="Trial"
 
         if !isnothing(nss)
             ns = nss[i]
-            ann = [(xmin+0.01(xmax-xmin),mean(ns[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(ns)]
-            # hline!(p[i],[l[2] for l in values(ns)];linecolor=:gray25,legend=false,lw=0.5,ann)
+            ann = [(annxr,mean(ns[k]),text(k,6,:gray10,:right,:vcenter)) for k in keys(ns)]
             hline!(p[i],mapreduce(l->[l...],append!,values(ns));linecolor=:gray25,legend=false,lw=0.5,ann)
         end
 
-        if !isnothing(layer)
-            ann = [(annx,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
-            hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ann)
+        if !isempty(layers)
+            layer = layers[i]
+            if !isempty(layer)
+                ann = [(annxl,mean(layer[k]),text(k,6,:gray10,:left,:vcenter)) for k in keys(layer)]
+                hline!(p[i],[l[end] for l in values(layer)];linecolor=:gray25,legend=false,lw=0.5,ls=:dash,ann)
+            end
         end
     end
     p
@@ -200,39 +206,67 @@ end
 
 
 
+## Manual Layer Assignment
+session_id = 847657808
+probe_id = 848037572
 sessionresultdir = joinpath(resultroot,"$session_id")
-allenflash(session_id,sessionresultdir;spudf)
+sessionproberesultdir = joinpath(sessionresultdir,"$probe_id")
+
+layer = load(joinpath(sessionproberesultdir,"layer.jld2"),"layer")
+# layer = Dict()
+
+layer["1"] = [1100,2285]
+layer["2/3"] = [1000,2200]
+layer["4"] = [1000,1970]
+layer["5"] = [1800,1780]
+layer["6"] = [1600,1595]
+layer["WM"] = [1300,1390]
+
+# Finalize Layer
+layer = checklayer!(layer)
+jldsave(joinpath(sessionproberesultdir,"layer.jld2");layer,session_id,probe_id)
+
+# Plot layer and responses
+allenflash(session_id,sessionresultdir;spudf,layer=:batch)
 
 
 
 function allenflash(session_id,sessionresultdir;spudf=nothing,layer=nothing,figfmt=[".png"])
 
-    aps=[];lfs=[]
+    aps=[];lfs=[];pls=[]
     for (root,dirs,files) in walkdir(sessionresultdir)
         if "ap.jld2" in files
             push!(aps,load(joinpath(root,"ap.jld2")))
             push!(lfs,load(joinpath(root,"lf.jld2")))
+            if layer == :batch
+                layerfile = joinpath(root,"layer.jld2")
+                l = isfile(layerfile) ? load(layerfile,"layer") : Dict()
+                push!(pls,l)
+            end
         end
     end
-    nprobe = length(aps)
+
 
     ## Unit
     if !isnothing(spudf)
         pidx = [findfirst(r->r.probe_id==i["probe_id"] && r.session_id==session_id,eachrow(spudf)) for i in aps]
-        udf = mapreduce(i->[spudf.Duration[i],spudf.PTR[i]],append!,pidx)
-        # udf = mapreduce(i->[spudf.Density[i],spudf.Spread[i],spudf.Duration[i],spudf.PTR[i]],append!,pidx)
-        udepths = mapreduce(i->[spudf.depth[i],spudf.depth[i]],append!,pidx)
-        xlabels = repeat(["Density","Spread"],outer=nprobe)
-        colors = repeat([:deepskyblue,:orange],outer=nprobe)
-        titles = repeat([spudf.probe_id[i] for i in pidx],inner=2)
-        nss = repeat([spudf.neurostructure[i] for i in pidx],inner=2)
+        depths = spudf.depth[pidx]
+        titles = spudf.probe_id[pidx]
+        nss = spudf.neurostructure[pidx]
 
-        plotunitfeatureallen(udf,udepths;colors,xlabels,titles,layer,nss)
-        foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_UnitFeature$ext")),figfmt)
+        fs = ["Density","Spread","Duration","PTR"]
+        fc = palette(:tab10,length(fs)).colors.colors
+
+        for i in eachindex(fs)
+            plotunitfeatureallen(spudf[pidx,fs[i]],depths;color=fc[i],xl=fs[i],titles,layers=pls,nss)
+            foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_Unit$(fs[i])$ext")),figfmt)
+        end
     end
-return
+
+
     ## AP
     titles = repeat(["$(i["probe_id"])" for i in aps],inner=2)
+    plss = repeat(pls,inner=2)
     colors = mapreduce(i->[contains(k,"-1") ? Gray(0) : Gray(1) for k in keys(i["crms"])],append!,aps)
     minmaxcolors=[colors[i:i+1] for i in 1:2:length(colors)]
     nss = mapreduce(i->[i["neurostructure"],i["neurostructure"]],append!,aps)
@@ -240,39 +274,39 @@ return
 
     crms = mapreduce(i->[v for v in values(i["crms"])],append!,aps)
     times = mapreduce(i->[i["times"],i["times"]],append!,aps)
-    plotcondresponseallen(crms,times,depths;colors,titles,layer,nss)
+    plotcondresponseallen(crms,times,depths;colors,titles,layers=plss,nss)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_dRMS$ext")),figfmt)
 
     tps = map(i->i["tps"],aps)
     trials = map(i->1:size(i,2),tps)
-    plottrialresponseallen(tps,trials,depths;minmaxcolors,titles=titles[1:2:end],layer,nss=nss[1:2:end],color=powcm,rl="Power (μV²)",rlims=(0,2e5))
+    plottrialresponseallen(tps,trials,depths;minmaxcolors,titles=titles[1:2:end],layers=pls,nss=nss[1:2:end],color=powcm,rl="Power (μV²)",rlims=(0,2e5))
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_tPower$ext")),figfmt)
     # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
     ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
-    plottrialresponseallen(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, nss=nss[1:2:end], color=powcm,rl="Power (μV²)",rlims=(0,2e5))
+    plottrialresponseallen(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layers=pls, nss=nss[1:2:end], color=powcm,rl="Power (μV²)",rlims=(0,2e5))
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_tPowerf1$ext")), figfmt)
     tlc = map(i -> i["tlc"], aps)
-    plottrialresponseallen(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, nss=nss[1:2:end], color=cohcm,rl="Coherence")
+    plottrialresponseallen(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layers=pls, nss=nss[1:2:end], color=cohcm,rl="Coherence")
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_tCoherence$ext")), figfmt)
 
     cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
     psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
-    plotcondresponseallen(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, nss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
+    plotcondresponseallen(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layers=plss, nss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_fPower$ext")), figfmt)
     # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
     fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
     # w=21(147Hz) frequency window to filter line noises
     fcfps = map(i -> mapwindow(minimum,i,(1,21)), fcfps)
-    plotcondresponseallen(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, nss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
+    plotcondresponseallen(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layers=plss, nss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_fPowerf1w21$ext")), figfmt)
     
     cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
     lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
-    plotcondresponseallen(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, nss,color=cohcm,rl="Coherence")
+    plotcondresponseallen(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layers=plss, nss,color=cohcm,rl="Coherence")
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_fCoherence$ext")), figfmt)
     # w=21(147Hz) frequency window to filter line noises
     fcflc = map(i -> mapwindow(minimum,i,(1,21)), cflc)
-    plotcondresponseallen(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, nss,color=cohcm,rl="Coherence")
+    plotcondresponseallen(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layers=plss, nss,color=cohcm,rl="Coherence")
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_fCoherencew21$ext")), figfmt)
     
 
@@ -283,7 +317,7 @@ return
     ccnss = nss[1:2:end]
 
     ccrms = mapreduce(i->[reduce((i,j)->(i.+j)/2,values(i["crms"]))],append!,aps)
-    plotcondresponseallen(ccrms,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layer)
+    plotcondresponseallen(ccrms,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layers=pls)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccdRMS$ext")),figfmt)
 
     ccfps = mapreduce(i->[reduce((i,j)->(i.+j)/2,values(i["cfps"]))],append!,aps)
@@ -292,14 +326,14 @@ return
     fccfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), ccfps)
     # w=21(147Hz) frequency window to filter line noises
     fccfps = map(i -> mapwindow(minimum,i,(1,21)), fccfps)
-    plotcondresponseallen(fccfps, ccpsfreqs, ccdepths;xl="Frequency (Hz)", minmaxcolors, titles=cctitles, layer, nss=ccnss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
+    plotcondresponseallen(fccfps, ccpsfreqs, ccdepths;xl="Frequency (Hz)", minmaxcolors, titles=cctitles, layers=pls, nss=ccnss,color=powcm,rl="Power (μV²)",rlims=(0,2e5))
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccfPowerf1w21$ext")), figfmt)
     
     ccflc = mapreduce(i->[reduce((i,j)->(i.+j)/2,values(i["cflc"]))],append!,aps)
     cclcfreqs = lcfreqs[1:2:end]
     # w=21(147Hz) frequency window to filter line noises
     fccflc = map(i -> mapwindow(minimum,i,(1,21)), ccflc)
-    plotcondresponseallen(fccflc,cclcfreqs,ccdepths;xl="Frequency (Hz)",minmaxcolors,titles=cctitles,nss=ccnss,layer,color=cohcm,rl="Coherence")
+    plotcondresponseallen(fccflc,cclcfreqs,ccdepths;xl="Frequency (Hz)",minmaxcolors,titles=cctitles,nss=ccnss,layers=pls,color=cohcm,rl="Coherence")
     foreach(ext -> savefig(joinpath(sessionresultdir, "$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccfCoherencew21$ext")), figfmt)
     
     
@@ -311,20 +345,20 @@ return
     hy = depths[1][2] - depths[1][1]
     baseindex = lfs[1]["baseindex"]
 
-    plotcondresponseallen(clfp,times,depths;colors,titles,layer,nss)
+    plotcondresponseallen(clfp,times,depths;colors,titles,layers=plss,nss)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_LFP$ext")),figfmt)
-    plotcondresponseallen(cdcsd,times,depths;colors,titles,layer,nss,color=csdcm)
+    plotcondresponseallen(cdcsd,times,depths;colors,titles,layers=plss,nss,color=csdcm)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_dCSD$ext")),figfmt)
 
     # σ=1.5(30μm): 9(160μm) diameter gaussian kernal
     fcdcsd = map(i -> imfilter(i, Kernel.gaussian((1.5, 0)), Fill(0)), cdcsd)
-    plotcondresponseallen(fcdcsd,times,depths;colors,titles,layer,nss,color=csdcm)
+    plotcondresponseallen(fcdcsd,times,depths;colors,titles,layers=plss,nss,color=csdcm)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_dCSDf1.5$ext")),figfmt)
 
     # CSD
     ccsd = map(v->csd(v,h=hy),clfp)
     fccsd = map(i->imfilter(i,Kernel.gaussian((1.5,0)),Fill(0)),ccsd)
-    plotcondresponseallen(fccsd,times,depths;colors,titles,layer,nss,color=csdcm)
+    plotcondresponseallen(fccsd,times,depths;colors,titles,layers=plss,nss,color=csdcm)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_CSDf1.5$ext")),figfmt)
 
 
@@ -334,18 +368,18 @@ return
     cctitles = titles[1:2:end]
     ccnss = nss[1:2:end]
     cclfp = mapreduce(i->[reduce((i,j)->(i.+j)/2,values(i["clfp"]))],append!,lfs)
-    plotcondresponseallen(cclfp,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layer)
+    plotcondresponseallen(cclfp,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layers=pls)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccLFP$ext")),figfmt)
 
     # ccCSD
     cccsd = map(v->csd(v,h=hy),cclfp)
     fcccsd = map(i->imfilter(i,Kernel.gaussian((1.5,0)),Fill(0)),cccsd)
-    plotcondresponseallen(fcccsd,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layer,color=csdcm)
+    plotcondresponseallen(fcccsd,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layers=pls,color=csdcm)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccCSDf1.5$ext")),figfmt)
 
     # ccdCSD
     fccdcsd = map(v->imfilter(stfilter(v,temporaltype=:sub,ti=baseindex),Kernel.gaussian((1.5,0)),Fill(0)),cccsd)
-    plotcondresponseallen(fccdcsd,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layer,color=csdcm)
+    plotcondresponseallen(fccdcsd,cctimes,ccdepths;minmaxcolors,titles=cctitles,nss=ccnss,layers=pls,color=csdcm)
     foreach(ext->savefig(joinpath(sessionresultdir,"$(isnothing(layer) ? "" : "Layer_")$(session_id)_ccdCSDf1.5$ext")),figfmt)
 end
 
@@ -353,5 +387,5 @@ end
 ## batch each session
 @showprogress "Batch Allen Session Plots ... " for s in levels(sps.session_id)
     # allenflash(s,joinpath(resultroot,"$s"))
-    allenflash(s,joinpath(resultroot,"$s");spudf)
+    allenflash(s,joinpath(resultroot,"$s");spudf,layer=:batch,figfmt=[".png",".svg"])
 end

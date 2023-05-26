@@ -1,4 +1,4 @@
-using NeuroAnalysis,Statistics,StatsBase,FileIO,JLD2,StatsPlots,Images,ProgressMeter,DataFrames,XLSX,Dierckx,HypothesisTests
+using NeuroAnalysis,Statistics,StatsBase,FileIO,JLD2,StatsPlots,Images,DSP,ProgressMeter,DataFrames,XLSX,Dierckx,HypothesisTests
 
 dataroot = "X:/"
 dataexportroot = "Y:/"
@@ -251,14 +251,7 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
         plotlayerunitfeature(udf, df["depth"]; layer)
         foreach(ext -> savefig(joinpath(siteresultdir, "Layer_UnitFeature$ext")), figfmt)
     end
-    # Unit PSTH
-    # cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
-    # cpsth = mapreduce(i->[v.psth for v in values(i["cpsth"])],append!,cpsths)
-    # xs = mapreduce(i->[v.x for v in values(i["cpsth"])],append!,cpsths)
-    # ys = mapreduce(i->[v.y for v in values(i["cpsth"])],append!,cpsths)
-    #
-    # plotcondresponse(cpsth,xs,ys;colors,titles,layer)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
+
 
     ## AP
     aps = load.(joinpath.(siteresultdir, testids, "ap$ii.jld2"))
@@ -327,7 +320,65 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
     # plottrialresponse(wpdc,trials,depths;colors,titles=titles[1:2:end],layer)
     # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
 
+
+    ## AP+
+    aps = load.(joinpath.(siteresultdir, testids, "ap$ii+.jld2"))
+
+    tps = map(i -> i["tps"], aps)
+    trials = map(i -> 1:size(i, 2), tps)
+    plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPower$ext")), figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
+    ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
+    plotlayertrialresponse(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPowerf1$ext")), figfmt)
+
+    tlc = map(i -> i["tlc"], aps)
+    plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btCoherence$ext")), figfmt)
+
+    cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
+    psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
+    plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPower$ext")), figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
+    fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
+    # w=21(147Hz) frequency window to filter line noises
+    fcfps = map(i -> mapwindow(minimum,i,(1,21)), fcfps)
+    plotlayercondresponse(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPowerf1w21$ext")), figfmt)
     
+    cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
+    lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
+    plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherence$ext")), figfmt)
+    # w=21(147Hz) frequency window to filter line noises
+    fcflc = map(i -> mapwindow(minimum,i,(1,21)), cflc)
+    plotlayercondresponse(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherencew21$ext")), figfmt)
+
+    jldsave(joinpath(siteresultdir,"$(test)_ap+.jld2");tps,ftps,cfps,fcfps,tlc,cflc,fcflc,depths,trials,psfreqs,lcfreqs,colors,titles,siteid)
+
+
+    # ## Unit PSTH
+    # psths = load.(joinpath.(siteresultdir, testids, "psth$ii.jld2"))
+    # cpsth = mapreduce(i -> [v for v in values(i["cpsth"])], append!, psths)
+    # cdpsth = mapreduce(i -> [v for v in values(i["cdpsth"])], append!, psths)
+    # xs = mapreduce(i -> [i["x"], i["x"]], append!, psths)
+    # ys = mapreduce(i -> [i["y"], i["y"]], append!, psths)
+
+    # plotlayercondresponse(cpsth,xs,ys;colors,titles,layer,layerext)
+    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_PSTH$ext")),figfmt)
+    # plotlayercondresponse(cdpsth,xs,ys;colors,titles,layer,layerext)
+    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
+
+    # # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line psth
+    # fcdpsth = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cdpsth)
+    # plotlayercondresponse(fcdpsth,xs,ys;colors,titles,layer,layerext)
+    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTHf1$ext")),figfmt)
+
+    # jldsave(joinpath(siteresultdir,"$(test)_psth.jld2");cpsth,cdpsth,fcdpsth,xs,ys,colors,titles,siteid)
+
 
     # ## LF
     # lfs = load.(joinpath.(siteresultdir, testids, "lf$ii.jld2"))
@@ -398,42 +449,42 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
     # end
 
 
-    ## LF+
-    lfs = load.(joinpath.(siteresultdir, testids, "lf$ii+.jld2"))
-    depths = mapreduce(i -> [i["depths"], i["depths"]], append!, lfs)
+    # ## LF+
+    # lfs = load.(joinpath.(siteresultdir, testids, "lf$ii+.jld2"))
+    # depths = mapreduce(i -> [i["depths"], i["depths"]], append!, lfs)
 
-    tps = map(i -> i["tps"], lfs)
-    trials = map(i -> 1:size(i, 2), tps)
-    plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,100),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPower.lf$ext")), figfmt)
+    # tps = map(i -> i["tps"], lfs)
+    # trials = map(i -> 1:size(i, 2), tps)
+    # plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,100),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPower.lf$ext")), figfmt)
 
-    tlc = map(i -> i["tlc"], lfs)
-    plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tCoherence.lf$ext")), figfmt)
+    # tlc = map(i -> i["tlc"], lfs)
+    # plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tCoherence.lf$ext")), figfmt)
 
-    cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, lfs)
-    psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,lfs)
-    plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)",xt=[30,60], colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,100),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPower.lf$ext")), figfmt)
+    # cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, lfs)
+    # psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,lfs)
+    # plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)",xt=[30,60], colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,100),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPower.lf$ext")), figfmt)
     
-    gi = gfreq[1] .<= psfreqs[1] .<= gfreq[2]
-    psgfreqs = map(i->i[gi],psfreqs)
-    cgfps = map(i->i[:,gi],cfps)
-    plotlayercondresponse(cgfps, psgfreqs, depths;xl="Frequency (Hz)",xt=[60,90], colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,20),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_gfPower.lf$ext")), figfmt)
+    # gi = gfreq[1] .<= psfreqs[1] .<= gfreq[2]
+    # psgfreqs = map(i->i[gi],psfreqs)
+    # cgfps = map(i->i[:,gi],cfps)
+    # plotlayercondresponse(cgfps, psgfreqs, depths;xl="Frequency (Hz)",xt=[60,90], colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,20),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_gfPower.lf$ext")), figfmt)
 
-    cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, lfs)
-    lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,lfs)
-    plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)",xt=[30,60], colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherence.lf$ext")), figfmt)
+    # cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, lfs)
+    # lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,lfs)
+    # plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)",xt=[30,60], colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherence.lf$ext")), figfmt)
 
-    gi = gfreq[1] .<= lcfreqs[1] .<= gfreq[2]
-    lcgfreqs = map(i->i[gi],lcfreqs)
-    cgflc = map(i->i[:,gi],cflc)
-    plotlayercondresponse(cgflc, lcgfreqs, depths;xl="Frequency (Hz)",xt=[60,90], colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_gfCoherence.lf$ext")), figfmt)
+    # gi = gfreq[1] .<= lcfreqs[1] .<= gfreq[2]
+    # lcgfreqs = map(i->i[gi],lcfreqs)
+    # cgflc = map(i->i[:,gi],cflc)
+    # plotlayercondresponse(cgflc, lcgfreqs, depths;xl="Frequency (Hz)",xt=[60,90], colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_gfCoherence.lf$ext")), figfmt)
 
-    jldsave(joinpath(siteresultdir,"$(test)_lf+.jld2");tps,cfps,cgfps,tlc,cflc,cgflc,depths,trials,psfreqs,psgfreqs,lcfreqs,lcgfreqs,colors,titles,siteid)
+    # jldsave(joinpath(siteresultdir,"$(test)_lf+.jld2");tps,cfps,cgfps,tlc,cflc,cgflc,depths,trials,psfreqs,psgfreqs,lcfreqs,lcgfreqs,colors,titles,siteid)
 
     # Superficial Cortical Gamma Power Contrast
     # if !isnothing(layer)
@@ -640,9 +691,12 @@ end
 function collectlayer!(indir;layer=DataFrame(),datafile="layer.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
-            siteid,l = load(joinpath(root,datafile),"siteid","layer")
-            df = DataFrame("siteid"=>siteid,(k=>[l[k]] for k in sort(collect(keys(l))))...)
-            append!(layer,df,cols=:union)
+            try
+                siteid,l = load(joinpath(root,datafile),"siteid","layer")
+                df = DataFrame("siteid"=>siteid,(k=>[l[k]] for k in sort(collect(keys(l))))...)
+                append!(layer,df,cols=:union)
+            catch
+            end
         end
     end
     return layer
@@ -674,7 +728,8 @@ ln = names(layerwidthtemplate)
 lbt = collect(first(layerboundarytemplate))
 nlbt = lbt./last(lbt)
 layertemplate = Dict("Out"=>[-Inf,0],(ln[i]=>[nlbt[i],nlbt[i+1]] for i in eachindex(ln))...,"WM"=>[1,Inf])
-jldsave(joinpath(resultroot,"layertemplate.jld2");layertemplate)
+jldsave(joinpath(resultroot,"layertemplate.jld2");layertemplate,ln,lbt,nlbt)
+
 
 "linearly map each layer boundary to each layertemplate boundary"
 function gettcfun(x,y,isnorm=false)
@@ -857,18 +912,28 @@ function collectflashfeature!(indir;aplf=DataFrame(),test="Flash2Color")
     apfile = "$(test)_ap.jld2"
     lffile = "$(test)_lf.jld2"
     lfpfile = "$(test)_lf+.jld2"
+    psthfile = "$(test)_psth.jld2"
+    appfile = "$(test)_ap+.jld2"
     for (root,dirs,files) in walkdir(indir)
         if apfile in files
             ap = load(joinpath(root,apfile))
             lf = load(joinpath(root,lffile))
             lfp = load(joinpath(root,lfpfile))
+            psth = load(joinpath(root,psthfile))
+            app = load(joinpath(root,appfile))
             df = DataFrame("siteid"=>ap["siteid"],"colors"=>[ap["colors"]],"titles"=>[ap["titles"]],
                 "aptimes"=>[ap["times"]],"appsfreqs"=>[ap["psfreqs"]],"aplcfreqs"=>[ap["lcfreqs"]],"apdepths"=>[ap["depths"]],"aptrials"=>[ap["trials"]],
                 "crms"=>[ap["crms"]],"ftps"=>[ap["ftps"]],"fcfps"=>[ap["fcfps"]],"tlc"=>[ap["tlc"]],"fcflc"=>[ap["fcflc"]],
+
                 "clfp"=>[lf["clfp"]],"ccsd"=>[lf["ccsd"]],"cdcsd"=>[lf["cdcsd"]],"fccsd"=>[lf["fccsd"]],"fcdcsd"=>[lf["fcdcsd"]],
                 "lftimes"=>[lf["times"]],"lfdepths"=>[lf["depths"]],
 
-                "lfpsgfreqs"=>[lfp["psgfreqs"]],"lflcgfreqs"=>[lfp["lcgfreqs"]],"cgfps"=>[lfp["cgfps"]],"cgflc"=>[lfp["cgflc"]])
+                "lfpsgfreqs"=>[lfp["psgfreqs"]],"lflcgfreqs"=>[lfp["lcgfreqs"]],"cgfps"=>[lfp["cgfps"]],"cgflc"=>[lfp["cgflc"]],
+                
+                "fcdpsth"=>[psth["fcdpsth"]],"xs"=>[psth["xs"]],"ys"=>[psth["ys"]],
+                
+                "apbpsfreqs"=>[app["psfreqs"]],"apblcfreqs"=>[app["lcfreqs"]],
+                "bftps"=>[app["ftps"]],"bfcfps"=>[app["fcfps"]],"btlc"=>[app["tlc"]],"bfcflc"=>[app["fcflc"]])
             append!(aplf,df,cols=:union)
         end
     end
@@ -878,9 +943,10 @@ end
 allflashf = collectflashfeature!(resultroot)
 pallflashf = leftjoin(palllayer[:,[:siteid,:e2cfun,:tcfun]],allflashf,on=:siteid)
 transform!(pallflashf,[:tcfun,:e2cfun,:apdepths]=>ByRow((g,f,x)->g.(f.(x)))=>:apdepths,
+            [:tcfun,:e2cfun,:ys]=>ByRow((g,f,x)->g.(f.(x)))=>:ys,
             [:tcfun,:e2cfun,:lfdepths]=>ByRow((g,f,x)->g.(f.(x)))=>:lfdepths)
 # DKL_Y and DKL_Z colors order are different in AG1 and AG2, aligned to AG2
-transform!(pallflashf,vcat.([:siteid],[:colors,:crms,:ftps,:fcfps,:tlc,:fcflc,:clfp,:ccsd,:cdcsd,:fccsd,:fcdcsd,:cgfps,:cgflc])
+transform!(pallflashf,vcat.([:siteid],[:colors,:crms,:ftps,:fcfps,:tlc,:fcflc,:clfp,:ccsd,:cdcsd,:fccsd,:fcdcsd,:cgfps,:cgflc,:fcdpsth,:bftps,:bfcfps,:btlc,:bfcflc])
                             .=>ByRow((s,v)->startswith(s,"AG1") ? permute!(v,[1,2,3,4,6,5,8,7]) : v).=>last)
 pallflashf = leftjoin!(pallflashf,penetration[:,[:siteid,:od,:cofd,:d2b]],on=:siteid)
 minmaxcolors = [(pallflashf.colors[1][i], pallflashf.colors[1][i+1]) for i in 1:2:length(pallflashf.colors[1])]
@@ -984,12 +1050,11 @@ plotlayeralignedtrialresponse=(resps,trials,depths;minmaxcolors=[],xl="Trial",rl
     p
 end
 
-plotlayeralignedresponsefeature=(arfs,depths;colors=[],xl="Power",color=:red,titles="",titlefontsize=7,w=140,h=600,xlims=(),vl=[],cm=nothing,clims=())->begin
+plotlayeralignedresponsefeature=(arfs,depths;colors=[],xl="Power",color=:red,titles="",titlefontsize=7,w=140,h=600,xticks = [0,0.5],xlims=(),vl=[],cm=nothing,clims=())->begin
     n = length(arfs)
     p=plot(layout=(1,n),link=:y,legend=false,grid=false,size=(n*w,h))
     for i in 1:n
         yticks = i==1 ? (0:0.1:1) : false
-        xticks = [0,0.5]
         leftmargin = i==1 ? 6Plots.mm : -4Plots.mm
         xlabel = i==1 ? xl : ""
         ylabel = i==1 ? "Normalized Cortical Depth" : ""
@@ -1098,27 +1163,39 @@ function flashlayeralignedresponse(pallflashf,resultdir;p="",figfmt=[".png"])
     # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ndCSDf3$p$ext")),figfmt)
 
 
-    # LF gamma power
-    acgfpss = [cat(map(r->getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
-    nacgfpss = [cat(map(r->minmaxnorm(getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
-    macgfps = map(i->dropdims(mean(i,dims=3),dims=3),acgfpss)
-    mnacgfps = map(i->dropdims(mean(i,dims=3),dims=3),nacgfpss)
+    # # LF gamma power
+    # acgfpss = [cat(map(r->getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # nacgfpss = [cat(map(r->minmaxnorm(getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # macgfps = map(i->dropdims(mean(i,dims=3),dims=3),acgfpss)
+    # mnacgfps = map(i->dropdims(mean(i,dims=3),dims=3),nacgfpss)
 
-    plotlayeralignedcondresponse(macgfps,pallflashf.lfpsgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=powcm,rl="Power (μV²)",rlims=(0,40),rscale=1e12)
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_gfPower.lf$p$ext")),figfmt)
-    plotlayeralignedcondresponse(mnacgfps,pallflashf.lfpsgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=powcm,eachcm=true)
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ngfPower.lf$p$ext")),figfmt)
+    # plotlayeralignedcondresponse(macgfps,pallflashf.lfpsgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=powcm,rl="Power (μV²)",rlims=(0,40),rscale=1e12)
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_gfPower.lf$p$ext")),figfmt)
+    # plotlayeralignedcondresponse(mnacgfps,pallflashf.lfpsgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=powcm,eachcm=true)
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ngfPower.lf$p$ext")),figfmt)
 
-    # LF gamma coherence
-    acgflcs = [cat(map(r->getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
-    nacgflcs = [cat(map(r->minmaxnorm(getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
-    macgflc = map(i->dropdims(mean(i,dims=3),dims=3),acgflcs)
-    mnacgflc = map(i->dropdims(mean(i,dims=3),dims=3),nacgflcs)
+    # # LF gamma coherence
+    # acgflcs = [cat(map(r->getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # nacgflcs = [cat(map(r->minmaxnorm(getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # macgflc = map(i->dropdims(mean(i,dims=3),dims=3),acgflcs)
+    # mnacgflc = map(i->dropdims(mean(i,dims=3),dims=3),nacgflcs)
 
-    plotlayeralignedcondresponse(macgflc,pallflashf.lflcgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=cohcm,rl="Coherence")
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_gfCoherence.lf$p$ext")),figfmt)
-    plotlayeralignedcondresponse(mnacgflc,pallflashf.lflcgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=cohcm,eachcm=true)
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ngfCoherence.lf$p$ext")),figfmt)
+    # plotlayeralignedcondresponse(macgflc,pallflashf.lflcgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=cohcm,rl="Coherence")
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_gfCoherence.lf$p$ext")),figfmt)
+    # plotlayeralignedcondresponse(mnacgflc,pallflashf.lflcgfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",xt=[60,90],colors=pallflashf.colors[1],color=cohcm,eachcm=true)
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ngfCoherence.lf$p$ext")),figfmt)
+
+
+    # # Unit PSTH
+    # afcdpsths = [cat(map(r->getdffun2(r.ys[i],r.xs[i],r.fcdpsth[i])(ndepths,r.xs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # nafcdpsths = [cat(map(r->absmaxnorm(getdffun2(r.ys[i],r.xs[i],r.fcdpsth[i])(ndepths,r.xs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    # mafcdpsth = map(i->dropdims(mean(i,dims=3),dims=3),afcdpsths)
+    # mnafcdpsth = map(i->dropdims(mean(i,dims=3),dims=3),nafcdpsths)
+
+    # plotlayeralignedcondresponse(mafcdpsth,pallflashf.xs[1],fill(ndepths,8);colors=pallflashf.colors[1])
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_dPSTH$p$ext")),figfmt)
+    # plotlayeralignedcondresponse(mnafcdpsth,pallflashf.xs[1],fill(ndepths,8);colors=pallflashf.colors[1],eachcm=true)
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ndPSTH$p$ext")),figfmt)
 
 
     # AP rms
@@ -1173,6 +1250,49 @@ function flashlayeralignedresponse(pallflashf,resultdir;p="",figfmt=[".png"])
     # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_fCoherence$p$ext")),figfmt)
     # plotlayeralignedcondresponse(mnafcflc,pallflashf.aplcfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",colors=pallflashf.colors[1],color=cohcm,eachcm=true)
     # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nfCoherence$p$ext")),figfmt)
+
+
+    # AP baseline power
+    abftpss = [cat(map(r->getdffun2(r.apdepths[i],r.aptrials[i],r.bftps[i])(ndepths,r.aptrials[i]),eachrow(pallflashf))...,dims=3) for i in 1:4]
+    nabftpss = [cat(map(r->minmaxnorm(getdffun2(r.apdepths[i],r.aptrials[i],r.bftps[i])(ndepths,r.aptrials[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:4]
+    mabftps = map(i->dropdims(mean(i,dims=3),dims=3),abftpss)
+    mnabftps = map(i->dropdims(mean(i,dims=3),dims=3),nabftpss)
+
+    plotlayeralignedtrialresponse(mabftps,pallflashf.aptrials[1],fill(ndepths,4);minmaxcolors,color=powcm,rl="Power (μV²)",rlims=(0,2000),rscale=1e12)
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_btPower$p$ext")),figfmt)
+    plotlayeralignedtrialresponse(mnabftps,pallflashf.aptrials[1],fill(ndepths,4);minmaxcolors,color=powcm,eachcm=true,rl="Normalized Power")
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nbtPower$p$ext")),figfmt)
+
+    abfcfpss = [cat(map(r->getdffun2(r.apdepths[i],r.apbpsfreqs[i],r.bfcfps[i])(ndepths,r.apbpsfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    nabfcfpss = [cat(map(r->minmaxnorm(getdffun2(r.apdepths[i],r.apbpsfreqs[i],r.bfcfps[i])(ndepths,r.apbpsfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    mabfcfps = map(i->dropdims(mean(i,dims=3),dims=3),abfcfpss)
+    mnabfcfps = map(i->dropdims(mean(i,dims=3),dims=3),nabfcfpss)
+
+    plotlayeralignedcondresponse(mabfcfps,pallflashf.apbpsfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",colors=pallflashf.colors[1],color=powcm,rl="Power (μV²)",rlims=(0,2000),rscale=1e12)
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_bfPower$p$ext")),figfmt)
+    plotlayeralignedcondresponse(mnabfcfps,pallflashf.apbpsfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",colors=pallflashf.colors[1],color=powcm,eachcm=true)
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nbfPower$p$ext")),figfmt)
+
+    # AP baseline coherence
+    abtlcs = [cat(map(r->getdffun2(r.apdepths[i],r.aptrials[i],r.btlc[i])(ndepths,r.aptrials[i]),eachrow(pallflashf))...,dims=3) for i in 1:4]
+    nabtlcs = [cat(map(r->minmaxnorm(getdffun2(r.apdepths[i],r.aptrials[i],r.btlc[i])(ndepths,r.aptrials[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:4]
+    mabtlc = map(i->dropdims(mean(i,dims=3),dims=3),abtlcs)
+    mnabtlc = map(i->dropdims(mean(i,dims=3),dims=3),nabtlcs)
+
+    plotlayeralignedtrialresponse(mabtlc,pallflashf.aptrials[1],fill(ndepths,4);minmaxcolors,color=cohcm,rl="Coherence")
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_btCoherence$p$ext")),figfmt)
+    plotlayeralignedtrialresponse(mnabtlc,pallflashf.aptrials[1],fill(ndepths,4);minmaxcolors,color=cohcm,eachcm=true,rl="Normalized Coherence")
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nbtCoherence$p$ext")),figfmt)
+
+    abfcflcs = [cat(map(r->getdffun2(r.apdepths[i],r.apblcfreqs[i],r.bfcflc[i])(ndepths,r.apblcfreqs[i]),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    nabfcflcs = [cat(map(r->minmaxnorm(getdffun2(r.apdepths[i],r.apblcfreqs[i],r.bfcflc[i])(ndepths,r.apblcfreqs[i]),ndepths),eachrow(pallflashf))...,dims=3) for i in 1:8]
+    mabfcflc = map(i->dropdims(mean(i,dims=3),dims=3),abfcflcs)
+    mnabfcflc = map(i->dropdims(mean(i,dims=3),dims=3),nabfcflcs)
+
+    plotlayeralignedcondresponse(mabfcflc,pallflashf.apblcfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",colors=pallflashf.colors[1],color=cohcm,rl="Coherence")
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_bfCoherence$p$ext")),figfmt)
+    plotlayeralignedcondresponse(mnabfcflc,pallflashf.apblcfreqs[1],fill(ndepths,8);xl="Freqency (Hz)",colors=pallflashf.colors[1],color=cohcm,eachcm=true)
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nbfCoherence$p$ext")),figfmt)
 end
 
 flashaligneddir = joinpath(resultroot,"FlashAligned")
@@ -1192,70 +1312,106 @@ function flashlayeralignedresponsefeature(pallflashf,resultdir;p="",figfmt=[".pn
     ndepths = range(-0.1,1.1,length=2000)
 
     # LF fcdcsd
-    lfwini = win[1] .<= pallflashf.lftimes[1][1] .<= win[2]
-    afcrmsdcsds = [cat(map(r->minmaxnorm(sqrt.(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini].^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcrmsdcsds,ndepths;xl="Normalized ΔCSD Amplitude",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsdCSD$p$ext")),figfmt)
+    # lfwini = win[1] .<= pallflashf.lftimes[1][1] .<= win[2]
+    # afcrmsdcsds = [cat(map(r->minmaxnorm(sqrt.(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini].^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcrmsdcsds,ndepths;xl="Normalized ΔCSD Amplitude",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsdCSD$p$ext")),figfmt)
 
-    afcmdcsds = [cat(map(r->absmaxnorm(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcmdcsds,ndepths;xl="Normalized ΔCSD",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmdCSD$p$ext")),figfmt)
+    # afcmdcsds = [cat(map(r->absmaxnorm(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcmdcsds,ndepths;xl="Normalized ΔCSD",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmdCSD$p$ext")),figfmt)
 
-    afcexdcsds = [cat(map(r->absmaxnorm(absex(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcexdcsds,ndepths;xl="Normalized ΔCSD Extrema",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexdCSD$p$ext")),figfmt)
+    # afcexdcsds = [cat(map(r->absmaxnorm(absex(getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcexdcsds,ndepths;xl="Normalized ΔCSD Extrema",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexdCSD$p$ext")),figfmt)
 
-    # LF fccsd
-    afcrmscsds = [cat(map(r->minmaxnorm(sqrt.(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini].^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcrmscsds,ndepths;xl="Normalized CSD Amplitude",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsCSD$p$ext")),figfmt)
+    # LF fcdcsd delay (30ms window)
+    afcddcsds = [cat(map(r->r.lftimes[i][getindex.(argmax(mapwindow(rms,getdffun2(r.lfdepths[i],r.lftimes[i],r.fcdcsd[i])(ndepths,r.lftimes[i]),(1,31),border="symmetric"),dims=2),2)],eachrow(pallflashf))...,dims=2) for i in 1:8]
+    plotlayeralignedresponsefeature(afcddcsds,ndepths;xl="ΔCSD Delay",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.1,150.1),xticks=[0,50,100])
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_ddCSD$p$ext")),figfmt)
 
-    afcmcsds = [cat(map(r->absmaxnorm(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcmcsds,ndepths;xl="Normalized CSD",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmCSD$p$ext")),figfmt)
+    # # LF fccsd
+    # afcrmscsds = [cat(map(r->minmaxnorm(sqrt.(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini].^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcrmscsds,ndepths;xl="Normalized CSD Amplitude",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsCSD$p$ext")),figfmt)
 
-    afcexcsds = [cat(map(r->absmaxnorm(absex(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcexcsds,ndepths;xl="Normalized CSD Extrema",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexCSD$p$ext")),figfmt)
+    # afcmcsds = [cat(map(r->absmaxnorm(mean(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcmcsds,ndepths;xl="Normalized CSD",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmCSD$p$ext")),figfmt)
+
+    # afcexcsds = [cat(map(r->absmaxnorm(absex(getdffun2(r.lfdepths[i],r.lftimes[i],r.fccsd[i])(ndepths,r.lftimes[i])[:,lfwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcexcsds,ndepths;xl="Normalized CSD Extrema",colors=pallflashf.colors[1],color=HSL(358,0.7,0.3),xlims=(-0.52,0.52),vl=[0],cm=csdcm,clims=(-0.4,0.4))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexCSD$p$ext")),figfmt)
 
 
     # LF gamma power
-    acgfpss = [cat(map(r->minmaxnorm(mean(getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(acgfpss,ndepths;xl="Normalized Power",colors=pallflashf.colors[1],color=HSL(0,1,0.32))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmgPower.lf$p$ext")),figfmt)
+    # acgfpss = [cat(map(r->minmaxnorm(mean(getdffun2(r.lfdepths[i],r.lfpsgfreqs[i],r.cgfps[i])(ndepths,r.lfpsgfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acgfpss,ndepths;xl="Normalized Power",colors=pallflashf.colors[1],color=HSL(0,1,0.32))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmgPower.lf$p$ext")),figfmt)
 
-    # LF gamma coherence
-    acgflcs = [cat(map(r->minmaxnorm(mean(getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(acgflcs,ndepths;xl="Normalized Coherence",colors=pallflashf.colors[1],color=HSL(233,1,0.38))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmgCoherence.lf$p$ext")),figfmt)
+    # # LF gamma coherence
+    # acgflcs = [cat(map(r->minmaxnorm(mean(getdffun2(r.lfdepths[i],r.lflcgfreqs[i],r.cgflc[i])(ndepths,r.lflcgfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acgflcs,ndepths;xl="Normalized Coherence",colors=pallflashf.colors[1],color=HSL(233,1,0.38))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmgCoherence.lf$p$ext")),figfmt)
+
+
+    # Unit PSTH
+    # xwini = win[1] .<= pallflashf.xs[1][1] .<= win[2]
+    # acrmsdpsth = [cat(map(r->minmaxnorm(sqrt.(mean((getdffun2(r.ys[i],r.xs[i],r.fcdpsth[i])(ndepths,r.xs[i])[:,xwini]).^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acrmsdpsth,ndepths;xl="Normalized ΔPSTH Amplitude",colors=pallflashf.colors[1],color=HSL(348,1,0.36))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsdPSTH$p$ext")),figfmt)
+
+    # acmdpsth = [cat(map(r->absmaxnorm(mean(getdffun2(r.ys[i],r.xs[i],r.fcdpsth[i])(ndepths,r.xs[i])[:,xwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acmdpsth,ndepths;xl="Normalized ΔPSTH",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmdPSTH$p$ext")),figfmt)
+
+    # acexdpsth = [cat(map(r->absmaxnorm(absex(getdffun2(r.ys[i],r.xs[i],r.fcdpsth[i])(ndepths,r.xs[i])[:,xwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acexdpsth,ndepths;xl="Normalized ΔPSTH Extrema",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexdPSTH$p$ext")),figfmt)
 
 
     # AP Prc
-    apwini = win[1] .<= pallflashf.aptimes[1][1] .<= win[2]
-    acrmsprcs = [cat(map(r->minmaxnorm(sqrt.(mean((getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini]).^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(acrmsprcs,ndepths;xl="Normalized Prc Amplitude",colors=pallflashf.colors[1],color=HSL(348,1,0.36))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsPrc$p$ext")),figfmt)
+    # apwini = win[1] .<= pallflashf.aptimes[1][1] .<= win[2]
+    # acrmsprcs = [cat(map(r->minmaxnorm(sqrt.(mean((getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini]).^2,dims=2)),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acrmsprcs,ndepths;xl="Normalized Prc Amplitude",colors=pallflashf.colors[1],color=HSL(348,1,0.36))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nrmsPrc$p$ext")),figfmt)
 
-    acmprcs = [cat(map(r->absmaxnorm(mean(getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(acmprcs,ndepths;xl="Normalized Prc",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmPrc$p$ext")),figfmt)
+    # acmprcs = [cat(map(r->absmaxnorm(mean(getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acmprcs,ndepths;xl="Normalized Prc",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmPrc$p$ext")),figfmt)
 
-    acexprcs = [cat(map(r->absmaxnorm(absex(getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(acexprcs,ndepths;xl="Normalized Prc Extrema",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexPrc$p$ext")),figfmt)
+    # acexprcs = [cat(map(r->absmaxnorm(absex(getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i])[:,apwini],dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(acexprcs,ndepths;xl="Normalized Prc Extrema",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.52,0.52),vl=[0],cm=cgrad(:coolwarm),clims=(-0.3,0.3))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nexPrc$p$ext")),figfmt)
 
-    # AP power
-    afcfpss = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.appsfreqs[i],r.fcfps[i])(ndepths,r.appsfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcfpss,ndepths;xl="Normalized Power",colors=pallflashf.colors[1],color=HSL(0,1,0.32))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmPower$p$ext")),figfmt)
+    # AP Prc delay (30ms window)
+    acdprcs = [cat(map(r->r.aptimes[i][getindex.(argmax(mapwindow(rms,getdffun2(r.apdepths[i],r.aptimes[i],r.crms[i])(ndepths,r.aptimes[i]),(1,301),border="symmetric"),dims=2),2)],eachrow(pallflashf))...,dims=2) for i in 1:8]
+    plotlayeralignedresponsefeature(acdprcs,ndepths;xl="Prc Delay",colors=pallflashf.colors[1],color=HSL(348,1,0.36),xlims=(-0.1,150.1),xticks=[0,50,100])
+    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_dPrc$p$ext")),figfmt)
 
-    # AP coherence
-    afcflcs = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.aplcfreqs[i],r.fcflc[i])(ndepths,r.aplcfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
-    plotlayeralignedresponsefeature(afcflcs,ndepths;xl="Normalized Coherence",colors=pallflashf.colors[1],color=HSL(233,1,0.38))
-    foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmCoherence$p$ext")),figfmt)
+    # # AP power
+    # afcfpss = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.appsfreqs[i],r.fcfps[i])(ndepths,r.appsfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcfpss,ndepths;xl="Normalized Power",colors=pallflashf.colors[1],color=HSL(0,1,0.32))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmPower$p$ext")),figfmt)
 
-    Dict(:rmsdcsd=>afcrmsdcsds,:mdcsd=>afcmdcsds,:exdcsd=>afcexdcsds,:rmscsd=>afcrmscsds,:mcsd=>afcmcsds,:excsd=>afcexcsds,
-        :rmsprc=>acrmsprcs,:mprc=>acmprcs,:exprc=>acexprcs,:mpower=>afcfpss,:mlc=>afcflcs,:ndepths=>ndepths)
+    # # AP coherence
+    # afcflcs = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.aplcfreqs[i],r.fcflc[i])(ndepths,r.aplcfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(afcflcs,ndepths;xl="Normalized Coherence",colors=pallflashf.colors[1],color=HSL(233,1,0.38))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmCoherence$p$ext")),figfmt)
+
+    # # AP baseline power
+    # abfcfpss = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.apbpsfreqs[i],r.bfcfps[i])(ndepths,r.apbpsfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(abfcfpss,ndepths;xl="Normalized Power",colors=pallflashf.colors[1],color=HSL(0,1,0.32))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmbPower$p$ext")),figfmt)
+
+    # # AP baseline coherence
+    # abfcflcs = [cat(map(r->minmaxnorm(mean(getdffun2(r.apdepths[i],r.apblcfreqs[i],r.bfcflc[i])(ndepths,r.apblcfreqs[i]),dims=2),ndepths),eachrow(pallflashf))...,dims=2) for i in 1:8]
+    # plotlayeralignedresponsefeature(abfcflcs,ndepths;xl="Normalized Coherence",colors=pallflashf.colors[1],color=HSL(233,1,0.38))
+    # foreach(ext->savefig(joinpath(resultdir,"AlignedLayer_nmbCoherence$p$ext")),figfmt)
+
+    # Dict(:rmsdcsd=>afcrmsdcsds,:mdcsd=>afcmdcsds,:exdcsd=>afcexdcsds,:ddcsd=>afcddcsds,:rmscsd=>afcrmscsds,:mcsd=>afcmcsds,:excsd=>afcexcsds,
+    #     :rmsdpsth=>acrmsdpsth,:mdpsth=>acmdpsth,:exdpsth=>acexdpsth,
+    #     :rmsprc=>acrmsprcs,:mprc=>acmprcs,:exprc=>acexprcs,:dprc=>acdprcs,:mpower=>afcfpss,:mlc=>afcflcs,:ndepths=>ndepths)
 end
 
 flarf=flashlayeralignedresponsefeature(pallflashf,flashaligneddir,figfmt=[".png",".svg"])
@@ -1269,7 +1425,7 @@ flashlayeralignedresponsefeature(pallflashf[cofdlmi,:],flashaligneddir,p="cofd-L
 
 
 
-function layerresponsedf(lrf,ndepths;sti=["White_NDE","Black_NDE","White_DE","Black_DE","Green_DE","Red_DE","Lime_DE","Purple_DE"])
+function layerresponsedf(lrf,ndepths;sti=["White~","Black~","White","Black","Red","Green","Purple","Lime"])
     lrdf = DataFrame(lr=map(c->vcat(map(i->mean(c[nlbt[i] .<= ndepths .< nlbt[i+1],:],dims=1),eachindex(ln))...),lrf), sti=sti)
     transform!(lrdf,:lr=>ByRow(i->([i[:,p] for p in 1:size(i,2)],pallflashf.siteid))=>[:lr,:siteid])
     lrdf = flatten(lrdf,[:lr,:siteid])
@@ -1287,79 +1443,104 @@ function layerresponsedf(lrf,ndepths;sti=["White_NDE","Black_NDE","White_DE","Bl
         missing
     end
     end)=>:cofdg,:od=>ByRow(i->i in ["Left-","Right-"] ? missing : i)=>:odg,:sti=>ByRow(i->begin
-        if i in ["White_NDE","Black_NDE"]
-            "A_NDE"
-        elseif i in ["White_DE","Black_DE"]
-            "A_DE"
-        elseif i in ["Green_DE","Red_DE"]
-            "LM_DE"
+        if i in ["White~","Black~"]
+            "A~"
+        elseif i in ["White","Black"]
+            "A"
+        elseif i in ["Green","Red"]
+            "LM"
         else
-            "S_DE"
+            "S"
         end
     end)=>:stig)
 end
 
-lmdcsd = layerresponsedf(flarf[:mcsd],flarf[:ndepths])
+lmdcsd = layerresponsedf(flarf[:mdcsd],flarf[:ndepths])
+lmpower = layerresponsedf(flarf[:mpower],flarf[:ndepths])
+lmprc = layerresponsedf(flarf[:mprc],flarf[:ndepths])
 
 
 using VegaLite
 
-pl = lmdcsd |> @vlplot(
+# pl = lmdcsd |> @vlplot(
+#     mark={:boxplot, extent="min-max"},
+#     x={:mid,axis={title="Monkey"}},
+#     y={:lr, axis={title="Average ΔCSD"}},
+#     row="layer",
+#     column={"sti",sort=["White~","Black~","White","Black","Red","Green","Purple","Lime"]}
+# )
+# foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_mid$ext"),pl),[".png",".svg"])
+
+# pl = dropmissing(lmdcsd,:odg) |> @vlplot(
+#     mark={:boxplot, extent="min-max"},
+#     x={:odg,axis={title="OD Group"}},
+#     y={:lr, axis={title="Average ΔCSD"}},
+#     row="layer",
+#     column={"sti",sort=["White~","Black~","White","Black","Red","Green","Purple","Lime"]}
+# )
+# foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_odg$ext"),pl),[".png",".svg"])
+
+# pl = dropmissing(lmdcsd,:cofdg) |> @vlplot(
+#     mark={:boxplot, extent="min-max"},
+#     x={:cofdg,axis={title="COFD Group"}},
+#     y={:lr, axis={title="Average ΔCSD"}},
+#     row="layer",
+#     column={"sti",sort=["White~","Black~","White","Black","Red","Green","Purple","Lime"]}
+# )
+# foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_cofdg$ext"),pl),[".png",".svg"])
+
+
+lcofddcsd=dropmissing(filter(r->r.stig in ["A","LM","S"],lmdcsd),:cofdg)
+
+pl = lcofddcsd |> @vlplot(width=300,height=180,
     mark={:boxplot, extent="min-max"},
-    x={:mid,axis={title="Monkey"}},
-    y={:lr, axis={title="Average ΔCSD"}},
-    row="layer",
-    column="sti"
+    x={:cofdg,axis={title="COFD Group",titleFontSize=24,titleFontWeight="normal",labelAngle=0,labelFontSize=18}},
+    y={:lr, axis={title="Average ΔCSD",titleFontSize=20,titleFontWeight="normal",grid=false,labelFontSize=14}},
+    row={"layer",header={labelAngle=0,labelFontSize=26,labelAlign="left",labelFontWeight="bold",title=""}},
+    column={"stig",sort=["A~","A","LM","S"],header={labelFontSize=26,labelFontWeight="bold",title=""}}
 )
-foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_mid$ext"),pl),[".png",".svg"])
+foreach(ext->save(joinpath(flashaligneddir,"ldCSD_cofdg_stig$ext"),pl),[".png",".svg"])
 
-pl = dropmissing(lmdcsd,:odg) |> @vlplot(
+t=filter(r->r.layer in ["1"] && r.stig in ["A"],lcofddcsd)
+ht = MannWhitneyUTest(filter(r->r.cofdg=="COFD-A",t).lr,filter(r->r.cofdg=="COFD-LM",t).lr)
+ht = MannWhitneyUTest(filter(r->r.cofdg=="COFD-A",t).lr,filter(r->r.cofdg=="COFD-S",t).lr)
+ht = MannWhitneyUTest(filter(r->r.cofdg=="COFD-S",t).lr,filter(r->r.cofdg=="COFD-LM",t).lr)
+
+
+lprc=dropmissing(filter(r->r.stig in ["A","LM","S"],lmpower),:cofdg)
+
+pl = lprc |> @vlplot(width=300,height=180,
     mark={:boxplot, extent="min-max"},
-    x={:odg,axis={title="OD Group"}},
-    y={:lr, axis={title="Average ΔCSD"}},
-    row="layer",
-    column="sti"
+    x={:stig,axis={title="Stimuli",titleFontSize=24,titleFontWeight="normal",labelAngle=0,labelFontSize=18}},
+    y={:lr, axis={title="Average Prc",titleFontSize=20,titleFontWeight="normal",grid=false,labelFontSize=14}},
+    row={"layer",header={labelAngle=0,labelFontSize=26,labelAlign="left",labelFontWeight="bold",title=""}}
+    # column={"stig",sort=["A~","A","LM","S"],header={labelFontSize=26,labelFontWeight="bold",title=""}}
 )
-foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_odg$ext"),pl),[".png",".svg"])
+foreach(ext->save(joinpath(flashaligneddir,"lprc_stig$ext"),pl),[".png",".svg"])
 
-pl = dropmissing(lmdcsd,:cofdg) |> @vlplot(
-    mark={:boxplot, extent="min-max"},
-    x={:cofdg,axis={title="COFD Group"}},
-    y={:lr, axis={title="Average ΔCSD"}},
-    row="layer",
-    column="sti"
-)
-foreach(ext->save(joinpath(flashaligneddir,"lmdCSD_cofdg$ext"),pl),[".png",".svg"])
-
-
-t=dropmissing(filter(r->r.sti in ["Lime_DE","Purple_DE","Green_DE","Red_DE"] && r.layer in ["3B","4A"],lmdcsd),:cofdg)
-@df t boxplot(:cofdg,:lmdcsd;fillalpha=0.75, linewidth=2)
-@df t dotplot(:cofdg,:lmdcsd;fillalpha=0.75, linewidth=2)
-@df t bar(:cofdg,:lmdcsd)
-
-t=dropmissing(filter(r->r.stig in ["LM_DE","S_DE","A_DE"] && r.layer in ["3B"],lmdcsd),:cofdg)
-ht = KruskalWallisTest(filter(r->r.cofdg=="COFD-A",t).lr,filter(r->r.cofdg=="COFD-S",t).lr,filter(r->r.cofdg=="COFD-LM",t).lr)
-ht = KruskalWallisTest(filter(r->r.cofdg=="COFD-A",t).lr,filter(r->r.cofdg=="COFD-LM",t).lr)
-ht = KruskalWallisTest(filter(r->r.cofdg=="COFD-A",t).lr,filter(r->r.cofdg=="COFD-S",t).lr)
-ht = KruskalWallisTest(filter(r->r.cofdg=="COFD-S",t).lr,filter(r->r.cofdg=="COFD-LM",t).lr)
-
+t=filter(r->r.layer in ["4A"],lprc)
+ht = MannWhitneyUTest(filter(r->r.stig=="A",t).lr,filter(r->r.stig=="LM",t).lr)
+ht = MannWhitneyUTest(filter(r->r.stig=="A",t).lr,filter(r->r.stig=="S",t).lr)
+ht = MannWhitneyUTest(filter(r->r.stig=="LM",t).lr,filter(r->r.stig=="S",t).lr)
 
 using GLM
 
 lmr = lm(@formula(lr~cofdg+stig+cofdg*stig),t)
 lmr = lm(@formula(lr~cofdg),t)
-#
-srcdir = "Z:\\"
-dstdir = "C:\\Users\\fff00\\OneDrive\\Ephys Laminar-identification Methods\\"
-tfiles=string.("Layer_Flash2Color_",["tCoherence","fCoherencew21","tPowerf1","fPowerf1w21","dRMS","dCSDf1.5"],".png")
-push!(tfiles,"Layer_UnitFeature.png")
 
-for (root,dirs,files) in walkdir(srcdir)
-    tf = intersect(tfiles,files)
-    if !isempty(tf)
-        troot = replace(root,srcdir=>dstdir)
-        mkpath(troot)
-        cp.(joinpath.(root,tf),joinpath.(troot,tf),force=true)
-    end
-end
 
+
+# ## copy figures
+# srcdir = "Z:\\"
+# dstdir = "C:\\Users\\fff00\\OneDrive\\Ephys Laminar-identification Methods\\"
+# filenames=string.("Layer_Flash2Color_",["tCoherence","fCoherencew21","tPowerf1","fPowerf1w21","dRMS","dCSDf1.5"],".png")
+# push!(filenames,"Layer_UnitFeature.png")
+
+# for (root,dirs,files) in walkdir(srcdir)
+#     srcfiles = intersect(filenames,files)
+#     if !isempty(srcfiles)
+#         dstroot = replace(root,srcdir=>dstdir)
+#         mkpath(dstroot)
+#         cp.(joinpath.(root,srcfiles),joinpath.(dstroot,srcfiles),force=true)
+#     end
+# end

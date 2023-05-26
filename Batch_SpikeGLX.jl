@@ -79,21 +79,21 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         exenv["fs"] = spike["fs"]
         exenv["binfile"] = binfile
 
-        # epoch AP
-        epoch = [-40 150]
-        epochs = synccondon.+t0.+epoch
-        # All AP epochs(mapped to concat file), unwhiten, gain corrected(voltage), bandpass filtered,
-        # with all channels mapped in the shape of probe where excluded channels are replaced with rand local average
-        ys = fill2mask(epochsamplenp(mmbinfile,spike["fs"],epochs,1:nch;meta,bandpass=[300,3000],whiten=winvraw),exchmask,chmap=chmapraw,randreplace=true)
-        # 3 fold downsampling(10kHz)
-        ys = resample(ys,1//3,dims=3)
-        fs = spike["fs"]/3
-        baseindex = epoch2sampleindex([0 50],fs) # [-40, 10] ms
+        # # epoch AP
+        # epoch = [-40 150]
+        # epochs = synccondon.+t0.+epoch
+        # # All AP epochs(mapped to concat file), unwhiten, gain corrected(voltage), bandpass filtered,
+        # # with all channels mapped in the shape of probe where excluded channels are replaced with rand local average
+        # ys = fill2mask(epochsamplenp(mmbinfile,spike["fs"],epochs,1:nch;meta,bandpass=[300,3000],whiten=winvraw),exchmask,chmap=chmapraw,randreplace=true)
+        # # 3 fold downsampling(10kHz)
+        # ys = resample(ys,1//3,dims=3)
+        # fs = spike["fs"]/3
+        # baseindex = epoch2sampleindex([0 50],fs) # [-40, 10] ms
 
-        # power spectrum of same depth
-        @views pys = ys[.!exchmask,:,:] # exclude and flat channels
-        chpos = vcat(chpositionnp(pversion)[.!exchmask]...) # exclude and flat channel positions 
-        chgi = [findall(chpos[:,2].==up) for up in unique(chpos[:,2])] # group channels with same depth
+        # # power spectrum of same depth
+        # @views pys = ys[.!exchmask,:,:] # exclude and flat channels
+        # chpos = vcat(chpositionnp(pversion)[.!exchmask]...) # exclude and flat channel positions 
+        # chgi = [findall(chpos[:,2].==up) for up in unique(chpos[:,2])] # group channels with same depth
         # @views ppss,psfreqs = powerspectrum(pys[:,baseindex[end]+1:end,:],fs;freqrange=[300,3000])
         # pss = Array{Float64}(undef,length(chgi),size(ppss)[2:end]...)
         # @views foreach(i->pss[i,:,:] = mean(ppss[chgi[i],:,:],dims=1),eachindex(chgi)) # average of same depth
@@ -145,37 +145,37 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # jldsave(joinpath(resultdir,"ap$(ii).jld2");tps,cfps,crms,tlc,cflc,times,psfreqs,lcfreqs,depths,baseindex,fs,siteid,exenv)
 
 
-        # baseline power spectrum of same depth
-        @views ppss,psfreqs = powerspectrum(pys[:,baseindex,:],fs;freqrange=[300,3000])
-        pss = Array{Float64}(undef,length(chgi),size(ppss)[2:end]...)
-        @views foreach(i->pss[i,:,:] = mean(ppss[chgi[i],:,:],dims=1),eachindex(chgi)) # average of same depth
-        tps = dropdims(mean(pss,dims=2),dims=2) # freq average
-        @views cfps = Dict(condstring(r)=>
-            dropdims(mean(pss[:,:,r.i],dims=3),dims=3) # trial average       
-        for r in eachrow(cond))
+        # # baseline power spectrum of same depth
+        # @views ppss,psfreqs = powerspectrum(pys[:,baseindex,:],fs;freqrange=[300,3000])
+        # pss = Array{Float64}(undef,length(chgi),size(ppss)[2:end]...)
+        # @views foreach(i->pss[i,:,:] = mean(ppss[chgi[i],:,:],dims=1),eachindex(chgi)) # average of same depth
+        # tps = dropdims(mean(pss,dims=2),dims=2) # freq average
+        # @views cfps = Dict(condstring(r)=>
+        #     dropdims(mean(pss[:,:,r.i],dims=3),dims=3) # trial average       
+        # for r in eachrow(cond))
 
-        # baseline local coherence
-        @views lcs,lcfreqs = localcoherence(pys[:,baseindex,:],chpos,fs;freqrange=[300,3000],lr=55,sigma=25,chgroupdim=2)
-        tlc = dropdims(mean(lcs,dims=2),dims=2) # freq average
-        @views cflc = Dict(condstring(r)=>
-            dropdims(mean(lcs[:,:,r.i],dims=3),dims=3) # trial average       
-        for r in eachrow(cond))
+        # # baseline local coherence
+        # @views lcs,lcfreqs = localcoherence(pys[:,baseindex,:],chpos,fs;freqrange=[300,3000],lr=55,sigma=25,chgroupdim=2)
+        # tlc = dropdims(mean(lcs,dims=2),dims=2) # freq average
+        # @views cflc = Dict(condstring(r)=>
+        #     dropdims(mean(lcs[:,:,r.i],dims=3),dims=3) # trial average       
+        # for r in eachrow(cond))
         
-        if plot
-            plotanalog(tps;hy,color=:heat,n=mean(tps,dims=2),xlabel="Trial",xunit="",cunit=:fr,layer)
-            foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_tbPower$ext")),figfmt)
-            plotanalog(tlc;hy,xlabel="Trial",xunit="",color=:heat,cunit=:fr,n=mean(tlc,dims=2),layer)
-            foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_tbCoherence$ext")),figfmt)
-            fpslims = extrema(mapreduce(extrema,union,values(cfps)))
-            flclims = extrema(mapreduce(extrema,union,values(cflc)))
-            for k in keys(cfps)
-                plotanalog(cfps[k];hy,x=psfreqs,xlabel="Frequency",xunit="Hz",clims=fpslims,color=:heat,cunit=:fr,n=mean(cfps[k],dims=2),layer)
-                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_fbPower$ext")),figfmt)
-                plotanalog(cflc[k];hy,x=lcfreqs,xlabel="Frequency",xunit="Hz",clims=flclims,color=:heat,cunit=:fr,n=mean(cflc[k],dims=2),layer)
-                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_fbCoherence$ext")),figfmt)
-            end
-        end
-        jldsave(joinpath(resultdir,"ap$(ii)+.jld2");tps,cfps,tlc,cflc,psfreqs,lcfreqs,depths,baseindex,fs,siteid,exenv)
+        # if plot
+        #     plotanalog(tps;hy,color=:heat,n=mean(tps,dims=2),xlabel="Trial",xunit="",cunit=:fr,layer)
+        #     foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_tbPower$ext")),figfmt)
+        #     plotanalog(tlc;hy,xlabel="Trial",xunit="",color=:heat,cunit=:fr,n=mean(tlc,dims=2),layer)
+        #     foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_tbCoherence$ext")),figfmt)
+        #     fpslims = extrema(mapreduce(extrema,union,values(cfps)))
+        #     flclims = extrema(mapreduce(extrema,union,values(cflc)))
+        #     for k in keys(cfps)
+        #         plotanalog(cfps[k];hy,x=psfreqs,xlabel="Frequency",xunit="Hz",clims=fpslims,color=:heat,cunit=:fr,n=mean(cfps[k],dims=2),layer)
+        #         foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_fbPower$ext")),figfmt)
+        #         plotanalog(cflc[k];hy,x=lcfreqs,xlabel="Frequency",xunit="Hz",clims=flclims,color=:heat,cunit=:fr,n=mean(cflc[k],dims=2),layer)
+        #         foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_fbCoherence$ext")),figfmt)
+        #     end
+        # end
+        # jldsave(joinpath(resultdir,"ap$(ii)+.jld2");tps,cfps,tlc,cflc,psfreqs,lcfreqs,depths,baseindex,fs,siteid,exenv)
 
         # # Whiten epoch AP
         # epoch = [-40 150]
@@ -236,28 +236,33 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         # jldsave(joinpath(resultdir,"wap$(ii).jld2");wtps,wcfps,wcrms,wtlc,wcflc,times,psfreqs,lcfreqs,depths,baseindex,fs,siteid,exenv)
         
         
-        # # Depth Unit PSTH
-        # epoch = [-40 150]
-        # epochs = synccondon.+epoch
-        # bw = 2
-        # psthbins = epoch[1]:bw:epoch[2]
-        # baseindex = epoch2sampleindex([0 50],1/(bw*SecondPerUnit))
-        # # All Unit
-        # ui = unitsync.==ii
-        # @views unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true,shift=-epoch[1]).y,psthbins,israte=true,ismean=false),unitspike[ui])
-        # @views cpsth = Dict(condstring(r)=>begin
-        #                     p = spacepsth(map(p->(;vmeanse(p.mat[r.i,:]).m,p.x),unitepochpsth),unitposition[ui,:],
-        #                         w=replace(unitgood[ui],0=>1.2),spacerange=depths,bw=2hy,step=hy) # multi-unit count = 1.2 for unit density
-        #                     (;psth=stfilter(mapwindow(mean,p.psth,(1,5),border="symmetric"),temporaltype=:sub,ti=baseindex),p.x,p.y,p.n) # 10ms mean window
-        #                 end  for r in eachrow(cond))
-        # if plot
-        #     clim = mapreduce(i->maximum(abs.(i.psth)),max,values(cpsth))
-        #     for k in keys(cpsth)
-        #         plotanalog(cpsth[k].psth;cpsth[k].x,cpsth[k].y,clims=(-clim,clim))
-        #         foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_All-Unit_$(k)_dPSTH$ext")),figfmt)
-        #     end
-        # end
-        # jldsave(joinpath(resultdir,"depthpsth$(ii).jld2");cpsth,siteid,exenv)
+        # Depth Unit PSTH
+        epoch = [-40 150]
+        epochs = synccondon.+epoch
+        bw = 2 # ms
+        psthbins = epoch[1]:bw:epoch[2]
+        baseindex = epoch2sampleindex([0 50],1/(bw*SecondPerUnit)) # [-40, 10] ms
+        
+        ui = unitsync.==ii
+        @views unitepochpsth = map(st->psthspiketrains(epochspiketrain(st,epochs,isminzero=true,shift=-epoch[1]).y,psthbins,israte=true,ismean=false),unitspike[ui])
+        x = unitepochpsth[1].x
+        @views cpsth = Dict(condstring(r)=>begin
+                            ucp = map(p->vmeanse(p.mat[r.i,:]).m,unitepochpsth)
+                            p = spacepsth(ucp,unitposition[ui,:],dims=2,spacerange=depths,bw=2hy,step=hy)
+                            (;psth=mapwindow(mean,p.psth,(1,5),border="symmetric"),p.y) # 10ms mean window
+                        end  for r in eachrow(cond))
+        y = first(values(cpsth)).y
+        cpsth = Dict(k=>cpsth[k].psth for k in keys(cpsth))
+        cdpsth = Dict(k=>stfilter(cpsth[k],temporaltype=:sub,ti=baseindex) for k in keys(cpsth))
+
+        if plot
+            plim = mapreduce(i->maximum(abs.(i)),max,values(cdpsth))
+            for k in keys(cdpsth)
+                plotanalog(cdpsth[k];x,y,clims=(-plim,plim))
+                foreach(ext->savefig(joinpath(resultdir,"IMEC$(ii)_$(k)_dPSTH$ext")),figfmt)
+            end
+        end
+        jldsave(joinpath(resultdir,"psth$(ii).jld2");cpsth,cdpsth,x,y,baseindex,siteid,exenv)
 
         continue
         # Prepare LF
@@ -374,18 +379,20 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
         end
         jldsave(joinpath(resultdir,"lf$(ii)+.jld2");tps,cfps,psfreqs,tlc,cflc,lcfreqs,depths,fs,baseindex,siteid,exenv)
     end
-return
-    # # Unit Spike Trian of Condition Epochs
+
+    # # Unit Spike Trian of Epochs
     # if plot
     #     epochext = max(preicidur,suficidur)
     #     epochs = [condon.-epochext condoff.+epochext]
-    #     for u in eachindex(unitspike)
-    #         ys,ns,ws,is = epochspiketrain(unitspike[u],ref2sync(epochs,dataset,unitsync[u]),isminzero=true,shift=epochext)
-    #         title = "IMEC$(unitsync[u])_$(unitgood[u] ? "S" : "M")U$(unitid[u])_SpikeTrian"
+    #     for i in eachindex(unitspike)
+    #         ys,ns,ws,is = epochspiketrain(unitspike[i],ref2sync(epochs,dataset,unitsync[i]),isminzero=true,shift=epochext)
+    #         title = "IMEC$(unitsync[i])_$(unitgood[i] ? "S" : "M")U$(unitid[i])_SpikeTrian"
     #         plotspiketrain(ys,timeline=[0,conddur],title=title)
     #         foreach(ext->savefig(joinpath(resultdir,"$title$ext")),figfmt)
     #     end
     # end
+return
+    
 
     # Single Unit Binary Spike Train of Condition Tests
     bepochshift = 300
@@ -426,8 +433,8 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     unitgood=spike["unitgood"];unitposition=spike["unitposition"];unitsync=spike["unitsync"]
     layer = haskey(param,:layer) ? param[:layer] : nothing
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
-    # jldsave(joinpath(resultdir,"spike.jld2");spike,siteid)
-    # return
+    jldsave(joinpath(resultdir,"spike.jld2");spike,siteid)
+
     # Condition Tests
     envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     condon = ex["CondTest"]["CondOn"]
@@ -476,7 +483,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     exenv["masksigma"] = masksigma
 
     diameter = envparam["Diameter"]
-    ppd = haskey(param,:ppd) ? param[:ppd] : 45 # pixel/deg, 4.5 pixel for a SF=0.1 RF
+    ppd = haskey(param,:ppd) ? param[:ppd] : 45 # pixel/deg, 4.5 pixel for SF=10 RF
     # diameter = 5
     # ii = round(Int,4.5ppd):round(Int,8.5ppd)
     # jj = range(round(Int,5.5ppd),length=length(ii))
@@ -485,6 +492,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     sizedeg = (diameter,diameter)
     imagesetname = splitext(splitdir(ex["CondPath"])[2])[1] * "_size$(sizedeg)_ppd$ppd" # hartley subspace, degree size and ppd define a unique image set
     if !haskey(param,imagesetname)
+        # generate images of all conditions
         imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)),eachrow(condtable)))
         # imageset = Dict{Any,Any}(:image => map(i->Gray.(grating(θ=deg2rad(i.Ori),sf=i.SpatialFreq,phase=i.SpatialPhase,size=sizedeg,ppd=ppd)[ii,jj]),eachrow(condtable)))
         imageset[:sizepx] = size(imageset[:image][1])
@@ -492,16 +500,16 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     end
     # sizedeg=(d,d)
 
-    # Prepare Image Stimuli
+    # Prepare Stimuli
     imageset = param[imagesetname]
     bgcolor = oftype(imageset[:image][1][1],bgcolor)
-    imagestimuliname = "bgcolor$(bgcolor)_masktype$(masktype)_maskradius$(maskradius)_masksigma$(masksigma)" # bgcolor and mask define a unique masking on an image set
-    if !haskey(imageset,imagestimuliname)
+    stimuliname = "bgcolor$(bgcolor)_masktype$(masktype)_maskradius$(maskradius)_masksigma$(masksigma)" # bgcolor and mask define a unique masking on the imageset
+    if !haskey(imageset,stimuliname)
         imagestimuli = Dict{Any,Any}(:stimuli => map(i->alphablend.(alphamask(i,radius=maskradius,sigma=masksigma,masktype=masktype).y,bgcolor),imageset[:image]))
         imagestimuli[:unmaskindex] = alphamask(imageset[:image][1],radius=maskradius,sigma=masksigma,masktype=masktype).i
-        imageset[imagestimuliname] = imagestimuli
+        imageset[stimuliname] = imagestimuli
     end
-    imagestimuli = imageset[imagestimuliname]
+    imagestimuli = imageset[stimuliname]
 
 
     # imgfile = joinpath(param[:dataroot],"$(testid)_image.mat")
@@ -523,37 +531,40 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
         xin = length(xi)
         ugood=Dict();uy=Dict();usta = Dict();uŷ=Dict();ugof=Dict()
         epochs = [condon condoff]
-        delays = -40:5:180
+        delays = -40:5:180 # ms
 
         if isblank
             uci = unique(ccondidx)
             ucii = map(i->findall(condidx.==i),uci)
             buci = unique(bcondidx)
-            bucii = mapreduce(i->findall(condidx.==i),append!,buci)
-            bx = vec(mean(mapreduce(i->gray.(imagestimuli[:stimuli][i][xi]),hcat,buci),dims=2))
+            bucii = map(i->findall(condidx.==i),buci)
+            buciis = vcat(bucii...)
+            # mean stimuli for all blank trials, hartley subspace stimuli usually have only one blank condition (gray)
+            bx = vec(mean(mapreduce(i->gray.(imagestimuli[:stimuli][i][xi]),hcat,mapreduce((i,n)->fill(i,n),append!,buci,length.(bucii))),dims=2))
             x = Array{Float64}(undef,length(uci),xin)
-            foreach(i->x[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]).-bx,1:size(x,1))
+            foreach(i->x[i,:]=gray.(imagestimuli[:stimuli][uci[i]][xi]).-bx,1:size(x,1)) # transform each stimuli to deviation from mean blank stimuli
             xcond=condtable[uci,:]
 
             for u in eachindex(unitspike)
+                uid = unitid[u]
                 ys = Array{Float64}(undef,length(delays),length(uci))
                 ŷs = Array{Float64}(undef,length(delays),length(uci))
                 stas = Array{Float64}(undef,length(delays),xin)
                 for d in eachindex(delays)
                     depochs = ref2sync(epochs.+delays[d],dataset,unitsync[u])
                     y = epochspiketrainresponse_ono(unitspike[u],depochs,israte=true,isnan2zero=true)
-                    by = mean(y[bucii])
-                    y = map(i->mean(y[i])-by,ucii)
+                    by = mean(y[buciis]) # mean response of all blank trials
+                    y = map(i->mean(y[i])-by,ucii) # transform each stimuli mean response to deviation from blank stimuli mean response
                     ys[d,:] = y
                     k = sta(x,y)
                     stas[d,:] = k
                     ŷs[d,:] = x*k
                 end
-                ugood[unitid[u]]=unitgood[u]
-                uy[unitid[u]]=ys
-                usta[unitid[u]]=stas
-                uŷ[unitid[u]]=ŷs
-                ugof[unitid[u]]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
+                ugood[uid]=unitgood[u]
+                uy[uid]=ys
+                usta[uid]=stas
+                uŷ[uid]=ŷs
+                ugof[uid]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
             end
         else
             uci = unique(condidx)
@@ -563,6 +574,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
             xcond=condtable[uci,:]
 
             for u in eachindex(unitspike)
+                uid = unitid[u]
                 ys = Array{Float64}(undef,length(delays),length(uci))
                 ŷs = Array{Float64}(undef,length(delays),length(uci))
                 stas = Array{Float64}(undef,length(delays),xin)
@@ -575,11 +587,11 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
                     stas[d,:] = k
                     ŷs[d,:] = x*k
                 end
-                ugood[unitid[u]]=unitgood[u]
-                uy[unitid[u]]=ys
-                usta[unitid[u]]=stas
-                uŷ[unitid[u]]=ŷs
-                ugof[unitid[u]]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
+                ugood[uid]=unitgood[u]
+                uy[uid]=ys
+                usta[uid]=stas
+                uŷ[uid]=ŷs
+                ugof[uid]=[goodnessoffit(ys[d,:],ŷs[d,:],k=xin) for d in eachindex(delays)]
             end
         end
 
