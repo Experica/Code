@@ -1,44 +1,44 @@
-using NeuroAnalysis,DataFrames,Statistics,FileIO,JLD2,StatsBase,StatsPlots,VegaLite,ProgressMeter,XLSX,LinearAlgebra,
-    Graphs,MetaGraphs,GraphMakie,GraphRecipes
-import GLMakie as mk
+using NeuroAnalysis,DataFrames,FileIO,JLD2,StatsBase,ProgressMeter,XLSX,LinearAlgebra,Graphs,MetaGraphs,
+    VegaLite,CairoMakie,GraphMakie
+import StatsPlots
 
-"Merge and check circuits of one recording site"
-function mergecircuit(indir;check=true,datafile="circuit.jld2")
-    projs=[];eunits=[];iunits=[];projlags=[];projweights=[];siteid=nothing
+"Merge and check projections of one recording site"
+function mergeprojection(indir;check=true,datafile="projection.jld2",debug=true,usez=true)
+    projs=[];projeis=[];lagis=[];lagvs=[];lagzs=[];siteid=nothing;x=nothing
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
             c = load(joinpath(root,datafile))
-            siteid=c["siteid"]
-            append!(projs,c["projs"]);append!(eunits,c["eunits"]);append!(iunits,c["iunits"])
-            append!(projlags,c["projlags"]);append!(projweights,c["projweights"])
+            siteid=c["siteid"];x=c["x"]
+            append!(projs,c["projs"]);append!(projeis,c["projeis"]);
+            append!(lagis,c["lagis"]);append!(lagvs,c["lagvs"]);append!(lagzs,c["lagzs"])
         end
     end
     if check
-        projs,eunits,iunits,projlags,projweights = checkcircuit(projs,eunits,iunits,projlags,projweights,debug=true)
+        projs,projeis,lagis,lagvs,lagzs = checkprojection!(projs,projeis,lagis,lagvs,lagzs;debug,usez)
     end
-    return (;projs,eunits,iunits,projlags,projweights,siteid)
+    return (;projs,projeis,lagis,lagvs,lagzs,siteid,x)
 end
 
 function sitecircuit(indir;figfmt = [".png"])
-    sc = mergecircuit(indir)
+    sc = mergeprojection(indir)
     save(joinpath(indir,"sitecircuit.jld2"),"circuit",sc)
 
     unit = load(joinpath(indir,"unit.jld2"),"unit")
     unitid = unit["unitid"];unitgood=unit["unitgood"];unitposition=unit["unitposition"]
     layer = load(joinpath(indir,"layer.jld2"),"layer")
-    plotcircuit(unitposition,unitid,sc.projs;unitgood,sc.eunits,sc.iunits,layer)
+    plotcircuit(unitposition,unitid,sc.projs;unitgood,layer,projtypes=sc.projeis,projweights=sc.lagzs,showunit=:circuit)
     foreach(ext->savefig(joinpath(indir,"UnitPositionCircuit$ext")),figfmt)
 end
 
-
 resultroot = "Z:/"
-figfmt = [".png"]
+figfmt = [".svg",".png"]
 
 ## Batch RecordSites
-# penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
-# @showprogress "Batch Site Circuit ... " for r in eachrow(penetration)
-#     sitecircuit(joinpath(resultroot,r.Subject_ID,r.siteid))
-# end
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
+@showprogress "Batch Site Circuit ... " for r in eachrow(penetration)
+    sitecircuit(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt)
+end
+
 
 
 ## Collect All Site Circuits
@@ -46,26 +46,108 @@ function collectcircuit(indir;datafile="sitecircuit.jld2")
     cs = []
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
-            c = load(joinpath(root,datafile),"circuit")
-            push!(cs,c)
+            push!(cs,load(joinpath(root,datafile),"circuit"))
         end
     end
-    vert = DataFrame();edge=DataFrame()
+    vs = DataFrame();es=DataFrame()
     getid = (siteid,id)->"$(siteid)_SU$id"
     for c in cs
-        e=DataFrame(siteid=c.siteid,src=map(first,c.projs),dst=map(last,c.projs),l=c.projlags,w=c.projweights)
-        v=DataFrame(siteid=c.siteid,id=union(e.src,e.dst))
-        v.projtype = map(i->i in c.eunits ? 'E' : i in c.iunits ? 'I' : missing,v.id)
+        e=DataFrame(siteid=c.siteid,src=first.(c.projs),dst=last.(c.projs),projei=replace(c.projeis,true=>"E",false=>"I"),
+                    lag=map(i->abs(c.x[i]),c.lagis),lagv=c.lagvs,lagz=c.lagzs)
         transform!(e,[:siteid,:src]=>ByRow(getid)=>last,[:siteid,:dst]=>ByRow(getid)=>last)
-        transform!(v,[:siteid,:id]=>ByRow(getid)=>last)
-        append!(vert,v);append!(edge,e)
+        v = unique!(outerjoin(select(e,[:siteid,:projei],:src=>:id),select(e,:siteid,:dst=>:id),on=[:siteid,:id]))
+        append!(vs,v);append!(es,e)
     end
-    return (;vert,edge)
+    return (;vs,es)
 end
 
-unitcircuit = collectcircuit(resultroot)
-jldsave(joinpath(resultroot,"unitcircuit.jld2");unitcircuit)
-unitcircuit = load(joinpath(resultroot,"unitcircuit.jld2"),"unitcircuit")
+sucircuit = collectcircuit(resultroot)
+jldsave(joinpath(resultroot,"sucircuit.jld2");sucircuit)
+sucircuit = load(joinpath(resultroot,"sucircuit.jld2"),"sucircuit")
+
+allcu = load(joinpath(resultroot,"allcu.jld2"),"allcu")
+layer,nlbt = load(joinpath(resultroot,"layertemplate.jld2"),"layertemplate","nlbt")
+layercolor = StatsPlots.palette(:tab10).colors.colors
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
+allcsu = subset(allcu,:good)
+vs = innerjoin(allcsu,sucircuit.vs,on=[:siteid,:id])
+leftjoin!(vs,penetration[:,[:siteid,:od,:cofd,:pid]],on=:siteid)
+es = filter(r->(r.src in vs.id) && (r.dst in vs.id),sucircuit.es)
+transform!(es,:src=>ByRow(s->vs.layer[findfirst(vs.id.==s)])=>:srclayer,:dst=>ByRow(d->vs.layer[findfirst(vs.id.==d)])=>:dstlayer)
+transform!(es,[:srclayer,:dstlayer]=>ByRow((s,d)->"$s ➡ $d")=>:layerproj)
+jldsave(joinpath(resultroot,"csucircuit.jld2");vs,es)
+
+
+# projection statistics
+cdir = joinpath(resultroot,"Circuit");mkpath(cdir)
+
+projpair=transform!(outerjoin(
+transform!(combine(groupby(allcsu,:siteid),nrow=>:ncsu),:ncsu=>ByRow(i->binomial(i,2))=>:npair),
+combine(groupby(es,:siteid),nrow=>:nproj),
+on=:siteid),:nproj=>(i->replace!(i,missing=>0))=>:nproj,[:nproj,:npair]=>ByRow((i,j)->i/j*100)=>:projpair)
+
+pl = projpair |> [@vlplot(:bar,x={"siteid"},y={"ncsu",title="Number of Cortical Single Unit"});
+                  @vlplot(:bar,x={"siteid"},y={"projpair",title="Projections / Pairs (%)"})]
+foreach(ext->save(joinpath(cdir,"csu_projpair$ext"),pl),figfmt)
+
+pl = vs |> @vlplot(:bar,y={"spiketype"},x={"count()",title="Number of Cortical Single Unit of Circuit"},color={"projei"})
+foreach(ext->save(joinpath(cdir,"csu_spiketype_projei$ext"),pl),figfmt)
+
+pl = es |> @vlplot(:bar,y={"layerproj"},x={"count()",title="Number of Projections"})
+foreach(ext->save(joinpath(cdir,"csu_layerproj$ext"),pl),figfmt)
+
+pl = es |> [@vlplot(:bar,x={"lag"},y={"count()",title="Number of Projections"})
+            @vlplot(:bar,x={"lagv",bin={maxbins=50}},y={"count()",title="Number of Projections"})
+            @vlplot(:bar,x={"lagz",bin={maxbins=50,extent=[-30,70]}},y={"count()",title="Number of Projections"})]
+foreach(ext->save(joinpath(cdir,"csu_projparam$ext"),pl),figfmt)
+
+# layer projection graph
+function layerprojgraph(es;ln=sort!(filter(l->l ∉ ["WM","Out"],collect(keys(layer)))))
+    lps = combine(groupby(es,[:srclayer,:dstlayer]),nrow=>:nlp)
+    g = MetaDiGraph(length(ln))
+    foreach(i->set_prop!(g,i,:name,ln[i]),1:nv(g))
+    foreach(r->add_edge!(g,findfirst(ln.==r.srclayer),findfirst(ln.==r.dstlayer),:np,r.nlp),eachrow(lps))
+    g,ln
+end
+
+plotlayerprojgraph = (g;layout = _ -> map(i->(0,mean(nlbt[i:i+1])),1:nv(g)),node_color=layercolor,nlabels=ln) -> begin
+    np = [get_prop(g,e,:np) for e in edges(g)]
+    el = [abs(e.src-e.dst) for e in edges(g)]
+    f, ax, p = graphplot(g;layout,
+    node_color,node_size=30,node_strokewidth=0.5,
+    nlabels,nlabels_align=(:center,:center),nlabels_fontsize=8,
+    edge_width=0.02np,edge_color=RGBAf(0,0,0,0.9),arrow_size=1.5log2.(np),arrow_shift=0.75,
+    selfedge_size=0.03,selfedge_direction=Point2f(0,-1),selfedge_width=1.2,
+    curve_distance=0.036el)
+    hidedecorations!(ax)
+    hidespines!(ax)
+    ax.aspect = DataAspect()
+    ax.yreversed=true
+    f
+end
+
+lpg,ln = layerprojgraph(es)
+f=plotlayerprojgraph(lpg)
+foreach(ext->save(joinpath(cdir,"csu_layerprojgraph$ext"),f),figfmt)
+
+foreach(l->begin
+lpg,_ = layerprojgraph(filter(r->r.srclayer==l || r.dstlayer==l,es))
+f=plotlayerprojgraph(lpg)
+foreach(ext->save(joinpath(cdir,"csu_layerprojgraph_$(replace(l,'/'=>'-'))$ext"),f),figfmt)
+end,ln)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 function circuit2graph(vs,es)
@@ -74,42 +156,8 @@ function circuit2graph(vs,es)
     foreach(r->add_edge!(g,findfirst(vs.id.==r.src),findfirst(vs.id.==r.dst),Dict(:weight=>r.w,:l=>r.l)),eachrow(es))
     g
 end
-function layergraph(es)
-    ls = sort(union(es.srclayer,es.dstlayer))
-    lps = combine(groupby(es,[:srclayer,:dstlayer]),nrow=>:nlp)
-    g = MetaDiGraph(length(ls))
-    foreach(i->set_prop!(g,i,:layer,ls[i]),1:nv(g))
-    foreach(r->add_edge!(g,findfirst(ls.==r.srclayer),findfirst(ls.==r.dstlayer),:weight,r.nlp),eachrow(lps))
-    g
-end
-
-allcu = load(joinpath(resultroot,"allcu.jld2"),"allcu")
-layer = load(joinpath(resultroot,"layertemplate.jld2"),"layertemplate")
-penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
-penetration = select(penetration,[:siteid,:od,:cofd],:cofd=>ByRow(i->i∈["L/M","S/LM","L/M, S/LM"])=>:incofd,
-                :cofd=>ByRow(i->i∈["B","W","B, W"])=>:inbw,:cofd=>ByRow(i->i=="None")=>:none)
-csu = leftjoin(subset(allcu,:good),unitcircuit.vert,on=[:siteid,:id])
-leftjoin!(csu,penetration,on=:siteid)
-es = filter(r->(r.src in csu.id) && (r.dst in csu.id),unitcircuit.edge)
-vs = subset(csu,:id=>ByRow(i->i in es.src || i in es.dst))
-transform!(es,:src=>ByRow(s->vs.layer[findfirst(vs.id.==s)])=>:srclayer,:dst=>ByRow(d->vs.layer[findfirst(vs.id.==d)])=>:dstlayer)
-transform!(es,[:srclayer,:dstlayer]=>ByRow((s,d)->"$s ➡ $d")=>:layerproj)
 
 
-projpair=transform!(outerjoin(
-    transform!(combine(groupby(csu,:siteid),nrow=>:ncsu),:ncsu=>ByRow(i->binomial(i,2))=>:np),
-    combine(groupby(es,:siteid),nrow=>:ne),on=:siteid),
-    [:ne,:np]=>ByRow((i,j)->i/j*100)=>:pp)
-
-projpair |> [@vlplot(:bar,x={"siteid"},y={"ncsu",title="Number of Cortical Single Unit"});
-             @vlplot(:bar,x={"siteid"},y={"pp",title="Projections / Pairs (%)"})]
-
-es |> @vlplot(:bar,y={"layerproj"},x={"count()",title="Number of Projections"})
-
-
-lg = layergraph(es)
-GraphRecipes.graphplot(lg,nodesize=0.1,nodeweights=fill(2,9),nodeshape=:circle,names=map(i->get_prop(g,i,:layer),1:nv(g)),method=:shell,
-    fontsize=10,ew=(s,d,w)->0.005*get_prop(g,s,d,:weight))
 
 unitgraph = circuit2graph(vs,es)
 jldsave(joinpath(resultroot,"unitgraph.jld2");unitgraph)
@@ -117,65 +165,7 @@ unitgraph = load(joinpath(resultroot,"unitgraph.jld2"),"unitgraph")
 
 
 
-p=GraphRecipes.graphplot(g,ms=0.1,nodeshape=:rect,names=map(i->get_prop(g,i,:layer),1:nv(g)),method=:shell,
-    fontsize=10,ew=(s,d,w)->0.005*get_prop(g,s,d,:weight),curvature=0.2)
-p=graphplot(g,arrow_show=true,nlabels=map(i->get_prop(g,i,:layer),1:nv(g)))
-
-nodecolor = [in(i,eunits) ? RGB(1,0.2,0.2) : in(i,iunits) ? RGB(0.2,0.2,1) : RGB(0.4,0.4,0.4) for i in 1:nn]
-
-p=gplot(ug,unitposition[unitgood,1][1:nn],unitposition[unitgood,2][1:nn],nodelabel=1:nn,edgestrokec="gray30",nodefillc=map(c->coloralpha(c,0.5),nodecolor),
-nodelabelc=nodecolor,nodesize=3,arrowangleoffset=10/180*pi,arrowlengthfrac=0.025)
-
-display(p)
-
-
-gg = MetaDiGraph(3)
-add_edge!(gg,1,2,:weight,1)
-add_edge!(gg,1,3,:weight,5)
-add_edge!(gg,3,2,:weight,10)
-
-
-p=GraphRecipes.graphplot(gg,x=[1,1,1],y=[1,2,3],method=:chorddaigram,curves=true,curvature=0.05,names=1:3,ew=(s,d,w)->get_prop(gg,s,d,:weight))
-
-pyplot()
-
-p=graphplot(ug,linewidth=1,framestyle=:axes,linecolor=:gray,marker=:circle,markersize=2,markerstrokewidth=0,arrow=arrow(:closed,:head,1,1),
-x=unitposition[:,1][1:nn],y=unitposition[:,2][1:nn],names=unitid[1:nn],fontsize=2)
-hline!(p,[layer[k][1] for k in keys(layer)],linestyle=:dash,annotations=[(15,layer[k][1],text(k,6,:gray20,:bottom)) for k in keys(layer)],linecolor=:gray30,legend=false)
-
-
-
-
-
-
-layercolor=Dict("Out"=>RGB(0.1,0.1,0.1),
-                "1"=>RGB(0.2,0.9,0.9),
-                "23"=>RGB(0.12,0.46,0.7),
-                "2"=>[2550,1800],
-                "3"=>[2550,1800],
-                "4AB"=>RGB(1,0.5,0.05),
-                "4A"=>[2575,1800],
-                "4B"=>[2430,1800],
-                "4C"=>[1800,1800],
-                "4Ca"=>RGB(0.17,0.62,0.17),
-                "4Cb"=>RGB(0.83,0.15,0.15),
-                "56"=>RGB(0.58,0.4,0.74),
-                "5"=>[1300,1800],
-                "6"=>[1500,1800],
-                "WM"=>RGB(0.9,0.9,0.9))
-
-graphplot(cellgraph,nodeshape=:circle,edgecolor=:gray10,linewidth=0.3,curvature_scalar=0.01,arrow=0.13,method=:stress,
-        markerstrokecolor=:gray10,markerstrokewidth=0.3,nodecolor=map(i->layercolor[get_prop(cellgraph,i,:layer)],1:nv(cellgraph)))
-foreach(ext->savefig(joinpath(resultroot,"graph_layer$ext")),figfmt)
-
-
-
-
-
-
-
-
-
+## projection of RFs
 function plotprojsta(ps,stacell;src=nothing,dst=nothing,ptype="4Cb ⟶ 23",dir=nothing)
     mi(x) = isnothing(x) ? missing : x
     isnothing(src) || isnothing(dst) || (ptype = "$(src) ⟶ $(dst)")
@@ -263,8 +253,3 @@ graphplot(sg,nodeshape=:circle,nodecolor=:lightgray,markersize=3,method=:spectru
 
 
 
-g = [0 1 1;
-     0 0 1;
-     0 1 0]
-
-graphplot(g, names=1:3,edgecolor=:red,linewidth=3, curvature_scalar=0.1,arrow=0.4,dim=2,markersize=0.3)

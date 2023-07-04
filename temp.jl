@@ -863,23 +863,7 @@ img=F2mag01
 cb=5
 
 
-## test jitter
 
-using NeuroAnalysis,Distributions,StatsBase,Plots
-
-xs = collect(1:10)
-ps = fill(0.1,10)
-
-dd = DiscreteNonParametric(xs,ps)
-
-rand(dd,5)
-
-sample(1:10,Weights(ps),5,replace=false)
-
-
-plot(rand(10),ann=[(5,0.5,text("▮▮",15,:red))])
-
-scatter(rand(10),rand(10),marker=text("t"))
 
 
 
@@ -887,3 +871,4 @@ scatter(rand(10),rand(10),marker=text("t"))
     Y2 = umap(permutedims(Y), 2, n_neighbors=n, min_dist=d, n_epochs=i)
     Makie.scatter(Y2[1,:], Y2[2,:], marker=gaborimg,markersize=30,scale_plot = false,show_axis = false,resolution = (1000, 1000))
 end
+

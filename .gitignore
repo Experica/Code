@@ -3,5 +3,4 @@
 *.jl.mem
 
 [Tt]emp*/
-.vscode/
-.ipynb_checkpoints/
+.*/
