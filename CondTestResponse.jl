@@ -1,17 +1,16 @@
-using NeuroAnalysis,FileIO,JLD2,Statistics,DataFrames,StatsPlots,StatsBase,XLSX,Dierckx,VegaLite,
-    DataStructures,Combinatorics
+using NeuroAnalysis,FileIO,JLD2,DataFrames,StatsPlots,StatsBase,VegaLite,Dierckx,Combinatorics,XLSX
 
 function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafile="factorresponse.jld2")
     for (root,dirs,files) in walkdir(indir)
         if datafile in files
-            ctexid = load(joinpath(root,datafile),"exid")
-            ctexid == exid || continue
+            exenv = load(joinpath(root,datafile),"exenv")
+            exenv["exid"] == exid || continue
             fr = load(joinpath(root,datafile))
             siteid = fr["siteid"]
             id = map((u,g)->"$(siteid)_$(g ? "S" : "M")U$u",fr["unitid"],fr["unitgood"])
             c = getccode(fr["exenv"]["color"],ccode)
             ks = ["responsive","modulative","enoughresponse","fms"]
-            isempty(fr["f1f0"]) || push!(ks,"f1f0")
+
             kv1 = ("$(k)!$c"=>fr[k] for k in ks)
             kv2 = ("frf_$(k)!$c"=>fr["frf"][k] for k in keys(fr["frf"]))
             kv3 = ("maxfri_$(k)!$c"=>fr["maxfri"][k] for k in keys(fr["maxfri"]))
@@ -25,6 +24,29 @@ function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafil
     return unit
 end
 
+function collectcondtest(indir;unit=DataFrame(),exid="OriSF",ccode=ccode,datafile="factorresponse.jld2")
+    for (root,dirs,files) in walkdir(indir)
+        if datafile in files
+            exenv = load(joinpath(root,datafile),"exenv")
+            exenv["exid"] == exid || continue
+            fr = load(joinpath(root,datafile))
+            siteid = fr["siteid"]
+            id = map((u,g)->"$(siteid)_$(g ? "S" : "M")U$u",fr["unitid"],fr["unitgood"])
+            c = getccode(fr["exenv"]["color"],ccode)
+            ks = ["responsive","modulative","enoughresponse","fms"]
+
+            kv1 = ("$(k)!$c"=>fr[k] for k in ks)
+            kv2 = ("frf_$(k)!$c"=>fr["frf"][k] for k in keys(fr["frf"]))
+            kv3 = ("maxfri_$(k)!$c"=>fr["maxfri"][k] for k in keys(fr["maxfri"]))
+            df = DataFrame(kv1...,kv2...,kv3...)
+            foreach(k->insertcols!(df,"fa_$(k)!$c"=>fill(fr["fa"][k],nrow(df))),keys(fr["fa"]))
+            df.siteid .= siteid
+            df.id = id
+            append!(unit,df,cols=:union)
+        end
+    end
+    return unit
+end
 resultroot = "Z:/"
 figfmt = [".png"]
 
