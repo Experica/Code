@@ -26,6 +26,7 @@ function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     minconddur=minimum(condoff.-condon)
     exenv=Dict()
     exenv["ID"] = ex["ID"]
+    exenv["conddur"] = conddur
     if haskey(ex,"Eye")
         exenv["eye"] = ex["Eye"]
     else
@@ -443,6 +444,7 @@ function process_hartley_spikeglx(files,param;uuid="",log=nothing,plot=true)
     condidx = ex["CondTest"]["CondIndex"]
     exenv=Dict()
     exenv["ID"] = ex["ID"]
+    exenv["conddur"] = conddur
     if haskey(ex,"Eye")
         exenv["eye"] = ex["Eye"]
     else
@@ -675,6 +677,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
     minconddur=minimum(condoff.-condon)
     exenv=Dict()
     exenv["ID"] = ex["ID"]
+    exenv["conddur"] = conddur
     if haskey(ex,"Eye")
         exenv["eye"] = ex["Eye"]
     else
@@ -998,7 +1001,7 @@ function process_condtest_spikeglx(files,param;uuid="",log=nothing,plot=true)
 
     # Condition PSTH
     psthbw = haskey(param,:psthbw) ? param[:psthbw] : 10
-    epoch = [-preicidur minconddur+suficidur]
+    epoch = [-preicidur conddur+suficidur]
     binedges = epoch[1]:psthbw:epoch[2]
     epochs = ccondon .+ epoch
     psths = map((st,si)->psthspiketrains(epochspiketrain(st,ref2sync(epochs,dataset,si),isminzero=true,shift=preicidur).y,binedges,israte=true,ismean=false),unitspike,unitsync)
