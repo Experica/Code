@@ -1,25 +1,4 @@
-using Images
-
-function dft_imager(files,w,h,fs,base,f...)
-    N = length(files)
-    ks = round.(Int,f./fs.*N)
-    Fs = [zeros(ComplexF64,h,w) for _ in f]
-    Ω = [exp(-im*2π*n/N) for n in 0:(N-1)]
-    p = ProgressMeter.Progress(N,desc="DFT at $f Hz ")
-    ls = [ReentrantLock() for _ in f]
-    @inbounds Threads.@threads for n in 0:(N-1)
-        img = readrawim_Mono12Packed(files[n+1],w,h)
-        # img = img ./ base .- 1 # reduce DC, increase SNR
-        img = log2.(img./base) # reduce DC, increase SNR
-        @inbounds for i in eachindex(f)
-            lock(ls[i]) do
-                Fs[i] .+= img .* Ω[((n*ks[i])%N)+1]
-            end
-        end
-        next!(p)
-    end
-    return Fs
-end
+using Images,HypothesisTests
 
 function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
     dataset = prepare(joinpath(param[:dataexportroot],files))
@@ -69,8 +48,8 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
     F2mag = abs.(Fs[2])
     F1phase01 = mod2pi.(F1phase) ./ (2π)
     F2phase01 = mod2pi.(F2phase) ./ (2π)
-    F1mag01 = F1mag./maximum(F1mag)
-    F2mag01 = F2mag./maximum(F2mag)
+    F1mag01 = clampscale(F1mag,3)
+    F2mag01 = clampscale(F2mag,3)
 
     if plot
         foreach(ext->save(joinpath(resultdir,"F1Phase$ext"),F1phase01),figfmt)
@@ -119,12 +98,12 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
         # cos phase(maxcolor:0->mincolor:π->maxcolor:2π) to linear normalized polarity(mincolor:0->maxcolor:1)
         pha2pol(p,s=0) = abs.(mod2pi.(p .+ s) .- π) ./ π
         F1polarity = pha2pol(F1phase)
-        F1polaritye = adjust_histogram(F1polarity, AdaptiveEqualization(nbins = 256, rblocks = 20, cblocks = 20, clip = 0.1))
-        clamp01!(F1polaritye)
+        F1polarity_dog = clampscale(dogfilter(F1polarity),2)
+        F1polarity_ahe = ahe(F1polarity)
 
         F2polarity = pha2pol(F2phase)
-        F2polaritye = adjust_histogram(F2polarity, AdaptiveEqualization(nbins = 256, rblocks = 20, cblocks = 20, clip = 0.1))
-        clamp01!(F2polaritye)
+        F2polarity_dog = clampscale(dogfilter(F2polarity),2)
+        F2polarity_ahe = ahe(F2polarity)
         
         exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
         mincolor = RGBA(envparam["MinColor"]...)
@@ -138,16 +117,18 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
             # Cos Sign modulation between MinColor and MaxColor
             cmfun = (a;f=1,p=0) -> mincolor + colordist * ((sign(modulateduty-mod(f*a+p+0.25,1))+1)/2)
         end
-        F1polaritycolor = map(a->HSV(cmfun(a/2,p=0.5)),F1polaritye)
-        F1polaritycolormag = map((a,m)->HSV(a.h,a.s,m),F1polaritycolor,F1mag01)
+        F1polarity_dog_color = map(a->HSV(cmfun(a/2,p=0.5)),F1polarity_dog)
+        F1polarity_dog_colormag = map((a,m)->HSV(a.h,a.s,m),F1polarity_dog_color,F1mag01)
 
         if plot
             foreach(ext->save(joinpath(resultdir,"F1Polarity$ext"),F1polarity),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F1Polarity_Enhanced$ext"),F1polaritye),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog$ext"),F1polarity_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_ahe$ext"),F1polarity_ahe),figfmt)
             foreach(ext->save(joinpath(resultdir,"F2Polarity$ext"),F2polarity),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F2Polarity_Enhanced$ext"),F2polaritye),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F1PolarityColor$ext"),F1polaritycolor),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F1PolarityColorMag$ext"),F1polaritycolormag),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity_dog$ext"),F2polarity_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity_ahe$ext"),F2polarity_ahe),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_Color$ext"),F1polarity_dog_color),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_ColorMag$ext"),F1polarity_dog_colormag),figfmt)
         end
         jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1polarity,F2polarity,exenv,siteid)
     end
@@ -171,7 +152,7 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     ctc = condtestcond(ex["CondTestCond"])
     cond = condin(ctc)
     factors = finalfactor(ctc)
-    isbalance = length(unique(cond.n)) == 1
+    isbalance = allequal(cond.n)
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
     exenv=Dict()
     exenv["eye"] = ex["Eye"]
@@ -195,34 +176,45 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     epochresponse = Array{Float64}(undef,h,w,nepoch)
     p = ProgressMeter.Progress(nepoch,desc="Epoch Response ... ")
     @inbounds Threads.@threads for i in 1:nepoch
-        epochframes = readrawim_Mono12Packed(imagefile[i],w,h)
-        epochresponse[:,:,i] = frameresponse(epochframes;frameindex,baseframeindex)
+        epochresponse[:,:,i] = frameresponse_imager(imagefile[i],w,h,frameindex,baseframeindex)
         next!(p)
     end
 
-    # if ex["ID"] == "ISIEpochOri8"
-    #     factors = factors[1]
-    #     if isbalance
-    #         responses = epochresponse
-    #         angles = deg2rad.(ctc[!,factors])
-    #     else
-    #         responses = condimageresponse(epochresponse,cond.i)
-    #         angles = deg2rad.(cond[!,factors])
-    #     end
-    #     maps = complexmap(responses,angles)
-    # end
-    #
-    # if plot
-    #     normmmap = maps.mmap/maximum(maps.mmap)
-    #     oriamap = mod.(maps.amap,π)
-    #     diranglemap = map(a->HSV(rad2deg(a),1,1),maps.amap)
-    #     dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),maps.amap,normmmap)
-    #     orianglemap = map(a->HSV(rad2deg(2a),1,1),oriamap)
-    #     oripolarmap = map((a,m)->HSV(rad2deg(2a),1,m),oriamap,normmmap)
-    #     foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
-    #     foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
-    #     foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
-    #     foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
-    # end
-    jldsave(joinpath(resultdir,"isi.jld2");epochresponse,exenv,siteid)
+    if ex["ID"] == "ISIEpochOri8"
+        ds = cond.Ori.-90
+        os = unique(cond.Ori.%180)
+        qs = unique(os.%90)
+
+        dpi = map(i->cond.i[indexin([i,i+180],cond.Ori)],os)
+        dpt = map(is->condpairtest(epochresponse,is[1],is[2]).s,dpi)
+        dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([os;os.+180].-90),rsign=repeat([-1,1],inner=length(dpt)))
+        diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
+        dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+        opi = map(i->dpi[indexin([i,i+90],os)],qs)
+        opt = map(is->condpairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).s,opi)
+        ocmap,amap,mmap = complexmap([opt;opt],2deg2rad.([qs;qs.+90]),rsign=repeat([-1,1],inner=length(opt)))
+        orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
+        oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+        # cr,_ = condresponse(epochresponse,cond.i)
+        # dcmap,amap,mmap = complexmap(cr,deg2rad.(ds))
+        # diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
+        # dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+        # ocr = @views map(i->dropdims(mean(cr[:,:,indexin([i,i+180],cond.Ori)],dims=3),dims=3),os)
+        # ocmap,amap,mmap = complexmap(ocr,2deg2rad.(os))
+        # orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
+        # oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+        
+        if plot
+            foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
+        end
+
+        jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dcmap,ocmap,exenv,siteid)
+    end
+    
 end

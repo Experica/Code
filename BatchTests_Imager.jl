@@ -5,9 +5,7 @@ includet("Batch/Batch.jl")
 param = Dict{Any,Any}(
     :dataroot => "I:/",
     :dataexportroot => "Y:/",
-    :resultroot => "Y:/",
-    :stimuliroot => "S:/",
-    :spikesorter => "kilosort3")
+    :resultroot => "Y:/")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 
@@ -15,7 +13,7 @@ meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 tests = select!(filter(meta) do r
                     r.Subject_ID in ["Test", "AG2"] &&
                     # r.RecordSession == "V1" &&
-                    # r.RecordSite == "ODR1" &&
+                    # r.RecordSite == "Full" &&
                     # r.ID in ["ISIEpochOri8"] &&
                     r.sourceformat == "Imager"
                 end,
@@ -24,8 +22,8 @@ tests = select!(filter(meta) do r
 
 ## Setup Param
 files = ".\\AG1\\AG1_V1V2_Full_ISICycleOri_0.mat"
-tests.files[2]
-tests = tests[1:1,:]
+files = ".\\AG1\\AG1_V1V2_Full_ISIEpochOri8_2.mat"
+files = ".\\AG1\\AG1_V1V2_Full_ISICycle2Color_1.mat"
 
 
 ## Batch Tests

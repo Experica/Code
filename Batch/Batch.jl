@@ -1,4 +1,5 @@
 using NeuroAnalysis,FileIO,JLD2,Mmap,DataFrames,Statistics,ProgressMeter,Logging
+import NaNMath
 import Base: close
 
 # includet("Batch_Ripple.jl")

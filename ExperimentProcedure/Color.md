@@ -18,11 +18,12 @@
 
 # ISI Procedure
 
-0. Focus and illuminate evenly on cortex, protect optics from movement and external light. Adjust histogram and save `bloodvessel` map.
+0. Focus and illuminate evenly on cortex. Protect optics from movement and external light. Adjust histogram and save `bloodvessel` image.
 
 0. **ISIEpochOri8**, episodic drifting square gratings for ocular dominence map, direction map, and orientation map.
     - Left Eye
     - Right Eye
+    - Both Eyes
 
 0. **ISICycle2Color**, temporal modulation of maximum cone isolating colors for cone-opponent functional domains
     - Achromatic(ColorSpace=DKL, Color=X)
@@ -44,6 +45,7 @@
 
 # ISI Procedure Automation
 
+# ISI Online Analysis
 
 
 # EPhys Procedure for each penetration (Turn Off/Avoid Login TeamViewer/AnyDesk)

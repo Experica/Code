@@ -539,13 +539,16 @@ cb=5
 
 
 
-p=plot(layout=(2,2),leg=false)
-for i in 1:2,j in 1:2
-    plot!(p[i,j],rand(10),rand(10),xlims=(0,1),ylims=(0,1))
-end
-
-annotate!(p,[(1,1,"a"),(1,0,"b")])
 
 
-p
+
+
+
+
+
+
+
+
+
+
 
