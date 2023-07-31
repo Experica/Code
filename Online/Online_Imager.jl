@@ -10,7 +10,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         timedwait(()->isfile(metafile),tout;pollint=dt) == :ok && break
         printstyled("No experiment and meta data detected, continue checking? (y|n)> ",color=:blue)
         if readline() != "y"
-            printstyled("Abort Online Analysis: $test\n",color=:red,reverse=true); return
+            printstyled("Abort Online Analysis: $test\n\n",color=:red,reverse=true); return
         end
     end
 
@@ -69,6 +69,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
 
         count(i->i==repeat,ct.CondRepeat) == nrow(conddesign) || continue
         printstyled("All conditions have repeated $repeat times ...\n",color=:red)
+        erdir = joinpath(resultdir,"Repeat$repeat")
         ri = findall(ct.CondRepeat.==repeat)
         repeat+=1
         
@@ -78,7 +79,6 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             if isempty(cr)
                 append!(cr,rs);continue
             end
-            erdir = joinpath(resultdir,"Epoch0-$ei");mkpath(erdir)
             foreach(i->cr[i] = (cr[i].+rs[i])/2,eachindex(cr))
             
             dcmap,amap,mmap = complexmap(cr,deg2rad.(ds))
@@ -91,6 +91,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             showprogress && display(orianglemap)
             oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
 
+            mkpath(erdir)
             foreach(ext->save(joinpath(erdir,"dir_anglemap$ext"),diranglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_anglemap$ext"),orianglemap),figfmt)
@@ -108,7 +109,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,exenv,siteid)
     end
     
-    printstyled("Finish Online Analysis: $test\n",color=:green,reverse=true)
+    printstyled("Finish Online Analysis: $test\n\n",color=:green,reverse=true)
 end
 
 function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,figfmt = [".png"],showprogress=true)
@@ -121,7 +122,7 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
         timedwait(()->isfile(metafile),tout;pollint=dt) == :ok && break
         printstyled("No experiment and meta data detected, continue checking? (y|n)> ",color=:blue)
         if readline() != "y"
-            printstyled("Abort Online Analysis: $test\n",color=:red,reverse=true); return
+            printstyled("Abort Online Analysis: $test\n\n",color=:red,reverse=true); return
         end
     end
 
@@ -197,8 +198,8 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
         cyclestopframe > fr[end] && continue
         ncycle+=1
 
-        printstyled("Cycle $ncycle Frames Ready ...\n",color=:red)
-        crdir = joinpath(resultdir,"Frame$(cyclestartframe)-$(cyclestopframe)");mkpath(crdir)
+        printstyled("Cycle $ncycle Frames $(cyclestartframe)-$(cyclestopframe) Ready ...\n",color=:red)
+        crdir = joinpath(resultdir,"Cycle$ncycle");mkpath(crdir)
         if eachcycle # only current cycle
             F1 .+= dft_imager(imagefile[cyclestartframe:cyclestopframe],w,h,fps,baseresponse,freq)[1]
             cyclestartframe=cyclestopframe+1
@@ -234,5 +235,5 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
         jldsave(joinpath(resultdir,"isi.jld2");imagefile,freq,F1,F1polarity,exenv,siteid)
     end
     
-    printstyled("Finish Online Analysis: $test\n",color=:green,reverse=true)
+    printstyled("Finish Online Analysis: $test\n\n",color=:green,reverse=true)
 end
