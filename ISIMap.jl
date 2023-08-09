@@ -76,7 +76,7 @@ function odmap(siteresultdir,lrtests::NTuple{2,String};datafile="isi.jld2")
 end
 
 
-t = odmap(siteresultdir,("AG1_V1V2_Full_ISIEpochOri8_0","AG1_V1V2_Full_ISIEpochOri8_1")).s
+t = odmap(siteresultdir,("AG1_V1V2_Full_ISIEpochOri8_0","AG1_V1V2_Full_ISIEpochOri8_1")).stat
 od = clampscale(dogfilter(t,lσ=50),3)
 save(joinpath(siteresultdir,"OD_LR.png"),od)
 
