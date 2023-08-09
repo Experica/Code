@@ -522,7 +522,7 @@ end
 
 ## adaptive linear straching
 
-function als(img;rb=5,cb=5)
+function als(img;rb=20,cb=20,pp=(1,99))
     h,w = size(img)
     rn = round(Int,h/rb)
     cn = round(Int,w/cb)
@@ -530,25 +530,95 @@ function als(img;rb=5,cb=5)
     cs = [intersect((1:cn).+i*cn,1:w) for i in 0:cb-1]
     m = similar(img)
     for i in rs, j in cs
-        @views m[i,j]=adjust_histogram(img[i,j], LinearStretching())
+        b = @views img[i,j]
+        vb = vec(b)
+        m[i,j]=adjust_histogram(b, LinearStretching(src_minval=percentile(vb,pp[1]),src_maxval=percentile(vb,pp[2])))
     end
     m
 end
-img=F2mag01
-cb=5
+
+
+
+ff = dogfilter(F1phase01)
+t = als(ff;rb=20,cb=20)
+
+map(a->HSV(360a,1,1),t)
+
+t=mapwindow(x->clampscale(x[50,50],extrema(x)...),F2phase01,(101,101))
+Gray.(t)
+map(i->cm[i],t)
+
+
+tt = ahe(ff)
+
+
+Gray.(tt)
+
+mtt = clampscale(dogfilter(F2mag01),3)
+Gray.(mtt)
+
+Gray.(ff)
+
+
+Gray.(F1phase01_dog)
+
+
+ColorMaps["dkl_mcchue_l0"].colors
+
+cm.[F1phase01_dog]
+
+##  
+F1mag01 = clampscale(F1mag,(3,97))
+F1mag01 = clampscale(dogfilter(F1mag),3)
+histogram(vec(F1mag))
+
+
+histogram(vec(F2phase01))
+histogram(vec(dogfilter(F2phase01)))
+histogram(vec(pr))
 
 
 
 
 
+ct = map(i->exp(im*2π*i),F2phase01)
+
+knl = Kernel.DoG((3,3),(25,25),(151,151))
+k=collect(knl)
+ctt = imfilter(ct,knl)
+ctt = mapwindow(r->sum(r.*k),ct,(151,151))
+
+ft = mod2pi.(angle.(ctt)) ./ (2π)
+
+Gray.(F2phase01)
+Gray.(F1phase01)
+Gray.(ft)
+lft = als(F1phase01)
+Gray.(lft)
 
 
+t = clampscale(dogfilter(F1phase01),3)
+lt = als(dogfilter(F1phase01))
+histogram(vec(lt))
+Gray.(lt)
+
+map(a->HSV(360a,1,1),F2phase01)
+map(a->HSV(360a,1,1),lft)
+map(a->HSV(360a,1,1),t)
 
 
+Gray.(F2mag01)
 
+leftF2mag = F2mag
+leftF1mag = F1mag
 
+t=log2.(leftF1mag./F1mag)
 
+tt=clampscale(t)
 
+Gray.(tt)
+
+Gray.(F2mag01)
 
 
 
