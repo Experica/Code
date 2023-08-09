@@ -1,10 +1,11 @@
-using NeuroAnalysis,FileIO,JLD2,HypothesisTests,Images,ImageBinarization,ImageEdgeDetection,PyCall,Contour
+using NeuroAnalysis,FileIO,JLD2,HypothesisTests,Images,ImageBinarization,ImageEdgeDetection,
+StatsBase,StatsPlots,PyCall,Contour
 
 dataroot = "I:/"
 dataexportroot = "Y:/"
-resultroot = "Z:/"
-subject = "AG2";recordsession = "";recordsite = ""
-siteid = join(filter(!isempty,[subject,recordsession,recordsite]),"_")
+resultroot = "Y:/"
+subject = "AG1";recordsession = "V1V2";recordsite = "Full"
+siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 skid = pyimport("skimage.draw")
 
@@ -65,21 +66,20 @@ save(joinpath(siteresultdir,"bloodvessel1_scale.png"),bv1s)
 
 
 ## ocular dominance
-isi0 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_3","isi.jld2"))
-isi1 = load(joinpath(siteresultdir,"AG2_ISIEpochOri8_4","isi.jld2"))
-eye0 = isi0["exenv"]["eye"]; epochresponse0 = isi0["epochresponse"]
-eye1 = isi1["exenv"]["eye"]; epochresponse1 = isi1["epochresponse"]
-h,w,ne = size(epochresponse0)
+function odmap(siteresultdir,lrtests::NTuple{2,String};datafile="isi.jld2")
+    ds = load.(joinpath.(siteresultdir,lrtests,datafile))
+    eyes = [i["exenv"]["eye"] for i in ds];eyeis = sortperm(eyes);eyesort=eyes[eyeis]
+    eyesort == ["Left","Right"] || @warn "Tests aren't from Left and Right eyes, got $eyes instead."
 
-ht = [@views UnequalVarianceTTest(epochresponse0[i,j,:],epochresponse1[i,j,:]) for i = 1:h,j=1:w] # Welch's t-test
-tmap = map(i->i.t,ht)
-replace!(tmap,NaN=>0)
-pmapl = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:left),ht)
-pmapr = map(i->isnan(i.t) ? 0.5 : pvalue(i,tail=:right),ht)
+    ler = ds[eyeis[1]]["epochresponse"];rer = ds[eyeis[2]]["epochresponse"]
+    pairtest(ler,rer)
+end
 
-od = adjust_histogram(clampscale(tmap), AdaptiveEqualization(nbins = 256, rblocks = 12, cblocks = 12, clip = 0.1))
-clamp01!(od)
-save(joinpath(siteresultdir,"OD_$(eye0).png"),od)
+
+t = odmap(siteresultdir,("AG1_V1V2_Full_ISIEpochOri8_0","AG1_V1V2_Full_ISIEpochOri8_1")).s
+od = clampscale(dogfilter(t,lσ=50),3)
+save(joinpath(siteresultdir,"OD_LR.png"),od)
+
 
 
 ## OD inpainting
@@ -88,8 +88,14 @@ od = imresize(gray.(od),h,w)
 
 
 ## OD border
-od = imfilter(od,Kernel.gaussian(5))
-od = adjust_histogram(od, AdaptiveEqualization(nbins = 256, rblocks = 2, cblocks = 2, clip = 0.9))
+
+Gray.(oda)
+Gray.(clampscale(oda,0.5))
+
+
+
+odt = gaussianfilter(od)
+oda = ahe(odt,nblock=2,clip=0.9)
 odb = detect_edges(od, Canny(spatial_scale=10, high=ImageEdgeDetection.Percentile(70),low=ImageEdgeDetection.Percentile(30)))
 save(joinpath(siteresultdir,"OD_border.png"),odb)
 odbm = map(i->GrayA(i,i),odb)

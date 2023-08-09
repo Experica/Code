@@ -1,4 +1,4 @@
-using StatsBase,StatsPlots,Images,DSP,ePPR
+using Images,DSP,ePPR
 
 function process_flash_spikeglx(files,param;uuid="",log=nothing,plot=true)
     dataset = prepare(joinpath(param[:dataexportroot],files),spikesorter=param[:spikesorter])

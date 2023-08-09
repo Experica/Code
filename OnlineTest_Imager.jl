@@ -4,8 +4,8 @@ includet("Online/Online_Imager.jl")
 resultroot = "Y:/"
 testroot = "I:/Test/Test_ISI_Full/Test_ISI_Full_ISIEpochOri8_4"
 testroot = "I:/Test/Test_ISI_Full/Test_ISI_Full_ISICycle2Color_10"
-testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISICycle2Color_0"
-testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISIEpochOri8_2"
+testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISICycle2Color_2"
+testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISIEpochOri8_1"
 
 online_epoch_imager(testroot,resultroot)
 online_cycle_imager(testroot,resultroot)

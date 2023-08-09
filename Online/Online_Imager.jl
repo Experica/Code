@@ -1,4 +1,4 @@
-using NeuroAnalysis,StatsBase,JLD2,YAML,FileWatching,DataFrames,Images,HypothesisTests
+using NeuroAnalysis,StatsBase,StatsPlots,JLD2,YAML,FileWatching,DataFrames,Images,HypothesisTests
 
 function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],showprogress=true)
     test = splitdir(testroot)[end]
@@ -27,7 +27,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
     exenv=Dict{Any,Any}("ID"=>ex["ID"],"eye"=>ex["Eye"])
     conddesign = DataFrame(ex["Cond"]) |> sort!
     if ex["ID"] == "ISIEpochOri8"
-        ds = conddesign.Ori.-90
+        ds = conddesign.Ori.+90
         os = unique(conddesign.Ori.%180)
         qs = unique(os.%90)
         diranglemap=dirpolarmap=orianglemap=oripolarmap=nothing
@@ -88,15 +88,15 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             ocr = @views map(i->.+(cr[indexin([i,i+180],conddesign.Ori)]...)/2,os)
             ocmap,amap,mmap = complexmap(ocr,2deg2rad.(os))
             orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
-            showprogress && display(orianglemap)
             oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+            showprogress && display(orianglemap)
 
             mkpath(erdir)
             foreach(ext->save(joinpath(erdir,"dir_anglemap$ext"),diranglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_anglemap$ext"),orianglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_polarmap$ext"),oripolarmap),figfmt)
-            jldsave(joinpath(erdir,"isi.jld2");ctc,epochresponse,exenv,siteid)
+            jldsave(joinpath(erdir,"isi.jld2");ctc,ds,cr,exenv,siteid)
         end
         
     end
@@ -218,8 +218,8 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
         if ex["ID"] == "ISICycle2Color"
             F1polarity = pha2pol(F1phase)
             F1polarity_dog = clampscale(dogfilter(F1polarity),2)
-            showprogress && display(Gray.(F1polarity_dog))
             F1polarity_ahe = ahe(F1polarity)
+            showprogress && display(Gray.(F1polarity_dog))
 
             foreach(ext->save(joinpath(crdir,"F1Polarity_dog$ext"),F1polarity_dog),figfmt)
             foreach(ext->save(joinpath(crdir,"F1Polarity_ahe$ext"),F1polarity_ahe),figfmt)
@@ -229,7 +229,7 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
 
     if ex["ID"] == "ISICycle2Color"
         F1polarity_dog_color = map(a->HSV(cmfun(a/2,p=0.5)),F1polarity_dog)
-        foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_Color$ext"),F1polarity_dog_color),figfmt)
+        foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_color$ext"),F1polarity_dog_color),figfmt)
         foreach(ext->save(joinpath(resultdir,"F1Polarity_dog$ext"),F1polarity_dog),figfmt)
         foreach(ext->save(joinpath(resultdir,"F1Polarity_ahe$ext"),F1polarity_ahe),figfmt)
         jldsave(joinpath(resultdir,"isi.jld2");imagefile,freq,F1,F1polarity,exenv,siteid)

@@ -54,46 +54,46 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
     if plot
         foreach(ext->save(joinpath(resultdir,"F1Phase$ext"),F1phase01),figfmt)
         foreach(ext->save(joinpath(resultdir,"F1Mag$ext"),F1mag01),figfmt)
-        foreach(ext->save(joinpath(resultdir,"F1PhaseMag$ext"),GrayA.(F1phase01,F1mag01)),figfmt)
         foreach(ext->save(joinpath(resultdir,"F2Phase$ext"),F2phase01),figfmt)
         foreach(ext->save(joinpath(resultdir,"F2Mag$ext"),F2mag01),figfmt)
-        foreach(ext->save(joinpath(resultdir,"F2PhaseMag$ext"),GrayA.(F2phase01,F2mag01)),figfmt)
     end
 
     if ex["ID"] == "ISICycleOri"
-        orianglemap = map(a->HSV(360a,1,1),F2phase01)
-        oripolarmap = map((a,m)->HSV(360a,1,m),F2phase01,F2mag01)
-        diranglemap = map(a->HSV(360a,1,1),F1phase01)
-        dirpolarmap = map((a,m)->HSV(360a,1,m),F1phase01,F1mag01)
-        
-        F2mag01e = adjust_histogram(F2mag01, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.9))
-        clamp01!(F2mag01e)
-        F2phase01e = adjust_histogram(F2phase01, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.9))
-        clamp01!(F2phase01e)
+        exenv["cycdir"] = exparam["CycleDirection"]
+        if sign(exenv["cycdir"]) < 0
+            F1phase01 = 1 .- F1phase01
+            F2phase01 = 1 .- F2phase01
+        end
 
-        F1mag01e = adjust_histogram(F1mag01, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.9))
-        clamp01!(F1mag01e)
-        F1phase01e = adjust_histogram(F1phase01, AdaptiveEqualization(nbins = 256, rblocks = 16, cblocks = 16, clip = 0.9))
-        clamp01!(F1phase01e)
-
-        orianglemape = map(a->HSV(360a,1,1),F2phase01e)
-        oripolarmape = map((a,m)->HSV(360a,1,m),F2phase01e,F2mag01e)
-        diranglemape = map(a->HSV(360a,1,1),F1phase01e)
-        dirpolarmape = map((a,m)->HSV(360a,1,m),F1phase01e,F1mag01e)
-        
         if plot
-            foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
-            foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
+            diranglemap = map(a->HSV(360a,1,1),F1phase01)
+            dirpolarmap = map((a,m)->HSV(360a,1,m),F1phase01,F1mag01)
+            orianglemap = map(a->HSV(360a,1,1),F2phase01)
+            oripolarmap = map((a,m)->HSV(360a,1,m),F2phase01,F2mag01)
+
             foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
             foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
-            foreach(ext->save(joinpath(resultdir,"ori_anglemap_Enhanced$ext"),orianglemape),figfmt)
-            foreach(ext->save(joinpath(resultdir,"ori_polarmap_Enhanced$ext"),oripolarmape),figfmt)
-            foreach(ext->save(joinpath(resultdir,"dir_anglemap_Enhanced$ext"),diranglemape),figfmt)
-            foreach(ext->save(joinpath(resultdir,"dir_polarmap_Enhanced$ext"),dirpolarmape),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
         end
-        jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1phase01,F2phase01,F1mag01,F2mag01,exenv,siteid)
+        jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1phase01,F2phase01,exenv,siteid)
     elseif ex["ID"] == "ISICycleColorPlane"
+        exenv["cycdir"] = exparam["CycleDirection"]
+        if sign(exenv["cycdir"]) < 0
+            F1phase01 = 1 .- F1phase01
+            F2phase01 = 1 .- F2phase01
+        end
+        exenv["plane"] = exparam["ModulateParam"]
+        exenv["intercept"] = exparam["Intercept"]
 
+        if plot
+            if exenv["plane"] == "DKLIsoLum"
+                cm = cgrad(ColorMaps["dkl_mcchue_l0"].colors)
+                F1phase01_color = map(i->cm[i],F1phase01)
+            end
+            foreach(ext->save(joinpath(resultdir,"F1phase_color$ext"),F1phase01_color),figfmt)
+        end
+        jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1phase01,F2phase01,exenv,siteid)
     elseif ex["ID"] == "ISICycle2Color"
         # cos phase(maxcolor:0->mincolor:π->maxcolor:2π) to linear normalized polarity(mincolor:0->maxcolor:1)
         pha2pol(p,s=0) = abs.(mod2pi.(p .+ s) .- π) ./ π
@@ -127,8 +127,8 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
             foreach(ext->save(joinpath(resultdir,"F2Polarity$ext"),F2polarity),figfmt)
             foreach(ext->save(joinpath(resultdir,"F2Polarity_dog$ext"),F2polarity_dog),figfmt)
             foreach(ext->save(joinpath(resultdir,"F2Polarity_ahe$ext"),F2polarity_ahe),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_Color$ext"),F1polarity_dog_color),figfmt)
-            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_ColorMag$ext"),F1polarity_dog_colormag),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_color$ext"),F1polarity_dog_color),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_colormag$ext"),F1polarity_dog_colormag),figfmt)
         end
         jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1polarity,F2polarity,exenv,siteid)
     end
@@ -154,8 +154,7 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     factors = finalfactor(ctc)
     isbalance = allequal(cond.n)
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
-    exenv=Dict()
-    exenv["eye"] = ex["Eye"]
+    exenv=Dict{Any,Any}("eye"=>ex["Eye"])
 
     # Prepare Frame
     imagefile = dataset["imagefile"]
@@ -181,18 +180,20 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     end
 
     if ex["ID"] == "ISIEpochOri8"
-        ds = cond.Ori.-90
+        ds = cond.Ori.+90
         os = unique(cond.Ori.%180)
         qs = unique(os.%90)
 
+        dp = map(i->mod.([i,i+180].+90,360),os)
         dpi = map(i->cond.i[indexin([i,i+180],cond.Ori)],os)
-        dpt = map(is->condpairtest(epochresponse,is[1],is[2]).s,dpi)
-        dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([os;os.+180].-90),rsign=repeat([-1,1],inner=length(dpt)))
+        dpt = map(is->pairtest(epochresponse,is[1],is[2]).s,dpi)
+        dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([os;os.+180].+90),rsign=repeat([-1,1],inner=length(dpt)))
         diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
         dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
 
-        opi = map(i->dpi[indexin([i,i+90],os)],qs)
-        opt = map(is->condpairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).s,opi)
+        op = map(i->[i,i+90],qs)
+        opi = map(i->dpi[indexin(i,os)],op)
+        opt = map(is->pairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).s,opi)
         ocmap,amap,mmap = complexmap([opt;opt],2deg2rad.([qs;qs.+90]),rsign=repeat([-1,1],inner=length(opt)))
         orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
         oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
@@ -208,13 +209,22 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
         # oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
         
         if plot
+            for (p,t) in zip(dp,dpt)
+                t01 = clampscale(dogfilter(t),2)
+                foreach(ext->save(joinpath(resultdir,"dir_$(p[1])_$(p[2])$ext"),t01),figfmt)
+            end
+            for (p,t) in zip(op,opt)
+                t01 = clampscale(dogfilter(t),2)
+                foreach(ext->save(joinpath(resultdir,"ori_$(p[1])_$(p[2])$ext"),t01),figfmt)
+            end
+
             foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
             foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
             foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
             foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
         end
 
-        jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dcmap,ocmap,exenv,siteid)
+        jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dp,dpt,op,opt,dcmap,ocmap,exenv,siteid)
     end
     
 end

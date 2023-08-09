@@ -1,4 +1,4 @@
-using NeuroAnalysis,FileIO,JLD2,Mmap,DataFrames,Statistics,ProgressMeter,Logging
+using NeuroAnalysis,FileIO,JLD2,Mmap,DataFrames,StatsBase,StatsPlots,ProgressMeter,Logging
 import NaNMath
 import Base: close
 
