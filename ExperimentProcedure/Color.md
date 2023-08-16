@@ -18,24 +18,34 @@
 
 # ISI Procedure
 
-0. Focus and illuminate evenly on cortex. Protect optics from movement and external light. Adjust histogram and save `bloodvessel` image.
+0. Focus and illuminate evenly on cortex. Adjust depth of field(shallow) and image histogram(equalize). Protect optics from movement and external light.  Save `bloodvessel` image under green and red light.
 
 0. **ISIEpochOri8**, episodic drifting square gratings for ocular dominence map, direction map, and orientation map.
     - Left Eye
     - Right Eye
     - Both Eyes
 
-0. **ISICycle2Color**, temporal modulation of maximum cone isolating colors for cone-opponent functional domains
+0. **ISICycle2Color**, temporal modulation of maximum cone isolating colors for cone-opponent functional domains.
     - Achromatic(ColorSpace=DKL, Color=X)
     - L cone isolating(ColorSpace=LMS, Color=X)
     - M cone isolating(ColorSpace=LMS, Color=Y)
     - S cone isolating(ColorSpace=LMS, Color=Z)
+    - Flip Red/Green (ColorSpace=HSL, Color=RG)
+    - Flip Blue/Yellow (ColorSpace=HSL, Color=BY)
+
+0. **ISIEpoch2Color**, episodic maximum cone isolating colors for cone-opponent functional domains.
+    - Achromatic(ColorSpace=DKL, Color=X)
+    - L cone isolating(ColorSpace=LMS, Color=X)
+    - M cone isolating(ColorSpace=LMS, Color=Y)
+    - S cone isolating(ColorSpace=LMS, Color=Z)
+    - Red/Green (ColorSpace=HSL, Color=RG)
+    - Blue/Yellow (ColorSpace=HSL, Color=BY)
 
 0. **ISICycleOri**, temporally modulate orientation of drifting square grating for direction map and orientation map.
     - CycleDirection=1
     - CycleDirection=-1
 
-0. **ISICycleColorPlane**, temporally modulated colors on 3 DKL planes, each with CCW and CW cycle direction.
+0. **ISICycleColorPlane**, temporally modulate colors on 3 DKL planes, each with CCW and CW cycle direction.
     - IsoLum Hues(ModulateParam=DKLIsoLum, CycleDirection=1)
     - IsoLum Hues(ModulateParam=DKLIsoLum, CycleDirection=-1)
     - IsoLM Hues(ModulateParam=DKLIsoLM, CycleDirection=1)
@@ -46,6 +56,8 @@
 # ISI Procedure Automation
 
 # ISI Online Analysis
+
+# Guide Maps for EPhys Penetrations
 
 
 # EPhys Procedure for each penetration (Turn Off/Avoid Login TeamViewer/AnyDesk)
@@ -92,7 +104,7 @@ Here **Command** is used without **Environment**, it should be set FullScreen (`
 
 0. **OriSF**, drifting sinusoidal grating of Ori and SF, 4 color modulations the same as HartleySubspace, with an additional Red/Blue square grating(ColorSpace=HSL, Color=RBYm)
 
-# EPhys Procedure Automation for each penetration (Turn Off/Avoid Login TeamViewer/AnyDesk)
+# EPhys Procedure Automation for each penetration
 
 There are experiment sessions **ColorEPhys/ColorEPhysLite** to automate sequence of above experiments. To use it properly:
 

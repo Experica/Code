@@ -2,7 +2,7 @@ includet("Online/Online_Imager.jl")
 
 ## Manual online processing
 resultroot = "Y:/"
-testroot = "I:/Test/Test_ISI_Full/Test_ISI_Full_ISIEpochOri8_4"
+testroot = "I:/Test/Test_Full/Test_Full_ISIEpoch2Color_0"
 testroot = "I:/Test/Test_ISI_Full/Test_ISI_Full_ISICycle2Color_10"
 testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISICycle2Color_2"
 testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISIEpochOri8_1"

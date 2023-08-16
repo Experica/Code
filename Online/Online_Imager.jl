@@ -25,12 +25,16 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
 
     envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"]
     exenv=Dict{Any,Any}("ID"=>ex["ID"],"eye"=>ex["Eye"])
-    conddesign = DataFrame(ex["Cond"]) |> sort!
+    conddesign = DataFrame(ex["Cond"])
     if ex["ID"] == "ISIEpochOri8"
-        ds = conddesign.Ori.+90
-        os = unique(conddesign.Ori.%180)
+        ds = sort(conddesign.Ori).+90
+        os = unique(sort(conddesign.Ori).%180)
         qs = unique(os.%90)
         diranglemap=dirpolarmap=orianglemap=oripolarmap=nothing
+    elseif ex["ID"] == "ISIEpoch2Color"
+        exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
+        cm = cgrad(RGBA(conddesign.Color[1]...),RGBA(conddesign.Color[2]...))
+        t=t_dog=nothing
     end
     
     fmt = mdata["meta"]["DataFormat"]
@@ -97,6 +101,14 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             foreach(ext->save(joinpath(erdir,"ori_anglemap$ext"),orianglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_polarmap$ext"),oripolarmap),figfmt)
             jldsave(joinpath(erdir,"isi.jld2");ctc,ds,cr,exenv,siteid)
+        elseif ex["ID"] == "ISIEpoch2Color" && repeat > 3
+            t = @views pairtest(epochresponse[ct.CondIndex.==1],epochresponse[ct.CondIndex.==2]).stat
+            t_dog = clampscale(dogfilter(t),2)
+            showprogress && display(Gray.(t_dog))
+
+            mkpath(erdir)
+            foreach(ext->save(joinpath(erdir,"t$ext"),t_dog),figfmt)
+            jldsave(joinpath(erdir,"isi.jld2");ctc,t,exenv,siteid)
         end
         
     end
@@ -107,6 +119,11 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
         foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
         jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,exenv,siteid)
+    elseif ex["ID"] == "ISIEpoch2Color"
+        t_dog_color = map(i->cm[i],t_dog)
+        foreach(ext->save(joinpath(resultdir,"t$ext"),t_dog),figfmt)
+        foreach(ext->save(joinpath(resultdir,"t_color$ext"),t_dog_color),figfmt)
+        jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,t,exenv,siteid)
     end
     
     printstyled("Finish Online Analysis: $test\n\n",color=:green,reverse=true)

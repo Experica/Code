@@ -174,7 +174,7 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     frameindex = epoch2sampleindex([0 conddur].+(preicidur+responsedelay),framerate,maxsampleindex=minframe)
     epochresponse = Array{Float64}(undef,h,w,nepoch)
     p = ProgressMeter.Progress(nepoch,desc="Epoch Response ... ")
-    @inbounds Threads.@threads for i in 1:nepoch
+    Threads.@threads for i in 1:nepoch
         epochresponse[:,:,i] = frameresponse_imager(imagefile[i],w,h,frameindex,baseframeindex)
         next!(p)
     end
@@ -225,6 +225,19 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
         end
 
         jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dp,dpt,op,opt,dcmap,ocmap,exenv,siteid)
+    elseif ex["ID"] == "ISIEpoch2Color"
+        t = pairtest(epochresponse,cond.i...).stat
+        t_dog = clampscale(dogfilter(t),2)
+        
+        exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
+        cm = cgrad(RGBA(cond.Color[1]...),RGBA(cond.Color[2]...))
+        t_dog_color = map(i->cm[i],t_dog)     
+        
+        if plot
+            foreach(ext->save(joinpath(resultdir,"t$ext"),t_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"t_color$ext"),t_dog_color),figfmt)
+        end
+        jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,t,exenv,siteid)
     end
     
 end

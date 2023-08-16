@@ -40,7 +40,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif t.ID in ["ISIEpochOri8"] && t.sourceformat=="Imager"
                 process_epoch_imager(t.files,param;uuid=t.UUID,log,plot)
             else
-                display("Skip `$(t.ID)` from `$(t.sourceformat)`, no corresonding process function.")
+                @warn "No corresonding process function, skip `$(t.ID)` from `$(t.sourceformat)` ..."
             end
         catch exc
             display("============================================")
