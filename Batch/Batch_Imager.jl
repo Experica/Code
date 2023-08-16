@@ -230,7 +230,10 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
         t_dog = clampscale(dogfilter(t),2)
         
         exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
-        cm = cgrad(RGBA(cond.Color[1]...),RGBA(cond.Color[2]...))
+        mincolor = RGBA(cond.Color[1]...)
+        maxcolor = RGBA(cond.Color[2]...)
+        exenv["minmaxcolor"] = (;mincolor,maxcolor)
+        cm = cgrad(mincolor,maxcolor)
         t_dog_color = map(i->cm[i],t_dog)     
         
         if plot

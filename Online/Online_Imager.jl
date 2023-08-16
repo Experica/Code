@@ -33,7 +33,10 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         diranglemap=dirpolarmap=orianglemap=oripolarmap=nothing
     elseif ex["ID"] == "ISIEpoch2Color"
         exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
-        cm = cgrad(RGBA(conddesign.Color[1]...),RGBA(conddesign.Color[2]...))
+        mincolor = RGBA(conddesign.Color[1]...)
+        maxcolor = RGBA(conddesign.Color[2]...)
+        exenv["minmaxcolor"] = (;mincolor,maxcolor)
+        cm = cgrad(mincolor,maxcolor)
         t=t_dog=nothing
     end
     

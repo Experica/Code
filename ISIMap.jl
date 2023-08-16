@@ -12,7 +12,7 @@ end
 
 dataroot = "I:/"
 resultroot = "Y:/"
-subject = "AG1";recordsession = "V1V2";recordsite = "Full"
+subject = "Test";recordsession = "";recordsite = "Full"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -101,11 +101,17 @@ save(joinpath(siteresultdir,"OD_contourfill_mask_right.png"),odcfmr)
 function cofdmap(siteresultdir,test;datafile="isi.jld2")
     d = load(joinpath(siteresultdir,test,datafile))
     color = d["exenv"]["color"];minmaxcolor = d["exenv"]["minmaxcolor"]
-    cofd = d["F1polarity"]
+    if haskey(d,"F1polarity")
+        cofd = d["F1polarity"]
+        color*="_p"
+    elseif haskey(d,"t")
+        cofd = d["t"]
+        color*="_t"
+    end
     (;cofd,color,minmaxcolor)
 end
 
-cofd,color,minmaxcolor = cofdmap(siteresultdir,"AG1_V1V2_Full_ISICycle2Color_2")
+cofd,color,minmaxcolor = cofdmap(siteresultdir,"Test_Full_ISIEpoch2Color_0")
 cofd = clampscale(dogfilter(cofd),3)
 save(joinpath(siteresultdir,"COFD_$(color).png"),cofd)
 
