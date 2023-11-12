@@ -1,24 +1,24 @@
 # Preparation
 
-- Restart System, turn off unnecessary processes. Pychotoolbox could set the graphcs card color lookup table which is system wide and may not be unset.
+- Restart system, configure displays and end unnecessary processes.
 
-- Start Host(`Alt + H`) in **Command**, if **Environment** is used to present stimuli, check **Command** IP address, and connect to **Command**.
+- Start Host (`Alt + H`) in **Command**. If **Environment** is used to present stimuli, check and set **Command** IP address in **Environment** so it can connect to **Command**.
 
-- Initialize Parameters in **ConditionTest**, which should be the first one in the experiment list when started. This special experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will inherite proper parameters.
+- Initialize parameters in **ConditionTest** which should be the first one in experiment list when **Command** started. This experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will inherite proper parameters.
 
-  Check in Experimennt Panel:
-    - Experimenter, Subject Info, DataDir, Hemisphere, Eye,  RecordSession, RecordSite, Display_ID, NotifyExperimenter
+    Experiment Panel:
+    - Experimenter, Subject, DataDir, Hemisphere, Eye,  RecordSession, RecordSite, Display, etc.
 
-  Check in Environment Panel:
-    - ScreenToEye, ScreenHeight, ScreenAspect, CLUT, MarkerSize, MarkerCorner, Marker On/Off Colors.
+    Environment Panel:
+    - ScreenToEye, ScreenHeight, ScreenAspect, CLUT, MarkerSize, MarkerCorner, etc.
 
-- Start Experiment(`Alt + E`) of **ConditionTest**, which will flip marker periodicly. Power/Reset the photodiode logic board. In 5 seconds, the maximun and minimun of photodiode signal will be learned and used to set appropriate threshold to convert analog signal to digital signal in real time.
+- Start Experiment (`Alt + E`) **ConditionTest** and marker will flip periodicly. Restart threshold learning of photodiode logic board.
 
-  Measure the `RiseLag` and `FallLag` of the digital signal relative to photodiode analog signal(need to re-learn and re-measure every power/reset). Digital IO is connected to **SpikeGLX** `Channel 0` and Photodiode Logic Board to **SpikeGLX** `Channel 1`. These two Channels are identical, to provide extra robustness if any channel is corrupted.
+    Measure the `RiseLag` and `FallLag` of the photodiode digital signal relative to the photodiode analog signal, and set in the configuration of **Command**. Digital GPIO Synchronization is connected to **Record System** as `Channel 0`, and Digital Photodiode Synchronization as `Channel 1`.
 
 # ISI Procedure
 
-0. Focus and illuminate evenly on cortex. Adjust depth of field(shallow) and image histogram(equalize). Protect optics from movement and external light.  Save `bloodvessel` image under green and red light.
+0. Focus and illuminate evenly on cortex. Adjust depth of field(shallow) and image dynamic range. Protect optics from movement and external light.  Save `bloodvessel` image under green and red light.
 
 0. **ISIEpochOri8**, episodic drifting square gratings for ocular dominence map, direction map, and orientation map.
     - Left Eye
@@ -30,16 +30,16 @@
     - L cone isolating(ColorSpace=LMS, Color=X)
     - M cone isolating(ColorSpace=LMS, Color=Y)
     - S cone isolating(ColorSpace=LMS, Color=Z)
-    - Flip Red/Green (ColorSpace=HSL, Color=RG)
-    - Flip Blue/Yellow (ColorSpace=HSL, Color=BY)
+    - Flip Red/Green (ColorSpace=HSL, Color=RGYm)
+    - Flip Blue/Yellow (ColorSpace=HSL, Color=BYYm)
 
 0. **ISIEpoch2Color**, episodic maximum cone isolating colors for cone-opponent functional domains.
     - Achromatic(ColorSpace=DKL, Color=X)
     - L cone isolating(ColorSpace=LMS, Color=X)
     - M cone isolating(ColorSpace=LMS, Color=Y)
     - S cone isolating(ColorSpace=LMS, Color=Z)
-    - Red/Green (ColorSpace=HSL, Color=RG)
-    - Blue/Yellow (ColorSpace=HSL, Color=BY)
+    - Red/Green (ColorSpace=HSL, Color=RGYm)
+    - Blue/Yellow (ColorSpace=HSL, Color=BYYm)
 
 0. **ISICycleOri**, temporally modulate orientation of drifting square grating for direction map and orientation map.
     - CycleDirection=1
@@ -57,16 +57,16 @@
 
 # ISI Online Analysis
 
-# Guide Maps for EPhys Penetrations
+# Guide Map for EPhys Penetration
 
 
-# EPhys Procedure for each penetration (Turn Off/Avoid Login TeamViewer/AnyDesk)
+# EPhys Procedure
 
-Here **Command** is used without **Environment**, it should be set FullScreen (`Alt + F`) and FullViewport (`Alt + V`) to present stimulus, and other visual guides (Grid, Eye Fixation, etc.) turned off (`Alt + G`).
+Here **Command** is used without **Environment**, it should be set FullScreen (`Alt + F`) and FullViewport (`Alt + V`) to present stimuli while unnecessary guides (Grid, Eye Trace, etc.) turned off (`Alt + G`).
 
-0. Based on cortical maps, insert probe perpendicular to cortex at a chosen location, test probe signals and mark the penetration site on the cortical maps.
+0. Based on ISI guide map, slowly (<1mm/min) insert probe perpendicular to cortex at a chosen location, check ephys signals and mark the penetration site on the ISI guide map.
 
-0. In **ConditionTest**, manually refine stimulus, so that most of the electrodes showing maximum response.
+0. In **ConditionTest**, turn on **Input** and manually refine stimulus, so that most of the channels recording the region of interest showing maximum responses.
     - LeftStick = Position
     - RightStick = Size
     - LT/RT = Ori -/+
@@ -76,17 +76,16 @@ Here **Command** is used without **Environment**, it should be set FullScreen (`
     - X + LT/RT = Diameter -/+, not yet
     - Y + LT/RT = Diameter -/+, not yet
 
-0. **Flash2Color**, flip fullscreen colors for CSD analysis. Maximum isolating colors are used to seperate 4A, 4B and 4Ca/b. **Remember** to change and set `Eye`.
-    - Achromatic(non-dominent eye, ColorSpace=DKL, Color=X)
+0. **Flash2Color**, flip fullscreen colors for layer identification. Specific colors are used to seperate 4A, 4B and 4Cα/β. **Remember** to check and set `Eye`.
     - Achromatic(dominent eye, ColorSpace=DKL, Color=X)
     - DKL L-M axis(dominent eye, ColorSpace=DKL, Color=Y)
     - DKL S-(L+M) axis(dominent eye, ColorSpace=DKL, Color=Z)
 
-0. **Color**, this is hue onset/offset against a background.
-    - HSL hues/wps with equal physical luminence(ColorSpace=HSL, Color=HueYm)
-    - DKL hues/wps with maximum cone contrast(ColorSpace=DKL, Color=HueL0)
+0. **Color**, uniform hue patch onset/offset against a background.
+    - HSL hues/wp with equal luminence(ColorSpace=HSL, Color=HueYm)
+    - DKL hues/wp with maximum cone contrast(ColorSpace=DKL, Color=HueL0)
 
-0. **CycleColorPlane**, this is temporal modulated colors on 3 DKL planes, each with CCW and CW cycle direction.
+0. **CycleColorPlane**, temporal modulate colors on 3 DKL planes, each with CCW and CW cycle direction.
     - IsoLum Hues(ModulateParam=DKLIsoLum, CycleDirection=1)
     - IsoLum Hues(ModulateParam=DKLIsoLum, CycleDirection=-1)
     - IsoLM Hues(ModulateParam=DKLIsoLM, CycleDirection=1)
@@ -94,36 +93,30 @@ Here **Command** is used without **Environment**, it should be set FullScreen (`
     - IsoSLM Hues(ModulateParam=DKLIsoSLM, CycleDirection=1)
     - IsoSLM Hues(ModulateParam=DKLIsoSLM, CycleDirection=-1)
 
-0. **HartleySubspace**, this is static sinusoidal gratings with Ori, SpatialFreq and SpatialPhase in hartley space.
+0. **HartleySubspace**, static sinusoidal gratings with Ori, SpatialFreq and SpatialPhase in hartley subspace.
     - Achromatic(ColorSpace=DKL, Color=X)
     - L cone isolating(ColorSpace=LMS, Color=Xmcc)
     - M cone isolating(ColorSpace=LMS, Color=Ymcc)
     - S cone isolating(ColorSpace=LMS, Color=Zmcc)
 
-0. **Image**, natural image set, 4 color modulations the same as HartleySubspace.
+0. **Image**, natural image set with its natural colors or modulated colors the same as in HartleySubspace.
 
-0. **OriSF**, drifting sinusoidal grating of Ori and SF, 4 color modulations the same as HartleySubspace, with an additional Red/Blue square grating(ColorSpace=HSL, Color=RBYm)
+0. **OriSF**, drifting sinusoidal gratings of Ori and SF, color modulations the same as HartleySubspace.
 
-# EPhys Procedure Automation for each penetration
+# EPhys Procedure Automation
 
-There are experiment sessions **ColorEPhys/ColorEPhysLite** to automate sequence of above experiments. To use it properly:
+ExperimentSession **ColorEPhys/ColorEPhysLite** is to automate sequence of above experiments.
 
-1. In **ConditionTest**, manually map receptive field, and set parameters
+0. In **ConditionTest**, manually map receptive field and set parameters:
     - `Experimenter` to recieve notification
     - `RecordSession` and `RecordSite`
-    - dominent `Eye`
+    - presenting `Eye`
     - `Position`
     - `Diameter`
 
-0. In **Flash2Color**
-    - mannually switch to non-doniment eye
-    - set `Eye` to non-dominent
-    - `ColorSpace` = DKL, `Color` = X
-    - click `FullViewportSize` to make stimulus cover full viewport
+0. Start the experimentsession (`Alt + S`).
 
-0. Switch back to dominent eye, then start **ColorEPhys/ColorEPhysLite** experiment session (`Alt + S`).
-
-# Problems
+# Notes
 - joystick need to add color bottons
 
 scanbox recorder

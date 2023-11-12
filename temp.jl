@@ -619,5 +619,3 @@ tt=clampscale(t)
 Gray.(tt)
 
 Gray.(F2mag01)
-
-
