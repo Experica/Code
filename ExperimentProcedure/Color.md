@@ -33,7 +33,7 @@
     - Flip Red/Green (ColorSpace=HSL, Color=RGYm)
     - Flip Blue/Yellow (ColorSpace=HSL, Color=BYYm)
 
-0. **ISIEpoch2Color**, episodic maximum cone isolating colors for cone-opponent functional domains.
+0. **ISIEpochFlash2Color**, episodic maximum cone isolating colors for cone-opponent functional domains.
     - Achromatic(ColorSpace=DKL, Color=X)
     - L cone isolating(ColorSpace=LMS, Color=X)
     - M cone isolating(ColorSpace=LMS, Color=Y)
@@ -52,6 +52,8 @@
     - IsoLM Hues(ModulateParam=DKLIsoLM, CycleDirection=-1)
     - IsoSLM Hues(ModulateParam=DKLIsoSLM, CycleDirection=1)
     - IsoSLM Hues(ModulateParam=DKLIsoSLM, CycleDirection=-1)
+
+0. After ISI experiments, save `bloodvessel` image under red and green light again, and finally the scale bar image.
 
 # ISI Procedure Automation
 
@@ -105,7 +107,7 @@ Here **Command** is used without **Environment**, it should be set FullScreen (`
 
 # EPhys Procedure Automation
 
-ExperimentSession **ColorEPhys/ColorEPhysLite** is to automate sequence of above experiments.
+ExperimentSession **ColorEPhys/ColorEPhysLite** is to automate the sequence of above experiments.
 
 0. In **ConditionTest**, manually map receptive field and set parameters:
     - `Experimenter` to recieve notification

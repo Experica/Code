@@ -12,7 +12,7 @@ end
 
 dataroot = "I:/"
 resultroot = "Y:/"
-subject = "Test";recordsession = "";recordsite = "Full"
+subject = "AG5";recordsession = "";recordsite = "Full"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -27,41 +27,49 @@ function odmap(siteresultdir,lrtests::NTuple{2,String};datafile="isi.jld2")
     pairtest(ler,rer).stat
 end
 
-t = odmap(siteresultdir,("AG1_V1V2_Full_ISIEpochOri8_0","AG1_V1V2_Full_ISIEpochOri8_1"))
+t = odmap(siteresultdir,("AG5_Full_ISIEpochOri8_1","AG5_Full_ISIEpochOri8_2"))
 od = clampscale(dogfilter(t,lσ=50),3)
 h,w = size(od)
 save(joinpath(siteresultdir,"OD.png"),od)
 
 
+
 ## blood vessel and mask
-bvdir = joinpath(dataroot,subject,"blood_vessel")
-bvg = clampscale(readrawim_Mono12Packed(joinpath(bvdir,"blood_vessel-Frame0.Raw"),w,h))
-save(joinpath(siteresultdir,"bloodvessel_green.png"),bvg)
-bvr = clampscale(readrawim_Mono12Packed(joinpath(bvdir,"blood_vessel-Frame1.Raw"),w,h))
-save(joinpath(siteresultdir,"bloodvessel_red.png"),bvr)
+function readframe(dir,name;w=2080,h=2080,siteresultdir=nothing)
+    file = matchfile(Regex("$name-Frame\\d*.Raw");dir,join=true) |> last
+    f = clampscale(readrawim_Mono12Packed(file,w,h))
+    isnothing(siteresultdir) || save(joinpath(siteresultdir,"$name.png"),f)
+    f
+end
+function bvmask(bvdir,bvname;h=2080,w=2080,siteresultdir=nothing,r=nothing)
+    bv = readframe(bvdir,bvname;w,h,siteresultdir)
+    bve = clampscale(dogfilter(bv),3)
+    bvm = binarize(Bool,bve,AdaptiveThreshold(bve))
+    if !isnothing(r)
+        foreach(_->dilate!(bvm),1:r)
+        foreach(_->erode!(bvm),1:r+2)
+    end
+    if !isnothing(siteresultdir)
+        save(joinpath(siteresultdir,"$(bvname)_enhance.png"),ahe(bv,clip=0.9))
+        save(joinpath(siteresultdir,"$(bvname)_mask.png"),bvm)
+    end
+    bvm
+end
 
-bvge = ahe(bvg,clip=0.9)
-save(joinpath(siteresultdir,"bloodvessel_green_enhance.png"),bvge)
-bvre = ahe(bvr,clip=0.9)
-save(joinpath(siteresultdir,"bloodvessel_red_enhance.png"),bvre)
+bvdir = joinpath(dataroot,subject,"BloodVessel")
 
-bvge = clampscale(dogfilter(bvg),3)
-bvgm = binarize(Bool,bvge,AdaptiveThreshold(bvge))
-save(joinpath(siteresultdir,"bloodvessel_green_mask.png"),bvgm)
-bvre = clampscale(dogfilter(bvr),3)
-bvrm = binarize(Bool,bvre,AdaptiveThreshold(bvre))
+bvgm = bvmask(bvdir,"BloodVessel_Green";siteresultdir)
+bvrm = bvmask(bvdir,"BloodVessel_Red";siteresultdir,r=4)
 
-r = 4
-foreach(_->dilate!(bvrm),1:r)
-foreach(_->erode!(bvrm),1:r+2)
-save(joinpath(siteresultdir,"bloodvessel_red_mask.png"),bvrm)
+bvgm = bvmask(bvdir,"BloodVessel_Green_After";siteresultdir)
+bvrm = bvmask(bvdir,"BloodVessel_Red_After";siteresultdir,r=4)
 
-bvsdir = joinpath(dataroot,subject,"blood_vessel_after")
-bvs = clampscale(readrawim_Mono12Packed(joinpath(bvsdir,"blood_vessel_after-Frame1.Raw"),w,h))
-save(joinpath(siteresultdir,"bloodvessel_scale.png"),bvs)
+readframe(bvdir,"BloodVessel_Green_After_Scale";siteresultdir)
+
 
 
 ## OD border and contour
+# od mask drawn in GIMP/Photoshop to exclude non-relevant region(black)
 odmask = gray.(load(joinpath(siteresultdir,"mask_od.png"))) .==  1
 ode = gaussianfilter(od,σ=7)
 ode[.!odmask] .= 0.5
@@ -111,7 +119,7 @@ function cofdmap(siteresultdir,test;datafile="isi.jld2")
     (;cofd,color,minmaxcolor)
 end
 
-cofd,color,minmaxcolor = cofdmap(siteresultdir,"Test_Full_ISIEpoch2Color_0")
+cofd,color,minmaxcolor = cofdmap(siteresultdir,"AG5_Full_ISIEpochFlash2Color_3")
 cofd = clampscale(dogfilter(cofd),3)
 save(joinpath(siteresultdir,"COFD_$(color).png"),cofd)
 

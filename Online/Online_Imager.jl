@@ -31,13 +31,14 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         os = unique(sort(conddesign.Ori).%180)
         qs = unique(os.%90)
         diranglemap=dirpolarmap=orianglemap=oripolarmap=nothing
-    elseif ex["ID"] == "ISIEpoch2Color"
+    elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
         exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
         mincolor = RGBA(conddesign.Color[1]...)
         maxcolor = RGBA(conddesign.Color[2]...)
         exenv["minmaxcolor"] = (;mincolor,maxcolor)
         cm = cgrad(mincolor,maxcolor)
         t=t_dog=nothing
+        repeatpanalyze=4;nanalyze=0
     end
     
     fmt = mdata["meta"]["DataFormat"]
@@ -50,7 +51,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
     nframepcond = round(Int,conddur/1000*fps)
     condstartframe = round(Int,(preicidur+delay)/1000*fps)
     baseframeindex = 1:nbaseframe
-    frameindex = (0:nframepcond-1).+condstartframe
+    frameindex = condstartframe:(nbaseframe+nframepcond-1)
     ei = 0
     repeat = 1
     imagefile = Vector{String}[]
@@ -69,7 +70,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         push!(ctc,(;(f=>conddesign[ci,f] for f in propertynames(conddesign))...))
 
         epochdir = joinpath(testroot,"Epoch$ei")
-        epochfiles = [joinpath(epochdir,"$test-Frame$i.$fmt") for i in eachindex(readdir(epochdir))]
+        epochfiles = [joinpath(epochdir,"$test-Frame$(i-1).$fmt") for i in eachindex(readdir(epochdir))]
         push!(imagefile,epochfiles)
         push!(epochresponse, frameresponse_imager(epochfiles,w,h,frameindex,baseframeindex))
         ei+=1
@@ -104,7 +105,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             foreach(ext->save(joinpath(erdir,"ori_anglemap$ext"),orianglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_polarmap$ext"),oripolarmap),figfmt)
             jldsave(joinpath(erdir,"isi.jld2");ctc,ds,cr,exenv,siteid)
-        elseif ex["ID"] == "ISIEpoch2Color" && repeat > 3
+        elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"] && floor((repeat-1)/repeatpanalyze) > nanalyze
             t = @views pairtest(epochresponse[ct.CondIndex.==1],epochresponse[ct.CondIndex.==2]).stat
             t_dog = clampscale(dogfilter(t),2)
             showprogress && display(Gray.(t_dog))
@@ -112,8 +113,8 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             mkpath(erdir)
             foreach(ext->save(joinpath(erdir,"t$ext"),t_dog),figfmt)
             jldsave(joinpath(erdir,"isi.jld2");ctc,t,exenv,siteid)
+            nanalyze+=1
         end
-        
     end
 
     if ex["ID"] == "ISIEpochOri8"
@@ -122,7 +123,7 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
         foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
         jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,exenv,siteid)
-    elseif ex["ID"] == "ISIEpoch2Color"
+    elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
         t_dog_color = map(i->cm[i],t_dog)
         foreach(ext->save(joinpath(resultdir,"t$ext"),t_dog),figfmt)
         foreach(ext->save(joinpath(resultdir,"t_color$ext"),t_dog_color),figfmt)

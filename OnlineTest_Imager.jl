@@ -2,10 +2,11 @@ includet("Online/Online_Imager.jl")
 
 ## Manual online processing
 resultroot = "Y:/"
-testroot = "I:/Test/Test_Full/Test_Full_ISIEpoch2Color_0"
-testroot = "I:/Test/Test_ISI_Full/Test_ISI_Full_ISICycle2Color_10"
-testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISICycle2Color_2"
-testroot = "I:/AG1/AG1_V1V2_Full/AG1_V1V2_Full_ISIEpochOri8_1"
+testroot = "I:/Test/Test_Full/Test_Full_ISIEpochFlash2Color_6"
+testroot = "I:/Test/Test_Full/Test_Full_ISICycle2Color_0"
+testroot = "I:/AG5/AG5_Full/AG5_Full_ISICycle2Color_2"
+testroot = "I:/AG5/AG5_Full/AG5_Full_ISIEpochOri8_1"
+testroot = "I:/AG5/AG5_Full/AG5_Full_ISIEpochFlash2Color_0"
 
 online_epoch_imager(testroot,resultroot)
 online_cycle_imager(testroot,resultroot)
@@ -44,4 +45,5 @@ rootdir = "I:/Test/Test_Full/"
 
 const ST = serve(rootdir;resultroot);
 unserve(rootdir,ST)
+
 
