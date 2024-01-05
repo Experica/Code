@@ -10,8 +10,8 @@ function drawcontour!(img,ct,color=oneunit(eltype(img));fill=false)
     return img
 end
 
-dataroot = "I:/"
-resultroot = "Y:/"
+dataroot = "D:/"
+resultroot = "Z:/"
 subject = "AG5";recordsession = "";recordsite = "Full"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
@@ -35,8 +35,8 @@ save(joinpath(siteresultdir,"OD.png"),od)
 
 
 ## blood vessel and mask
-function readframe(dir,name;w=2080,h=2080,siteresultdir=nothing)
-    file = matchfile(Regex("$name-Frame\\d*.Raw");dir,join=true) |> last
+function readframe(dir,name;w=2080,h=2080,siteresultdir=nothing,whichframe=last)
+    file = matchfile(Regex("$name-Frame\\d*.Raw");dir,join=true) |> whichframe
     f = clampscale(readrawim_Mono12Packed(file,w,h))
     isnothing(siteresultdir) || save(joinpath(siteresultdir,"$name.png"),f)
     f
@@ -50,7 +50,7 @@ function bvmask(bvdir,bvname;h=2080,w=2080,siteresultdir=nothing,r=nothing)
         foreach(_->erode!(bvm),1:r+2)
     end
     if !isnothing(siteresultdir)
-        save(joinpath(siteresultdir,"$(bvname)_enhance.png"),ahe(bv,clip=0.9))
+        save(joinpath(siteresultdir,"$(bvname)_ahe.png"),ahe(bv,clip=0.9))
         save(joinpath(siteresultdir,"$(bvname)_mask.png"),bvm)
     end
     bvm
@@ -61,7 +61,7 @@ bvdir = joinpath(dataroot,subject,"BloodVessel")
 bvgm = bvmask(bvdir,"BloodVessel_Green";siteresultdir)
 bvrm = bvmask(bvdir,"BloodVessel_Red";siteresultdir,r=4)
 
-bvgm = bvmask(bvdir,"BloodVessel_Green_After";siteresultdir)
+bvgm = bvmask(bvdir,"BloodVessel_Green_After";siteresultdir,r=6)
 bvrm = bvmask(bvdir,"BloodVessel_Red_After";siteresultdir,r=4)
 
 readframe(bvdir,"BloodVessel_Green_After_Scale";siteresultdir)
@@ -70,7 +70,7 @@ readframe(bvdir,"BloodVessel_Green_After_Scale";siteresultdir)
 
 ## OD border and contour
 # od mask drawn in GIMP/Photoshop to exclude non-relevant region(black)
-odmask = gray.(load(joinpath(siteresultdir,"mask_od.png"))) .==  1
+odmask = gray.(load(joinpath(siteresultdir,"mask_OD.png"))) .==  1
 ode = gaussianfilter(od,σ=7)
 ode[.!odmask] .= 0.5
 ode = ahe(ode,nblock=1,clip=0.9)
@@ -105,6 +105,7 @@ save(joinpath(siteresultdir,"OD_contourfill_mask_left.png"),odcfml)
 save(joinpath(siteresultdir,"OD_contourfill_mask_right.png"),odcfmr)
 
 
+
 ## Cone-Opponent Functional Domain
 function cofdmap(siteresultdir,test;datafile="isi.jld2")
     d = load(joinpath(siteresultdir,test,datafile))
@@ -119,13 +120,14 @@ function cofdmap(siteresultdir,test;datafile="isi.jld2")
     (;cofd,color,minmaxcolor)
 end
 
-cofd,color,minmaxcolor = cofdmap(siteresultdir,"AG5_Full_ISIEpochFlash2Color_3")
+cofd,color,minmaxcolor = cofdmap(siteresultdir,"AG5_Full_ISIEpochFlash2Color_5")
 cofd = clampscale(dogfilter(cofd),3)
 save(joinpath(siteresultdir,"COFD_$(color).png"),cofd)
 
 
 ## COFD contour
-cofdmask = gray.(load(joinpath(siteresultdir,"mask_cofd.png"))) .== 1
+# cofd mask drawn in GIMP/Photoshop to exclude non-relevant region(black)
+cofdmask = gray.(load(joinpath(siteresultdir,"mask_COFD.png"))) .== 1
 cofdmask .&= bvrm
 cofde = gaussianfilter(cofd)
 cofde = ahe(cofde,nblock=30,clip=1)
@@ -154,5 +156,4 @@ cofdcfml = drawcontour!(similar(cofd,RGBA{Float64}),cofdctl,coloralpha(minmaxcol
 cofdcfmh = drawcontour!(similar(cofd,RGBA{Float64}),cofdcth,coloralpha(minmaxcolor.maxcolor,0.1),fill=true)
 save(joinpath(siteresultdir,"COFD_$(color)_contourfill_mask_low.png"),cofdcfml)
 save(joinpath(siteresultdir,"COFD_$(color)_contourfill_mask_high.png"),cofdcfmh)
-
 

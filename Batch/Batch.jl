@@ -37,7 +37,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
                 process_2P_hartleyFourier(t.files,param,uuid=t.UUID,log=log,plot=plot)
             elseif t.ID in ["ISICycle2Color","ISICycleOri"] && t.sourceformat=="Imager"
                 process_cycle_imager(t.files,param;uuid=t.UUID,log,plot)
-            elseif t.ID in ["ISIEpochOri8"] && t.sourceformat=="Imager"
+            elseif t.ID in ["ISIEpochOri8","ISIEpoch2Color","ISIEpochFlash2Color"] && t.sourceformat=="Imager"
                 process_epoch_imager(t.files,param;uuid=t.UUID,log,plot)
             else
                 @warn "No corresonding process function, skip `$(t.ID)` from `$(t.sourceformat)` ..."

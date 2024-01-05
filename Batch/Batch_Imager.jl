@@ -13,14 +13,12 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
     # Prepare Conditions
     envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     condon = ex["CondTest"]["CondOn"]
-    condoff = ex["CondTest"]["CondOff"]
     modulatefreq = envparam["ModulateTemporalFreq"]
     modulatetype = envparam["ModulateType"]
     modulateduty = envparam["ModulateDuty"]
     ncycle = ex["CondRepeat"]
     figfmt = haskey(param,:figfmt) ? param[:figfmt] : [".png"]
-    exenv=Dict()
-    exenv["eye"] = ex["Eye"]
+    exenv=Dict{Any,Any}("eye"=>ex["Eye"])
 
     # Prepare Frame
     imagefile = dataset["imagefile"]
@@ -148,7 +146,6 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     # Prepare Conditions
     envparam = ex["EnvParam"];exparam = ex["Param"];preicidur = ex["PreICI"];conddur = ex["CondDur"];suficidur = ex["SufICI"]
     condon = ex["CondTest"]["CondOn"]
-    condoff = ex["CondTest"]["CondOff"]
     ctc = condtestcond(ex["CondTestCond"])
     cond = condin(ctc)
     factors = finalfactor(ctc)
@@ -169,7 +166,7 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     pixmax = 2^12 - 1
 
     # Epoch Response
-    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : 500 # hemodynamic delay
+    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : conddur/2 # hemodynamic delay, here use the late near saturated responses
     baseframeindex = epoch2sampleindex([0 preicidur],framerate,maxsampleindex=minframe)
     frameindex = epoch2sampleindex([0 conddur].+(preicidur+responsedelay),framerate,maxsampleindex=minframe)
     epochresponse = Array{Float64}(undef,h,w,nepoch)
@@ -225,7 +222,7 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
         end
 
         jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dp,dpt,op,opt,dcmap,ocmap,exenv,siteid)
-    elseif ex["ID"] == "ISIEpoch2Color"
+    elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
         t = pairtest(epochresponse,cond.i...).stat
         t_dog = clampscale(dogfilter(t),2)
         
