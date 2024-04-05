@@ -199,28 +199,29 @@ end
 
 
 ## Manual Layer Assignment
-subject = "AG1";recordsession = "V1";recordsite = "ODL3"
+subject = "AG5";recordsession = "V1";recordsite = "11R"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
 layer = load(joinpath(siteresultdir,"layer.jld2"),"layer")
 # layer = Dict()
 
-layer["1"] = [3100,3300]
-layer["2/3A"] = [3000,2910]
-layer["3B"] = [1350,2816]
-layer["4A"] = [2700,2440]
-layer["4B"] = [2350,2385]
-layer["4Cα"] = [2250,2460]
-layer["4Cβ"] = [2050,2330]
-layer["5"] = [1800,1970]
-layer["6A"] = [1600,1680]
-layer["6B"] = [550,1610]
-layer["WM"] = [0,1175]
+layer["1"] = [3100,3665]
+layer["2/3A"] = [3000,3515]
+layer["3B"] = [1350,3100]
+layer["4A"] = [2700,2425]
+layer["4B"] = [2350,2258]
+layer["4Cα"] = [2250,2770]
+layer["4Cβ"] = [2050,1945]
+layer["5"] = [1800,1895]
+layer["6A"] = [1600,1735]
+layer["6B"] = [550,2070]
+layer["WM"] = [0,1910]
+layer["GM"] = [0,1310]
 
-# w23 = layer["2/3A"][2]-layer["4A"][2]
-# w3b = round(Int,w23/3)
-# layer["3B"] = [1350,layer["4A"][2]+w3b]
+w23 = layer["2/3A"][2]-layer["4A"][2]
+w3b = round(Int,w23/3)
+layer["3B"] = [1350,layer["4A"][2]+w3b]
 
 # Finalize Layer
 layer = checklayer!(layer)
@@ -230,14 +231,14 @@ jldsave(joinpath(siteresultdir,"layer.jld2");layer,siteid)
 flashlayer(siteid,siteresultdir;layer)
 # colorlayer(siteid,siteresultdir;layer)
 # orisflayer(siteid,siteresultdir;layer)
-flashlayer(siteid,siteresultdir;layer,layerext=200,figfmt=[".svg"])
+flashlayer(siteid,siteresultdir;layer,layerext=200,figfmt=[".png"])
 
 
 
 function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothing, scdepth=500, gfreq=(30, 100), figfmt=[".png"])
 
     test = "Flash2Color"
-    testids = ["$(siteid)_$(test)_$i" for i in 0:3]
+    testids = ["$(siteid)_$(test)_$i" for i in 0:2]
 
     if layer == :batch
         layerpath = joinpath(siteresultdir, "layer.jld2")
@@ -260,45 +261,45 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
     minmaxcolors=[colors[i:i+1] for i in 1:2:length(colors)]
     depths = mapreduce(i -> [i["depths"], i["depths"]], append!, aps)
 
-    # crms = mapreduce(i -> [v for v in values(i["crms"])], append!, aps)
-    # times = mapreduce(i -> [i["times"], i["times"]], append!, aps)
-    # plotlayercondresponse(crms, times, depths; colors, titles, layer, layerext)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")), figfmt)
+    crms = mapreduce(i -> [v for v in values(i["crms"])], append!, aps)
+    times = mapreduce(i -> [i["times"], i["times"]], append!, aps)
+    plotlayercondresponse(crms, times, depths; colors, titles, layer, layerext)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")), figfmt)
 
-    # tps = map(i -> i["tps"], aps)
-    # trials = map(i -> 1:size(i, 2), tps)
-    # plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPower$ext")), figfmt)
-    # # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
-    # ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
-    # plotlayertrialresponse(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPowerf1$ext")), figfmt)
+    tps = map(i -> i["tps"], aps)
+    trials = map(i -> 1:size(i, 2), tps)
+    plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPower$ext")), figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
+    ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
+    plotlayertrialresponse(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tPowerf1$ext")), figfmt)
 
-    # tlc = map(i -> i["tlc"], aps)
-    # plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tCoherence$ext")), figfmt)
+    tlc = map(i -> i["tlc"], aps)
+    plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_tCoherence$ext")), figfmt)
 
-    # cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
-    # psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
-    # plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPower$ext")), figfmt)
-    # # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
-    # fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
-    # # w=21(147Hz) frequency window to filter line noises
-    # fcfps = map(i -> mapwindow(minimum,i,(1,21)), fcfps)
-    # plotlayercondresponse(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPowerf1w21$ext")), figfmt)
+    cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
+    psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
+    plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPower$ext")), figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
+    fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
+    # w=21(147Hz) frequency window to filter line noises
+    w = 31
+    fcfps = map(i -> mapwindow(minimum,i,(1,w)), fcfps)
+    plotlayercondresponse(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fPowerf1w$w$ext")), figfmt)
     
-    # cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
-    # lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
-    # plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherence$ext")), figfmt)
-    # # w=21(147Hz) frequency window to filter line noises
-    # fcflc = map(i -> mapwindow(minimum,i,(1,21)), cflc)
-    # plotlayercondresponse(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherencew21$ext")), figfmt)
+    cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
+    lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
+    plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherence$ext")), figfmt)
+    fcflc = map(i -> mapwindow(minimum,i,(1,w)), cflc)
+    plotlayercondresponse(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_fCoherencew$w$ext")), figfmt)
 
-    # jldsave(joinpath(siteresultdir,"$(test)_ap.jld2");crms,tps,ftps,cfps,fcfps,tlc,cflc,fcflc,depths,times,trials,psfreqs,lcfreqs,colors,titles,siteid)
+    jldsave(joinpath(siteresultdir,"$(test)_ap.jld2");crms,tps,ftps,cfps,fcfps,tlc,cflc,fcflc,depths,times,trials,psfreqs,lcfreqs,colors,titles,siteid)
 
 
     # downsampled Coherence and interpolated
@@ -322,42 +323,42 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
 
 
     ## AP+
-    aps = load.(joinpath.(siteresultdir, testids, "ap$ii+.jld2"))
+    # aps = load.(joinpath.(siteresultdir, testids, "ap$ii+.jld2"))
 
-    tps = map(i -> i["tps"], aps)
-    trials = map(i -> 1:size(i, 2), tps)
-    plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPower$ext")), figfmt)
-    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
-    ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
-    plotlayertrialresponse(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPowerf1$ext")), figfmt)
+    # tps = map(i -> i["tps"], aps)
+    # trials = map(i -> 1:size(i, 2), tps)
+    # plotlayertrialresponse(tps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPower$ext")), figfmt)
+    # # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power 
+    # ftps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), tps)
+    # plotlayertrialresponse(ftps, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btPowerf1$ext")), figfmt)
 
-    tlc = map(i -> i["tlc"], aps)
-    plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btCoherence$ext")), figfmt)
+    # tlc = map(i -> i["tlc"], aps)
+    # plotlayertrialresponse(tlc, trials, depths; minmaxcolors, titles=titles[1:2:end], layer, layerext, color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_btCoherence$ext")), figfmt)
 
-    cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
-    psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
-    plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPower$ext")), figfmt)
-    # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
-    fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
-    # w=21(147Hz) frequency window to filter line noises
-    fcfps = map(i -> mapwindow(minimum,i,(1,21)), fcfps)
-    plotlayercondresponse(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPowerf1w21$ext")), figfmt)
+    # cfps = mapreduce(i -> [v for v in values(i["cfps"])], append!, aps)
+    # psfreqs = mapreduce(i->[i["psfreqs"],i["psfreqs"]],append!,aps)
+    # plotlayercondresponse(cfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPower$ext")), figfmt)
+    # # σ=1(20μm): 5(80μm) diameter gaussian kernal to filter depth line power
+    # fcfps = map(i -> imfilter(i,Kernel.gaussian((1,0)),Fill(0)), cfps)
+    # # w=21(147Hz) frequency window to filter line noises
+    # fcfps = map(i -> mapwindow(minimum,i,(1,21)), fcfps)
+    # plotlayercondresponse(fcfps, psfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=powcm,rl="Power (μV²)",rlims=(0,4000),rscale=1e12)
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfPowerf1w21$ext")), figfmt)
     
-    cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
-    lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
-    plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherence$ext")), figfmt)
-    # w=21(147Hz) frequency window to filter line noises
-    fcflc = map(i -> mapwindow(minimum,i,(1,21)), cflc)
-    plotlayercondresponse(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
-    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherencew21$ext")), figfmt)
+    # cflc = mapreduce(i -> [v for v in values(i["cflc"])], append!, aps)
+    # lcfreqs = mapreduce(i->[i["lcfreqs"],i["lcfreqs"]],append!,aps)
+    # plotlayercondresponse(cflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherence$ext")), figfmt)
+    # # w=21(147Hz) frequency window to filter line noises
+    # fcflc = map(i -> mapwindow(minimum,i,(1,21)), cflc)
+    # plotlayercondresponse(fcflc, lcfreqs, depths;xl="Frequency (Hz)", colors, titles, layer, layerext,color=cohcm,rl="Coherence")
+    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_bfCoherencew21$ext")), figfmt)
 
-    jldsave(joinpath(siteresultdir,"$(test)_ap+.jld2");tps,ftps,cfps,fcfps,tlc,cflc,fcflc,depths,trials,psfreqs,lcfreqs,colors,titles,siteid)
+    # jldsave(joinpath(siteresultdir,"$(test)_ap+.jld2");tps,ftps,cfps,fcfps,tlc,cflc,fcflc,depths,trials,psfreqs,lcfreqs,colors,titles,siteid)
 
 
     # ## Unit PSTH
@@ -380,49 +381,49 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
     # jldsave(joinpath(siteresultdir,"$(test)_psth.jld2");cpsth,cdpsth,fcdpsth,xs,ys,colors,titles,siteid)
 
 
-    # ## LF
-    # lfs = load.(joinpath.(siteresultdir, testids, "lf$ii.jld2"))
-    # clfp = mapreduce(i -> [1e6v for v in values(i["clfp"])], append!, lfs)
-    # cdcsd = mapreduce(i -> [v for v in values(i["ccsd"])], append!, lfs)
-    # times = mapreduce(i -> [i["times"], i["times"]], append!, lfs)
-    # depths = mapreduce(i -> [i["depths"], i["depths"]], append!, lfs)
-    # hy = lfs[1]["exenv"]["hy"]
-    # baseindex = lfs[1]["baseindex"]
+    ## LF
+    lfs = load.(joinpath.(siteresultdir, testids, "lf$ii.jld2"))
+    clfp = mapreduce(i -> [1e6v for v in values(i["clfp"])], append!, lfs)
+    cdcsd = mapreduce(i -> [v for v in values(i["ccsd"])], append!, lfs)
+    times = mapreduce(i -> [i["times"], i["times"]], append!, lfs)
+    depths = mapreduce(i -> [i["depths"], i["depths"]], append!, lfs)
+    hy = lfs[1]["exenv"]["hy"]
+    baseindex = lfs[1]["baseindex"]
 
-    # plotlayercondresponse(clfp,times,depths;colors,titles,layer,layerext)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
-    # plotlayercondresponse(cdcsd,times,depths;colors,titles,layer,layerext,color=csdcm)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
+    plotlayercondresponse(clfp,times,depths;colors,titles,layer,layerext)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+    plotlayercondresponse(cdcsd,times,depths;colors,titles,layer,layerext,color=csdcm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-    # # σ=1(20μm): 5(80μm) diameter gaussian kernal
-    # f1cdcsd = map(i->imfilter(i,Kernel.gaussian((1,0)),Fill(0)),cdcsd)
-    # plotlayercondresponse(f1cdcsd,times,depths;colors,titles,layer,layerext,color=csdcm)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal
+    f1cdcsd = map(i->imfilter(i,Kernel.gaussian((1,0)),Fill(0)),cdcsd)
+    plotlayercondresponse(f1cdcsd,times,depths;colors,titles,layer,layerext,color=csdcm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
 
-    # # σ=1.5(30μm): 9(160μm) diameter gaussian kernal
-    # fcdcsd = map(i -> imfilter(i, Kernel.gaussian((1.5, 0)), Fill(0)), cdcsd)
-    # plotlayercondresponse(fcdcsd, times, depths; colors, titles, layer, color=csdcm, layerext)
-    # foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1.5$ext")), figfmt)
+    # σ=1.5(30μm): 9(160μm) diameter gaussian kernal
+    fcdcsd = map(i -> imfilter(i, Kernel.gaussian((1.5, 0)), Fill(0)), cdcsd)
+    plotlayercondresponse(fcdcsd, times, depths; colors, titles, layer, color=csdcm, layerext)
+    foreach(ext -> savefig(joinpath(siteresultdir, "$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1.5$ext")), figfmt)
 
-    # # σ=2(40μm): 9(160μm) diameter gaussian kernal
-    # f2cdcsd = map(i->imfilter(i,Kernel.gaussian((2,0)),Fill(0)),cdcsd)
-    # plotlayercondresponse(f2cdcsd,times,depths;colors,titles,layer,color=csdcm,layerext)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+    # σ=2(40μm): 9(160μm) diameter gaussian kernal
+    f2cdcsd = map(i->imfilter(i,Kernel.gaussian((2,0)),Fill(0)),cdcsd)
+    plotlayercondresponse(f2cdcsd,times,depths;colors,titles,layer,color=csdcm,layerext)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
 
-    # # CSD
-    # ccsd = map(v->csd(v,h=hy),clfp)
-    # plotlayercondresponse(ccsd,times,depths;colors,titles,layer,layerext,color=csdcm)
-    # foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_CSD$ext")),figfmt)
-    # # CSD filtered
-    # fccsds=[]
-    # for f in 1:0.5:2
-    #     fccsd = map(i->imfilter(i,Kernel.gaussian((f,0)),Fill(0)),ccsd)
-    #     push!(fccsds,fccsd)
-    #     plotlayercondresponse(fccsd,times,depths;colors,titles,layer,layerext,color=csdcm)
-    #     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_CSDf$f$ext")),figfmt)
-    # end
+    # CSD
+    ccsd = map(v->csd(v,h=hy),clfp)
+    plotlayercondresponse(ccsd,times,depths;colors,titles,layer,layerext,color=csdcm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_CSD$ext")),figfmt)
+    # CSD filtered
+    fccsds=[]
+    for f in 1:0.5:2
+        fccsd = map(i->imfilter(i,Kernel.gaussian((f,0)),Fill(0)),ccsd)
+        push!(fccsds,fccsd)
+        plotlayercondresponse(fccsd,times,depths;colors,titles,layer,layerext,color=csdcm)
+        foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_CSDf$f$ext")),figfmt)
+    end
 
-    # jldsave(joinpath(siteresultdir,"$(test)_lf.jld2");clfp,cdcsd,fcdcsd,ccsd,fccsd=fccsds[2],times,depths,colors,titles,siteid)
+    jldsave(joinpath(siteresultdir,"$(test)_lf.jld2");clfp,cdcsd,fcdcsd,ccsd,fccsd=fccsds[2],times,depths,colors,titles,siteid)
 
     # # downsampled and interpolated CSD
     # for d in 2:5
@@ -502,171 +503,171 @@ function flashlayer(siteid, siteresultdir; ii='0', layer=nothing, layerext=nothi
 
 end
 
-# function colorlayer(siteid,siteresultdir;ii='0',layer=nothing)
+function colorlayer(siteid,siteresultdir;ii='0',layer=nothing)
 
-#     test = "Color"
-#     testids = ["$(siteid)_$(test)_$i" for i in 0:1]
-#     testn=length(testids)
-#     if layer==:batch
-#         layerpath = joinpath(siteresultdir,"layer.jld2")
-#         layer = ispath(layerpath) ? load(layerpath,"layer") : nothing
-#     end
-#     # AP
-#     aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
-#     titles = ["$(i["exenv"]["eye"])_$(i["exenv"]["color"])" for i in aps]
-#     colormaps = map(i->cmcode[i["exenv"]["color"]].colors[range(1,step=45,length=8)],aps)
-#     cmrms = map(i->reduce(.+, values(i["crms"])),aps)
-#     wcmrms = map(i->reduce(.+, values(i["wcrms"])),aps)
-#     times = map(i->i["times"],aps)
-#     depths = map(i->i["depths"],aps)
+    test = "Color"
+    testids = ["$(siteid)_$(test)_$i" for i in 0:1]
+    testn=length(testids)
+    if layer==:batch
+        layerpath = joinpath(siteresultdir,"layer.jld2")
+        layer = ispath(layerpath) ? load(layerpath,"layer") : nothing
+    end
+    # AP
+    aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
+    titles = ["$(i["exenv"]["eye"])_$(i["exenv"]["color"])" for i in aps]
+    colormaps = map(i->cmcode[i["exenv"]["color"]].colors[range(1,step=45,length=8)],aps)
+    cmrms = map(i->reduce(.+, values(i["crms"])),aps)
+    wcmrms = map(i->reduce(.+, values(i["wcrms"])),aps)
+    times = map(i->i["times"],aps)
+    depths = map(i->i["depths"],aps)
 
-#     plotcondresponse(cmrms,times,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")),figfmt)
-#     plotcondresponse(wcmrms,times,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdRMS$ext")),figfmt)
+    plotcondresponse(cmrms,times,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")),figfmt)
+    plotcondresponse(wcmrms,times,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdRMS$ext")),figfmt)
 
-#     prms = map(i->i["prms"],aps)
-#     wprms = map(i->i["wprms"],aps)
-#     trials = map(i->1:size(i,2),prms)
-#     plottrialresponse(prms,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_RMS$ext")),figfmt)
-#     plottrialresponse(wprms,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wRMS$ext")),figfmt)
+    prms = map(i->i["prms"],aps)
+    wprms = map(i->i["wprms"],aps)
+    trials = map(i->1:size(i,2),prms)
+    plottrialresponse(prms,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_RMS$ext")),figfmt)
+    plottrialresponse(wprms,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wRMS$ext")),figfmt)
 
-#     pc = map(i->i["pc"],aps)
-#     wpc = map(i->i["wpc"],aps)
-#     plottrialresponse(pc,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_Coherence$ext")),figfmt)
-#     plottrialresponse(wpc,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wCoherence$ext")),figfmt)
+    pc = map(i->i["pc"],aps)
+    wpc = map(i->i["wpc"],aps)
+    plottrialresponse(pc,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_Coherence$ext")),figfmt)
+    plottrialresponse(wpc,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wCoherence$ext")),figfmt)
 
-#     pdc = map(i->abs.(i["pc"].-i["pbc"]),aps)
-#     wpdc = map(i->abs.(i["wpc"].-i["wpbc"]),aps)
-#     plottrialresponse(pdc,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCoherence$ext")),figfmt)
-#     plottrialresponse(wpdc,trials,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
+    pdc = map(i->abs.(i["pc"].-i["pbc"]),aps)
+    wpdc = map(i->abs.(i["wpc"].-i["wpbc"]),aps)
+    plottrialresponse(pdc,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCoherence$ext")),figfmt)
+    plottrialresponse(wpdc,trials,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
 
-#     # Unit PSTH
-#     cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
-#     cmpsth = map(i->mapreduce(v->v.psth ,.+, values(i["cpsth"])),cpsths)
-#     xs = map(i->first(values(i["cpsth"])).x,cpsths)
-#     ys = map(i->first(values(i["cpsth"])).y,cpsths)
+    # Unit PSTH
+    cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
+    cmpsth = map(i->mapreduce(v->v.psth ,.+, values(i["cpsth"])),cpsths)
+    xs = map(i->first(values(i["cpsth"])).x,cpsths)
+    ys = map(i->first(values(i["cpsth"])).y,cpsths)
 
-#     plotcondresponse(cmpsth,xs,ys;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
+    plotcondresponse(cmpsth,xs,ys;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
 
-#     # LFP and CSD
-#     lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
-#     cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
-#     cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
-#     times = map(i->i["times"],lfs)
-#     depths = map(i->i["depths"],lfs)
-#     cm = cgrad(:jet,rev=true)
+    # LFP and CSD
+    lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
+    cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
+    cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
+    times = map(i->i["times"],lfs)
+    depths = map(i->i["depths"],lfs)
+    cm = cgrad(:jet,rev=true)
 
-#     plotcondresponse(cmlfp,times,depths;colormaps,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
-#     plotcondresponse(cmcsd,times,depths;colormaps,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
+    plotcondresponse(cmlfp,times,depths;colormaps,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+    plotcondresponse(cmcsd,times,depths;colormaps,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-#     # σ=1(20μm): 5(80μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
 
-#     # σ=2(40μm): 9(160μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+    # σ=2(40μm): 9(160μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
 
-#     # σ=3(60μm): 13(240μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
-# end
+    # σ=3(60μm): 13(240μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;colormaps,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
+end
 
-# function orisflayer(siteid,siteresultdir;ii='0',layer=nothing)
+function orisflayer(siteid,siteresultdir;ii='0',layer=nothing)
 
-#     test = "OriSF"
-#     testids = ["$(siteid)_$(test)_$i" for i in 0:3]
-#     testn=length(testids)
-#     if layer==:batch
-#         layerpath = joinpath(siteresultdir,"layer.jld2")
-#         layer = ispath(layerpath) ? load(layerpath,"layer") : nothing
-#     end
-#     # AP
-#     aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
-#     titles = ["$(i["exenv"]["eye"])_$(i["exenv"]["color"])" for i in aps]
-#     minmaxcolors = [i["exenv"]["minmaxcolor"] for i in aps]
-#     cmrms = map(i->reduce(.+, values(i["crms"])),aps)
-#     wcmrms = map(i->reduce(.+, values(i["wcrms"])),aps)
-#     times = map(i->i["times"],aps)
-#     depths = map(i->i["depths"],aps)
+    test = "OriSF"
+    testids = ["$(siteid)_$(test)_$i" for i in 0:3]
+    testn=length(testids)
+    if layer==:batch
+        layerpath = joinpath(siteresultdir,"layer.jld2")
+        layer = ispath(layerpath) ? load(layerpath,"layer") : nothing
+    end
+    # AP
+    aps = load.(joinpath.(siteresultdir,testids,"ap$ii.jld2"))
+    titles = ["$(i["exenv"]["eye"])_$(i["exenv"]["color"])" for i in aps]
+    minmaxcolors = [i["exenv"]["minmaxcolor"] for i in aps]
+    cmrms = map(i->reduce(.+, values(i["crms"])),aps)
+    wcmrms = map(i->reduce(.+, values(i["wcrms"])),aps)
+    times = map(i->i["times"],aps)
+    depths = map(i->i["depths"],aps)
 
-#     plotcondresponse(cmrms,times,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")),figfmt)
-#     plotcondresponse(wcmrms,times,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdRMS$ext")),figfmt)
+    plotcondresponse(cmrms,times,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dRMS$ext")),figfmt)
+    plotcondresponse(wcmrms,times,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdRMS$ext")),figfmt)
 
-#     prms = map(i->i["prms"],aps)
-#     wprms = map(i->i["wprms"],aps)
-#     trials = map(i->1:size(i,2),prms)
-#     plottrialresponse(prms,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_RMS$ext")),figfmt)
-#     plottrialresponse(wprms,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wRMS$ext")),figfmt)
+    prms = map(i->i["prms"],aps)
+    wprms = map(i->i["wprms"],aps)
+    trials = map(i->1:size(i,2),prms)
+    plottrialresponse(prms,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_RMS$ext")),figfmt)
+    plottrialresponse(wprms,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wRMS$ext")),figfmt)
 
-#     pc = map(i->i["pc"],aps)
-#     wpc = map(i->i["wpc"],aps)
-#     plottrialresponse(pc,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_Coherence$ext")),figfmt)
-#     plottrialresponse(wpc,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wCoherence$ext")),figfmt)
+    pc = map(i->i["pc"],aps)
+    wpc = map(i->i["wpc"],aps)
+    plottrialresponse(pc,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_Coherence$ext")),figfmt)
+    plottrialresponse(wpc,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wCoherence$ext")),figfmt)
 
-#     pdc = map(i->abs.(i["pc"].-i["pbc"]),aps)
-#     wpdc = map(i->abs.(i["wpc"].-i["wpbc"]),aps)
-#     plottrialresponse(pdc,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCoherence$ext")),figfmt)
-#     plottrialresponse(wpdc,trials,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
+    pdc = map(i->abs.(i["pc"].-i["pbc"]),aps)
+    wpdc = map(i->abs.(i["wpc"].-i["wpbc"]),aps)
+    plottrialresponse(pdc,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCoherence$ext")),figfmt)
+    plottrialresponse(wpdc,trials,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_wdCoherence$ext")),figfmt)
 
-#     # Unit PSTH
-#     cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
-#     cmpsth = map(i->mapreduce(v->v.psth ,.+, values(i["cpsth"])),cpsths)
-#     xs = map(i->first(values(i["cpsth"])).x,cpsths)
-#     ys = map(i->first(values(i["cpsth"])).y,cpsths)
+    # Unit PSTH
+    cpsths = load.(joinpath.(siteresultdir,testids,"depthpsth$ii.jld2"))
+    cmpsth = map(i->mapreduce(v->v.psth ,.+, values(i["cpsth"])),cpsths)
+    xs = map(i->first(values(i["cpsth"])).x,cpsths)
+    ys = map(i->first(values(i["cpsth"])).y,cpsths)
 
-#     plotcondresponse(cmpsth,xs,ys;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
+    plotcondresponse(cmpsth,xs,ys;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dPSTH$ext")),figfmt)
 
-#     # LFP and CSD
-#     lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
-#     cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
-#     cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
-#     times = map(i->i["times"],lfs)
-#     depths = map(i->i["depths"],lfs)
-#     cm = cgrad(:jet,rev=true)
+    # LFP and CSD
+    lfs = load.(joinpath.(siteresultdir,testids,"lf$ii.jld2"))
+    cmlfp = map(i->mapreduce(j->1e6j,.+, values(i["clfp"])),lfs)
+    cmcsd = map(i->reduce(.+, values(i["ccsd"])),lfs)
+    times = map(i->i["times"],lfs)
+    depths = map(i->i["depths"],lfs)
+    cm = cgrad(:jet,rev=true)
 
-#     plotcondresponse(cmlfp,times,depths;minmaxcolors,titles,layer)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
-#     plotcondresponse(cmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
+    plotcondresponse(cmlfp,times,depths;minmaxcolors,titles,layer)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_LFP$ext")),figfmt)
+    plotcondresponse(cmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSD$ext")),figfmt)
 
-#     # σ=1(20μm): 5(80μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
+    # σ=1(20μm): 5(80μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((1,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf1$ext")),figfmt)
 
-#     # σ=2(40μm): 9(160μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
+    # σ=2(40μm): 9(160μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((2,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf2$ext")),figfmt)
 
-#     # σ=3(60μm): 13(240μm) diameter gaussian kernal
-#     fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
-#     plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
-#     foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
-# end
+    # σ=3(60μm): 13(240μm) diameter gaussian kernal
+    fcmcsd = map(i->mapreduce(j->imfilter(j,Kernel.gaussian((3,0)),Fill(0)),.+,values(i["ccsd"])),lfs)
+    plotcondresponse(fcmcsd,times,depths;minmaxcolors,titles,layer,color=cm)
+    foreach(ext->savefig(joinpath(siteresultdir,"$(isnothing(layer) ? "" : "Layer_")$(test)_dCSDf3$ext")),figfmt)
+end
 
 
 
@@ -677,11 +678,11 @@ penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"
     # colorlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=nothing)
     # orisflayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=nothing)
 
-    # flashlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
+    flashlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
     # colorlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
     # orisflayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch)
 
-    flashlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch,layerext=200,figfmt=[".svg"])
+    # flashlayer(r.siteid,joinpath(resultroot,r.Subject_ID,r.siteid),layer=:batch,layerext=200,figfmt=[".svg"])
 end
 
 
@@ -717,7 +718,7 @@ palllayer = filter(r->r.siteid ∉ excludesites,alllayer)
 
 
 # normalized layer template
-transform!(palllayer,"1"=>ByRow(i->(x->last(i).-x))=>"e2cfun") # electrode coordinates to cortical surface coordinates
+select!(palllayer,Not(:GM),"1"=>ByRow(i->(x->last(i).-x))=>"e2cfun") # electrode coordinates to cortical surface coordinates
 transform!(palllayer,vcat.("e2cfun",names(palllayer,Not([:siteid,:e2cfun]))) .=> ByRow((f,x)->f(x)) => last)
 layerwidth = combine(palllayer,names(palllayer,Not([:siteid,:e2cfun,:WM])) .=> ByRow(i->first(i)-last(i)) => identity)
 layerboundary = combine(palllayer,names(palllayer,Not([:siteid,:e2cfun])) .=> ByRow(last)=>identity)
@@ -749,8 +750,8 @@ plotallsitelayer = (lwdf;dir=nothing,p="",figfmt=[".png"],sm=:width,xr=0)-> begi
         lw = select!(sort!(transform(lwdf,names(lwdf,Not(1))=>ByRow(+)=>:width),:width),Not(:width))
     end
 
-    pl = @df lw groupedbar(cols(ncol(lw):-1:2);size=(850,650),bar_position=:stack,yflip=true,palette=palette(:tab10,rev=true),lw=0,bar_width=1,
-        xticks=1:nrow(lw),xlim=(0,nrow(lw)+1),xtickfontsize=6,xformatter=i->lw[Int(i),1],xr,tickor=:out,leftmargin=2Plots.mm,grid=:x,
+    pl = @df lw groupedbar(cols(ncol(lw):-1:2);size=(nrow(lw)*22,700),bar_position=:stack,yflip=true,palette=palette(:tab10,rev=true),lw=0,bar_width=1,
+        xticks=1:nrow(lw),xlim=(0,nrow(lw)+1),xtickfontsize=6,xformatter=i->lw[Int(i),1],xr,tickor=:out,leftmargin=3Plots.mm,grid=:x,
         leg=(0.11,0.20),legendfontsize=6,ylim=(0,2250),ylabel="Cortical Depth (μm)",xlabel="Penetration",yticks=0:100:2500)
     isnothing(dir) ? pl : foreach(ext->savefig(joinpath(dir,"AllSiteLayer$p$ext")),figfmt)
 end
@@ -780,6 +781,7 @@ plotlayertemplate(dir=resultroot,figfmt=[".svg",".png"])
 
 mai = map(r->startswith(r.pid,"A"),eachrow(palllwdf))
 mbi = map(r->startswith(r.pid,"B"),eachrow(palllwdf))
+mci = map(r->startswith(r.pid,"C"),eachrow(palllwdf))
 odbi = map(r->r.od == "Both",eachrow(palllwdf))
 odli = map(r->r.od == "Left",eachrow(palllwdf))
 odri = map(r->r.od == "Right",eachrow(palllwdf))
@@ -788,7 +790,7 @@ cofdai = map(r->r.cofd ∈ ["A+","A-"],eachrow(palllwdf))
 cofdsi = map(r->r.cofd ∈ ["S+","S-"],eachrow(palllwdf))
 cofdlmi = map(r->!any(contains.(r.cofd,["A","S","None"])),eachrow(palllwdf))
 
-plotallsitelayer(select(palllwdf[mai,:],Not([:siteid,:od,:cofd,:d2b])))
+plotallsitelayer(select(palllwdf[mci,:],Not([:siteid,:od,:cofd,:d2b])))
 plotallsitelayer(select(palllwdf[odbi,:],Not([:siteid,:od,:cofd,:d2b])))
 plotallsitelayer(select(palllwdf[odi,:],Not([:siteid,:od,:cofd,:d2b])))
 plotallsitelayer(select(palllwdf[cofdai,:],Not([:siteid,:od,:cofd,:d2b])))
@@ -797,7 +799,7 @@ plotallsitelayer(select(palllwdf[cofdlmi,:],Not([:siteid,:od,:cofd,:d2b])))
 
 
 # transform!(pallcwdf,:pid=>ByRow(i->split(i," ")[1])=>:pid,:pid=>ByRow(first)=>:mid)
-# transform!(pallcwdf,:mid=>ByRow(i->i=='A' ? :royalblue : :tomato)=>:mcolor)
+# transform!(pallcwdf,:mid=>ByRow(i->i=='A' ? :royalblue : i=='B' ? :tomato : :green)=>:mcolor)
 
 # @df pallcwdf scatter(:d2b,:cw,size=(750,600),leg=:inline,color=:mcolor,group=:pid,ms=5,xlabel="Distance to V1/V2 Border (mm)",ylabel="Cortical Thickness (μm)")
 # foreach(ext->savefig(joinpath(resultroot,"Thickness_Border$ext")),[".png",".svg"])
@@ -873,16 +875,16 @@ end
 unitaligneddir = joinpath(resultroot,"UnitAligned")
 plotlayeralignedfeature(palludf,"Density";xlabel="Density (unit/mm³)")
 plotlayeralignedfeature(palludf,"Density";xlabel="Density (unit/mm³)",dir=unitaligneddir,figfmt=[".svg",".png"])
-plotlayeralignedfeature(palludf,"Density";xlabel="Normalized Density",dir=nothing,norm=:minmax)
-plotlayeralignedfeature(palludf,"Density";xlabel="Normalized Density",dir=unitaligneddir,norm=:minmax,figfmt=[".svg",".png"])
+plotlayeralignedfeature(palludf,"Density";xlabel="Normalized Density",norm=:minmax)
+plotlayeralignedfeature(palludf,"Density";xlabel="Normalized Density",dir=unitaligneddir,norm=:minmax,figfmt=[".svg",".png"],p="N")
 plotlayeralignedfeature(palludf,"spread";xlabel="Spike Spread (μm)")
 plotlayeralignedfeature(palludf,"spread";xlabel="Spike Spread (μm)",dir=unitaligneddir,figfmt=[".svg",".png"])
-plotlayeralignedfeature(palludf,"spread";xlabel="Normalized Spike Spread",dir=nothing,norm=:minmax)
-plotlayeralignedfeature(palludf,"spread";xlabel="Normalized Spike Spread",dir=unitaligneddir,norm=:minmax,figfmt=[".svg",".png"])
+plotlayeralignedfeature(palludf,"spread";xlabel="Normalized Spike Spread",norm=:minmax)
+plotlayeralignedfeature(palludf,"spread";xlabel="Normalized Spike Spread",dir=unitaligneddir,norm=:minmax,figfmt=[".svg",".png"],p="N")
 plotlayeralignedfeature(palludf,"duration";xlabel="Spike Duration (ms)",vl=[0])
 plotlayeralignedfeature(palludf,"duration";xlabel="Spike Duration (ms)",dir=unitaligneddir,vl=[0],figfmt=[".svg",".png"])
-plotlayeralignedfeature(palludf,"duration";xlabel="Normalized Spike Duration",dir=nothing,norm=:absmax,vl=[0])
-plotlayeralignedfeature(palludf,"duration";xlabel="Normalized Spike Duration",dir=unitaligneddir,norm=:absmax,vl=[0],figfmt=[".svg",".png"])
+plotlayeralignedfeature(palludf,"duration";xlabel="Normalized Spike Duration",norm=:absmax,vl=[0])
+plotlayeralignedfeature(palludf,"duration";xlabel="Normalized Spike Duration",dir=unitaligneddir,norm=:absmax,vl=[0],figfmt=[".svg",".png"],p="N")
 plotlayeralignedfeature(palludf,"peaktroughratio";xlabel="Spike Peak/Trough",vl=[-1])
 plotlayeralignedfeature(palludf,"peaktroughratio";xlabel="Spike Peak/Trough",dir=unitaligneddir,vl=[-1],figfmt=[".svg",".png"])
 
@@ -892,16 +894,18 @@ plotlayeralignedfeature(palludf,"uppv",xlabel="Up Propagation Speed (μm/ms)",xl
 plotlayeralignedfeature(palludf,"downpv",xlabel="Down Propagation Speed (μm/ms)",xlims=(-3e5,3e5),dir=nothing,vl=[0])
 
 
-plotlayeralignedfeature(palludf[mbi,:],"Density";xlabel="Density (unit/mm³)",dir=unitaligneddir,figfmt=[".svg",".png"],p="MB")
+mi = mci;mp="MC"
+plotlayeralignedfeature(palludf[mi,:],"Density";xlabel="Density (unit/mm³)",dir=unitaligneddir,figfmt=[".svg",".png"],p=mp)
+plotlayeralignedfeature(palludf[mi,:],"spread";xlabel="Spike Spread (μm)",dir=unitaligneddir,figfmt=[".svg",".png"],p=mp)
+plotlayeralignedfeature(palludf[mi,:],"duration";xlabel="Spike Duration (ms)",dir=unitaligneddir,vl=[0],figfmt=[".svg",".png"],p=mp)
+plotlayeralignedfeature(palludf[mi,:],"peaktroughratio";xlabel="Spike Peak/Trough",dir=unitaligneddir,vl=[-1],figfmt=[".svg",".png"],p=mp)
+
 plotlayeralignedfeature(palludf[odi,:],"Density";xlabel="Density (unit/mm³)",dir=unitaligneddir,figfmt=[".svg",".png"],p="od")
 plotlayeralignedfeature(palludf[cofdlmi,:],"Density";xlabel="Density (unit/mm³)",dir=unitaligneddir,figfmt=[".svg",".png"],p="cofd-LM")
-plotlayeralignedfeature(palludf[mbi,:],"spread";xlabel="Spike Spread (μm)",dir=unitaligneddir,figfmt=[".svg",".png"],p="MB")
 plotlayeralignedfeature(palludf[odi,:],"spread";xlabel="Spike Spread (μm)",dir=unitaligneddir,figfmt=[".svg",".png"],p="od")
 plotlayeralignedfeature(palludf[cofdlmi,:],"spread";xlabel="Spike Spread (μm)",dir=unitaligneddir,figfmt=[".svg",".png"],p="cofd-LM")
-plotlayeralignedfeature(palludf[mbi,:],"duration";xlabel="Spike Duration (ms)",dir=unitaligneddir,vl=[0],figfmt=[".svg",".png"],p="MB")
 plotlayeralignedfeature(palludf[odi,:],"duration";xlabel="Spike Duration (ms)",dir=unitaligneddir,vl=[0],figfmt=[".svg",".png"],p="od")
 plotlayeralignedfeature(palludf[cofdlmi,:],"duration";xlabel="Spike Duration (ms)",dir=unitaligneddir,vl=[0],figfmt=[".svg",".png"],p="cofd-LM")
-plotlayeralignedfeature(palludf[mbi,:],"peaktroughratio";xlabel="Spike Peak/Trough",dir=unitaligneddir,vl=[-1],figfmt=[".svg",".png"],p="MB")
 plotlayeralignedfeature(palludf[odi,:],"peaktroughratio";xlabel="Spike Peak/Trough",dir=unitaligneddir,vl=[-1],figfmt=[".svg",".png"],p="od")
 plotlayeralignedfeature(palludf[cofdlmi,:],"peaktroughratio";xlabel="Spike Peak/Trough",dir=unitaligneddir,vl=[-1],figfmt=[".svg",".png"],p="cofd-LM")
 

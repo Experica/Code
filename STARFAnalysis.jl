@@ -84,6 +84,7 @@ plotdepthhist = (unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=nothing,ti
         sunit = filter(r->r.siteid==siteid,unit)
         title = siteid * '_' * title
     end
+    try
     p = groupedhist(sunit.aligndepth;group=sunit[!,g],barpositions=:stack,bin=0:0.02:1,permute=(:y,:x),xflip=true,grid=false,legendfontsize=6,
         xlims=(-0.02,1.02),xticks=0:0.2:1,lw=0,size,tickor=:out,xlabel,ylabel,palette,leg,title,titlefontsize=10)
     if !isnothing(layer)
@@ -91,6 +92,8 @@ plotdepthhist = (unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=nothing,ti
         hline!(p,[l[1] for l in values(layer)];linecolor=:gray25,label="layer",lw=1,ann)
     end
     isnothing(dir) ? p : foreach(ext->savefig(joinpath(dir,"$title$ext")),figfmt)
+    catch
+    end
 end
 
 plotdepthhist(allcsu;g=:spiketype,layer)

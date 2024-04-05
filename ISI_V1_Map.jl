@@ -1,5 +1,5 @@
 using NeuroAnalysis,FileIO,JLD2,HypothesisTests,Images,ImageBinarization,ImageEdgeDetection,ImageMorphology,
-StatsBase,StatsPlots,Contour,ImageDraw
+StatsBase,StatsPlots,Contour,ImageDraw,DataFrames,XLSX
 
 function drawcontour!(img,ct,color=oneunit(eltype(img));fill=false)
     for line in lines(ct)
@@ -10,11 +10,47 @@ function drawcontour!(img,ct,color=oneunit(eltype(img));fill=false)
     return img
 end
 
-dataroot = "D:/"
+dataroot = "I:/"
 resultroot = "Z:/"
 subject = "AG5";recordsession = "";recordsite = "Full"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
+
+
+## orientation map
+function orimap(siteresultdir,test;datafile="isi.jld2",filter=x->dogfilter(x,hσ=3,lσ=25))
+    opt,op = load(joinpath(siteresultdir,test,datafile),"opt","op")
+    os = vec(stack(op)')
+    complexmap([opt;opt],2deg2rad.(os);rsign=repeat([-1,1],inner=length(opt)),filter)
+end
+
+cmap,amap,mmap = orimap(siteresultdir,"AG5_Full_ISIEpochOri8_0",filter=x->dogfilter(x,hσ=5,lσ=25))
+orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
+oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+save(joinpath(siteresultdir,"ori_anglemap.png"),orianglemap)
+save(joinpath(siteresultdir,"ori_polarmap.png"),oripolarmap)
+
+
+## orientation local homogeneity index of penetrations
+penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
+pidx = findall(r->r.Subject_ID==subject && !ismissing(r.coord),eachrow(penetration))
+pcoord = map(i->parse.(Int,split(i,", ")),penetration.coord[pidx])
+ppum = penetration.ppmm[pidx[1]]/1000 # pixels/micrometer
+rs = map(i->localhomoindex(amap,i;σ=120ppum),pcoord)
+
+XLSX.openxlsx(joinpath(resultroot,"penetration.xlsx"),mode="rw") do f
+    s = f["Sheet1"]
+    ci = findfirst(i->i=="ori_lhi",names(penetration))
+    for (i,r) in zip(pidx,rs)
+        s[i+1,ci] = first(r)
+    end
+end
+
+pmapdir = joinpath(resultroot,"PenetrationMap");mkpath(pmapdir)
+poamap = [alphamask(map(a->HSV(rad2deg(a),1,1),last(r)))[1] for r in rs]
+foreach(i->i[map(c->c:c+1,floor.(Int,size(i)./2))...].=HSVA(0.0,0,0.1,1),poamap)
+foreach((m,id)->save(joinpath(pmapdir,"$(id)_ori.png"),m),poamap,penetration.siteid[pidx])
 
 
 ## ocular dominance

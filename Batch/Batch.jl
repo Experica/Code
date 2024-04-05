@@ -20,6 +20,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
                 u,c=processimage(dataset,resultroot,env,uuid=uuid,log=log,delay=delay,binwidth=binwidth,plot=plot)
             elseif t.ID=="LaserImage" && t.sourceformat=="Ripple"
                 u,c=processlaserimage(dataset,condroot,resultroot,uuid=uuid,delay=delay,binwidth=binwidth,plot=plot)
+
             elseif t.ID in ["Flash","Flash2Color"] && t.sourceformat=="SpikeGLX"
                 process_flash_spikeglx(t.files,param;uuid=t.UUID,log,plot)
             elseif t.ID in ["Hartley","HartleySubspace","Image"] && t.sourceformat=="SpikeGLX"
@@ -28,6 +29,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
                 process_condtest_spikeglx(t.files,param;uuid=t.UUID,log,plot)
             elseif t.ID in ["CycleColorPlane"] && t.sourceformat=="SpikeGLX"
                 process_cycle_spikeglx(t.files,param;uuid=t.UUID,log,plot)
+
             elseif t.ID in ["DirSF"] && t.sourceformat=="Scanbox"
                 process_2P_dirsf(t.files,param,uuid=t.UUID,log=log,plot=plot)
             elseif t.ID in ["DirSFColor"] && t.sourceformat=="Scanbox"
@@ -35,6 +37,7 @@ function batchtests(tests::DataFrame,param::Dict{Any,Any}=Dict{Any,Any}();log::D
             elseif t.ID in ["Hartley"] && t.sourceformat=="Scanbox"
                 # process_2P_hartleySTA(t.files,param,uuid=t.UUID,log=log,plot=plot)
                 process_2P_hartleyFourier(t.files,param,uuid=t.UUID,log=log,plot=plot)
+                
             elseif t.ID in ["ISICycle2Color","ISICycleOri"] && t.sourceformat=="Imager"
                 process_cycle_imager(t.files,param;uuid=t.UUID,log,plot)
             elseif t.ID in ["ISIEpochOri8","ISIEpoch2Color","ISIEpochFlash2Color"] && t.sourceformat=="Imager"

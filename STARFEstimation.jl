@@ -108,7 +108,7 @@ function fitsta!(dataset;model=[:gabor,:edog],w=0.5,fun=i->mdsd(i,0.35))
         ds = map(i->i.d,dataset["ulcrpd"][u])
         for m in model
             # fit responsive local sta at delay of peak local contrast to spatial RF model
-            ulfit[u][m] = [rs[i] ? fitmodel2(m,ulsta[u][:,:,ds[i],i],ppd;w,fun) : missing for i in 1:length(rs)]
+            ulfit[u][m] = [rs[i] ? fitmodel2(m,ulsta[u][:,:,ds[i],i],ppd;w,fun) : missing for i in eachindex(rs)]
         end
     end
     return dataset
@@ -257,7 +257,10 @@ end
 ## Batch Penetration Sites
 penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
 @showprogress "Batch All STAs ... " for r in eachrow(penetration)
-    stainfo(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt=[".png",".svg"])
+    try
+        stainfo(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt=[".png",".svg"])
+    catch
+    end
 end
 
 

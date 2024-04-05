@@ -3,7 +3,7 @@ includet("Batch/Batch.jl")
 
 ## Param and Metadata
 param = Dict{Any,Any}(
-    :dataroot => "D:/",
+    :dataroot => "I:/",
     :dataexportroot => "Y:/",
     :resultroot => "Z:/")
 meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
@@ -11,10 +11,10 @@ meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
 tests = select!(filter(meta) do r
-                    r.Subject_ID in ["Test", "AG5"] &&
+                    r.Subject_ID in ["Test", "AG2"] &&
                     # r.RecordSession == "V1" &&
                     # r.RecordSite == "Full" &&
-                    # r.ID in ["ISIEpochFlash2Color"] &&
+                    r.ID in ["ISIEpochOri8"] &&
                     r.sourceformat == "Imager"
                 end,
                 [:files,:ID,:UUID,:sourceformat])

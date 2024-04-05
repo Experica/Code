@@ -70,7 +70,7 @@ function joinorisf(rs;ccode=ccode)
     return dataset
 end
 
-function f1f0orisf!(dataset;btw=(-50,0))
+function f1f0orisf!(dataset;btw=(-200,0))
     conddur = dataset["conddur"]
     tf = dataset["tf"]
     fpsth,x = dataset["fpsth"]
@@ -163,7 +163,7 @@ end
 
 resultroot = "Z:/"
 
-## process all orisfs of a RecordSite
+## process all OriSF of a RecordSite
 subject = "AG1";recordsession = "V1";recordsite = "ODL1"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
@@ -176,8 +176,8 @@ plotpsth(dataset,748,isse=false,cs=["L","M"])
 ## Batch Penetration Sites
 penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
 @showprogress "Batch All OriSFs ... " for r in eachrow(penetration)
-    # orisfinfo(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt=[".png",".svg"])
-    orisfinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
+    orisfinfo(joinpath(resultroot,r.Subject_ID,r.siteid);figfmt=[".png",".svg"])
+    # orisfinfo(joinpath(resultroot,r.Subject_ID,r.siteid))
 end
 
 

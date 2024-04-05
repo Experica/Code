@@ -458,7 +458,7 @@ pvalue(ApproximateTwoSampleKSTest(tv,ob))
 
 
 savefig("test.png")
-save("test.png",p)
+save("test.png",pl)
 
 savefig("test.svg")
 ##
@@ -619,3 +619,5 @@ tt=clampscale(t)
 Gray.(tt)
 
 Gray.(F2mag01)
+
+

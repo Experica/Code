@@ -43,7 +43,7 @@ end
 
 
 ## load phy
-phydir = raw"X:\AG5\AG5_V1_1R\F0F1F2C0C1H0H1H2H3I0O0O1O2O3.imec0.ap.kilosort3.phy"
+phydir = raw"X:\AG5\AG5_V1_16R\F0F1F2C0C1H0H1H2H3I0O0O1O2O3.imec0.ap.kilosort3.phy"
 backupdir = joinpath(phydir,"backup")
 params = CSV.read(joinpath(phydir,"params.py"),DataFrame,header=0,delim='=',quotechar=''',stripwhitespace=true)
 params = Dict(r.Column1=>r.Column2 for r in eachrow(params))
@@ -61,7 +61,7 @@ spikeamplitude = np.load(joinpath(loaddir,"amplitudes.npy")) |> vec
 templates = np.load(joinpath(phydir,"templates.npy")) # nTemp * nSample * nCh
 chpos = np.load(joinpath(phydir,"channel_positions.npy")) # nCh * nCoord
 
-overlapwin_within = round(Int,0.3 * 1e-3 * fs)
+overlapwin_within = round(Int,0.4 * 1e-3 * fs)
 clusterid = unique(spikecluster)
 rmspikeidx = Int[]
 minclustersize = 300
@@ -83,7 +83,7 @@ deleteat!(spikeamplitude,rmspikeidx)
 templatechamp = map(i->i[2]-i[1],dropdims(extrema(templates,dims=2),dims=2))
 templatechidx = map(i->i[2],dropdims(argmax(templatechamp,dims=2),dims=2))
 
-overlapwin_between = round(Int,0.2 * 1e-3 * fs)
+overlapwin_between = round(Int,0.35 * 1e-3 * fs)
 clusterid = unique(spikecluster)
 clusteridx = [findall(i->i==c, spikecluster) for c in clusterid]
 clustersize = length.(clusteridx)

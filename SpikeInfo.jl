@@ -34,7 +34,7 @@ end
 
 resultroot = "Z:/"
 
-# ## Penetration Sites
+# ## Get Penetration Sites from Metadata
 # penetration = unique!(meta[:,[:Subject_ID,:RecordSession,:RecordSite]])
 # penetration = transform!(penetration,All()=>ByRow((a,b,c)->join(filter!(!isempty,[a,b,c]),"_"))=>:siteid)
 # XLSX.writetable(joinpath(resultroot,"penetration.xlsx"),collect(eachcol(penetration)),names(penetration))
@@ -230,13 +230,22 @@ allunit = collectunit!(resultroot)
 alllayer = load(joinpath(resultroot,"alllayer.jld2"),"alllayer")
 layertemplate,lbt = load(joinpath(resultroot,"layertemplate.jld2"),"layertemplate","lbt")
 transform!(alllayer,"1"=>ByRow(i->(x->last(i).-x))=>"e2cfun")
-transform!(alllayer,vcat.("e2cfun",names(alllayer,Not([:siteid,:e2cfun]))) .=> ByRow((f,x)->f(x)) => last)
-layerboundary = combine(alllayer,names(alllayer,Not([:siteid,:e2cfun])) .=> ByRow(last)=>identity)
-alllayer.tcfun = [gettcfun(collect(r),lbt,true) for r in eachrow(layerboundary)]
+transform!(alllayer,vcat.("e2cfun",names(alllayer,Not([:siteid,:e2cfun,:GM]))) .=> ByRow((f,x)->f(x)) => last)
+layerboundary = combine(alllayer,names(alllayer,Not([:siteid,:e2cfun,:GM])) .=> ByRow(last)=>identity)
+alllayer.tcfun = [gettcfun(collect(r),lbt,true) for r in eachrow(layerboundary)] # gettcfun defined in "LayerEstimation.jl"
 
 usi = map(i->findfirst(j->j==i,alllayer.siteid),allunit["siteid"])
 allunit["unitaligndepth"] = [alllayer.e2cfun[usi[i]](allunit["unitposition"][i,2]) |> alllayer.tcfun[usi[i]] for i in eachindex(usi)]
 allunit["unitlayer"] = assignlayer.(allunit["unitaligndepth"],[layertemplate])
+
+# assign GM units that's been assigned as WM units
+for i in eachindex(usi)
+    allunit["unitlayer"][i] == "WM" || continue
+    gmb = alllayer.GM[usi[i]]
+    ismissing(gmb) && continue
+    (gmb[begin]<= allunit["unitposition"][i,2] < gmb[end]) && (allunit["unitlayer"][i]="GM")
+end
+
 jldsave(joinpath(resultroot,"allunit.jld2");allunit)
 
 
@@ -265,6 +274,8 @@ foreach(ext->savefig(joinpath(unitfeaturedir,"unit_feature$ext")),figfmt)
 
 cui = 0 .<= unitaligndepth .<= 1 # cortical units
 csui = cui .& unitgood # cortical single units
+gmui = unitlayer.=="GM" # GM units
+gmsui = gmui .& unitgood # GM single units
 
 cuF = F[cui,:]
 @views cuFz = hcat(map(i->zscore(cuF[:,i]),1:size(cuF,2))...)
@@ -278,20 +289,33 @@ dotplot(permutedims(1:length(f)),csuFz,leg=false,grid=false,ylabel="Z Score",xro
         xlabel="Cortical Single-Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(csuFz,1))"))
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_feature$ext")),figfmt)
 
+gmuF = F[gmui,:]
+@views gmuFz = hcat(map(i->zscore(gmuF[:,i]),axes(gmuF,2))...)
+dotplot(permutedims(1:length(f)),gmuFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="GM Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(gmuFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmu_feature$ext")),figfmt)
+
+gmsuF = F[gmsui,:]
+@views gmsuFz = hcat(map(i->zscore(gmsuF[:,i]),axes(gmsuF,2))...)
+dotplot(permutedims(1:length(f)),gmsuFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(f),xformatter=i->f[Int(i)],
+        xlabel="GM Single-Unit Spike Feature",size=(750,600),ann=(2,15,"n=$(size(gmsuFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_feature$ext")),figfmt)
 
 
-## Cortical Single-Unit Classification
+## Single-Unit Classification
 using UMAP,Clustering,Distances,VegaLite
 
 wn = size(unitwave,2)
 wx = collect(range(-wn/2,step=1,length=wn))
 csuwy = permutedims(unitwave[csui,:])
 csuwx = repeat(wx,outer=(1,size(csuwy,2)))
+gmsuwy = permutedims(unitwave[gmsui,:])
+gmsuwx = repeat(wx,outer=(1,size(gmsuwy,2)))
 
 # cf = filter(i->i ∉ ["ttrough","fp","leftspread","rightspread"],f) # all possible features
 # cf = filter(i->i ∉ ["ttrough","fp","leftspread","rightspread","fr","pisi","amplitude"],f) # all probable features
-# cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv","upspread","downspread"] # 1D+2D features
-cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv"] # 1D+2D features
+cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv","upspread","downspread"] # 1D+2D features
+# cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate","uppvinv","downpvinv"] # 1D+2D features
 # cf = ["duration","peaktroughratio","halftroughwidth","halfpeakwidth","repolarrate","recoverrate"] # 1D features
 
 cFz = csuFz[:,indexin(cf,f)]
@@ -308,6 +332,19 @@ plot(cFz2[2,:]' .+ 0.85e-2*csuwx, cFz2[1,:]' .+ 2.8e-5*csuwy,color=:darkgreen,al
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_wave$ext")),figfmt)
 
 
+gmFz = gmsuFz[:,indexin(cf,f)]
+gmFzD = pairwise(Euclidean(),gmFz,dims=1)
+
+dotplot(permutedims(1:length(cf)),gmFz,leg=false,grid=false,ylabel="Z Score",xrotation=25,marker=(1, stroke(0)),xticks=1:length(cf),xformatter=i->cf[Int(i)],
+        xlabel="GM Single-Unit Clustering Feature",size=(750,600),ann=(2,10,"n=$(size(gmFz,1))"))
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature$ext")),figfmt)
+
+gmFz2 = umap(gmFz', 2, n_neighbors=25, min_dist=0.8, n_epochs=300,metric=Euclidean())
+scatter(gmFz2[2,:], gmFz2[1,:],leg=false,msw=0,ms=2,ma=0.8,size=(600,600),frame=:none,ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_umap$ext")),figfmt)
+plot(gmFz2[2,:]' .+ 0.85e-2*gmsuwx, gmFz2[1,:]' .+ 2.8e-5*gmsuwy,color=:darkgreen,alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_umap_wave$ext")),figfmt)
+
 # try to get optimal number of clusers
 function noclu(F,FD;ks=2:10,itr=100)
     ok=ones(itr)
@@ -319,13 +356,21 @@ function noclu(F,FD;ks=2:10,itr=100)
     ok
 end
 
-ks = 4:6
+ks = 3:6
 oks = noclu(cFz,cFzD;ks)
 density(oks,xticks=ks,xlabel="k",ylabel="Silhouette",leg=false)
 
 k=5
 kc = kmeans(cFz',k)
 clu = assignments(kc)
+
+ks = 3:6
+oks = noclu(gmFz,gmFzD;ks)
+density(oks,xticks=ks,xlabel="k",ylabel="Silhouette",leg=false)
+
+k=5
+kc = kmeans(gmFz',k)
+gmclu = assignments(kc)
 
 # hc = hclust(cFzD,linkage=:ward,branchorder=:optimal)
 # plot(hc,xticks=false)
@@ -335,6 +380,11 @@ scatter(cFz2[2,:], cFz2[1,:],group=clu,c=cgrad(:tab10)[clu],leg=:inline,frame=:n
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_clu$ext")),figfmt)
 plot(cFz2[2,:]' .+ 0.85e-2*csuwx, cFz2[1,:]' .+ 2.8e-5*csuwy,c=cgrad(:tab10)[clu'],alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_umap_wave_clu$ext")),figfmt)
+
+scatter(gmFz2[2,:], gmFz2[1,:],group=gmclu,c=cgrad(:tab10)[gmclu],leg=:inline,frame=:none,msw=0,ms=2,ma=0.8,size=(600,600),ratio=1,legendfontsize=12)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_umap_clu$ext")),figfmt)
+plot(gmFz2[2,:]' .+ 0.85e-2*gmsuwx, gmFz2[1,:]' .+ 2.8e-5*gmsuwy,c=cgrad(:tab10)[gmclu'],alpha=0.8,leg=false,frame=:none,lw=0.5,size=(800,800),ratio=1)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_umap_wave_clu$ext")),figfmt)
 
 
 plotclufeature=(F,f,clu;lim=maximum(abs.(F)))->begin
@@ -346,6 +396,8 @@ end
 
 plotclufeature(cFz,cf,clu,lim=7)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu$ext")),figfmt)
+plotclufeature(gmFz,cf,gmclu,lim=7)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_clu$ext")),figfmt)
 
 pl = flatten(DataFrame(f=cf,F=[cFz[:,i] for i in eachindex(cf)],clu=fill(clu,length(cf))),[:F,:clu]) |> @vlplot(width=200,height=300,
     mark={:boxplot, extent="min-max"},
@@ -371,6 +423,7 @@ plotcluwaveform=(wys,clu;fs=30e3,isalign=true,isnorm=true,ismean=true,n=50,color
     wn,un=size(wys)
     cluid = sort(unique(clu))
     cluname = isnothing(clucode) ? cluid : map(i->clucode[i],cluid)
+    wys = hlpass(wys',fs,low=8500)'
     if isalign
         wx = range(-round(Int,wn/2),step=1,length=wn)
         iwx = -wn:0.25:wn # double x range, upsampling 4 times
@@ -402,14 +455,25 @@ plotcluwaveform=(wys,clu;fs=30e3,isalign=true,isnorm=true,ismean=true,n=50,color
     end
 end
 
-clucode = Dict(1=>"A",2=>"Ip",3=>"I",4=>"E",5=>"En")
+clucode = Dict(1=>"tp",2=>"E",3=>"A",4=>"I",5=>"En")
 plotcluwaveform(csuwy,clu;ismean=true,clucode)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_mwave$ext")),figfmt)
 plotcluwaveform(csuwy,clu;ismean=false)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_wave$ext")),figfmt)
+
+gmclucode = Dict(1=>"E",2=>"I",3=>"En",4=>"tp",5=>"A")
+plotcluwaveform(gmsuwy,gmclu;ismean=true,clucode=gmclucode)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_clu_mwave$ext")),figfmt)
+plotcluwaveform(gmsuwy,gmclu;ismean=false)
+foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_clu_wave$ext")),figfmt)
 
 
 # Add spike type info for cortical units
 allcu = DataFrame(siteid = allunit["siteid"][cui],id = unitid[cui],good=unitgood[cui],aligndepth=unitaligndepth[cui],layer=unitlayer[cui])
 leftjoin!(allcu,DataFrame(id=unitid[csui],spiketype=map(i->clucode[i],clu)),on=:id)
 jldsave(joinpath(resultroot,"allcu.jld2");allcu)
+
+# Add spike type info for GM units
+allgmu = DataFrame(siteid = allunit["siteid"][gmui],id = unitid[gmui],good=unitgood[gmui],aligndepth=unitaligndepth[gmui],layer=unitlayer[gmui])
+leftjoin!(allgmu,DataFrame(id=unitid[gmsui],spiketype=map(i->gmclucode[i],gmclu)),on=:id)
+jldsave(joinpath(resultroot,"allgmu.jld2");allgmu)
