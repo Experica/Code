@@ -1,6 +1,6 @@
 using NeuroAnalysis,StatsBase,StatsPlots,JLD2,YAML,FileWatching,DataFrames,Images,HypothesisTests
 
-function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],showprogress=true)
+function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],showprogress=true,offline=true)
     test = splitdir(testroot)[end]
     exfile = joinpath(testroot,"$test.yaml")
     metafile = joinpath(testroot,"$test.meta")
@@ -30,15 +30,14 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         ds = sort(conddesign.Ori).+90
         os = unique(sort(conddesign.Ori).%180)
         qs = unique(os.%90)
-        diranglemap=dirpolarmap=orianglemap=oripolarmap=nothing
+        repeatpanalyze=2
     elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
         exenv["color"] = "$(exparam["ColorSpace"])_$(exparam["Color"])"
         mincolor = RGBA(conddesign.Color[1]...)
         maxcolor = RGBA(conddesign.Color[2]...)
         exenv["minmaxcolor"] = (;mincolor,maxcolor)
         cm = cgrad(mincolor,maxcolor)
-        t=t_dog=nothing
-        repeatpanalyze=4;nanalyze=0
+        repeatpanalyze=4
     end
     
     fmt = mdata["meta"]["DataFormat"]
@@ -46,14 +45,14 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
     h = mdata["meta"]["ImageFormat"]["Height"]
     pixfmt = mdata["meta"]["ImageFormat"]["PixelFormat"]
     fps = mdata["meta"]["AcquisitionControl"]["AcquisitionFrameRate"]
-    delay = 500 # hemodynamic delay
+    delay = conddur/2 # hemodynamic delay (usually 500ms), here we use the late near saturated responses
     nbaseframe = round(Int,preicidur/1000*fps)
     nframepcond = round(Int,conddur/1000*fps)
     condstartframe = round(Int,(preicidur+delay)/1000*fps)
     baseframeindex = 1:nbaseframe
     frameindex = condstartframe:(nbaseframe+nframepcond-1)
     ei = 0
-    repeat = 1
+    csrepeat = 1
     imagefile = Vector{String}[]
     epochresponse = Matrix{Float64}[]
     cr = Matrix{Float64}[]
@@ -75,20 +74,30 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
         push!(epochresponse, frameresponse_imager(epochfiles,w,h,frameindex,baseframeindex))
         ei+=1
 
-        count(i->i==repeat,ct.CondRepeat) == nrow(conddesign) || continue
-        printstyled("All conditions have repeated $repeat times ...\n",color=:red)
-        erdir = joinpath(resultdir,"Repeat$repeat")
-        ri = findall(ct.CondRepeat.==repeat)
-        repeat+=1
+        count(i->i==csrepeat,ct.CondRepeat) == nrow(conddesign) || continue
+        printstyled("All conditions have repeated $csrepeat times ...\n",color=:red)
+        erdir = joinpath(resultdir,"Repeat$csrepeat")
         
         if ex["ID"] == "ISIEpochOri8"
+            ri = findall(ct.CondRepeat.==csrepeat)
             corder = sortperm(ctc.Ori[ri])
             rs = @views epochresponse[ri[corder]]
             if isempty(cr)
-                append!(cr,rs);continue
+                append!(cr,rs)
+            else
+                # Here we use accumulated mean for simplicity, 
+                # but mathematically it's not the same as mean of all response repeats.
+                # However, since all conditions are using the same way of averaging, 
+                # it would not alter overall results significantly. 
+                foreach(i->cr[i] = (cr[i].+rs[i])/2,eachindex(cr))
             end
-            foreach(i->cr[i] = (cr[i].+rs[i])/2,eachindex(cr))
-            
+            try
+                mod(csrepeat,repeatpanalyze)==0 || continue
+            finally
+                csrepeat+=1
+            end
+
+            printstyled("Online Analyzing ...\n",color=:yellow)
             dcmap,amap,mmap = complexmap(cr,deg2rad.(ds))
             diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
             dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
@@ -105,7 +114,14 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             foreach(ext->save(joinpath(erdir,"ori_anglemap$ext"),orianglemap),figfmt)
             foreach(ext->save(joinpath(erdir,"ori_polarmap$ext"),oripolarmap),figfmt)
             jldsave(joinpath(erdir,"isi.jld2");ctc,ds,cr,exenv,siteid)
-        elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"] && floor((repeat-1)/repeatpanalyze) > nanalyze
+        elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"] 
+            try
+                mod(csrepeat,repeatpanalyze)==0 || continue
+            finally
+                csrepeat+=1
+            end
+
+            printstyled("Online Analyzing ...\n",color=:yellow)
             t = @views pairtest(epochresponse[ct.CondIndex.==1],epochresponse[ct.CondIndex.==2]).stat
             t_dog = clampscale(dogfilter(t),2)
             showprogress && display(Gray.(t_dog))
@@ -113,27 +129,61 @@ function online_epoch_imager(testroot,resultroot;dt=5,tout=15,figfmt = [".png"],
             mkpath(erdir)
             foreach(ext->save(joinpath(erdir,"t$ext"),t_dog),figfmt)
             jldsave(joinpath(erdir,"isi.jld2");ctc,t,exenv,siteid)
-            nanalyze+=1
         end
     end
 
-    if ex["ID"] == "ISIEpochOri8"
-        foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
-        foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
+    if offline
+        printstyled("\nOffline Analyzing ...\n",color=:magenta)
+        cond = condin(ctc)
+        epochresponse = stack(epochresponse)
+        if ex["ID"] == "ISIEpochOri8"
+            dp = map(i->mod.([i,i+180].+90,360),os)
+            dpi = map(i->cond.i[indexin([i,i+180],cond.Ori)],os)
+            dpt = map(is->pairtest(epochresponse,is[1],is[2]).stat,dpi)
+            dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([os;os.+180].+90),rsign=repeat([-1,1],inner=length(dpt)))
+            diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
+            dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+            op = map(i->[i,i+90],qs)
+            opi = map(i->dpi[indexin(i,os)],op)
+            opt = map(is->pairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).stat,opi)
+            ocmap,amap,mmap = complexmap([opt;opt],2deg2rad.([qs;qs.+90]),rsign=repeat([-1,1],inner=length(opt)))
+            orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
+            oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+
+            for (p,t) in zip(dp,dpt)
+                t01 = clampscale(dogfilter(t),2)
+                foreach(ext->save(joinpath(resultdir,"dir_$(p[1])_$(p[2])$ext"),t01),figfmt)
+            end
+            for (p,t) in zip(op,opt)
+                t01 = clampscale(dogfilter(t),2)
+                foreach(ext->save(joinpath(resultdir,"ori_$(p[1])_$(p[2])$ext"),t01),figfmt)
+            end
+
+            foreach(ext->save(joinpath(resultdir,"dir_anglemap$ext"),diranglemap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"dir_polarmap$ext"),dirpolarmap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_anglemap$ext"),orianglemap),figfmt)
+            foreach(ext->save(joinpath(resultdir,"ori_polarmap$ext"),oripolarmap),figfmt)
+
+            jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,dp,dpt,op,opt,dcmap,ocmap,exenv,siteid)
+        elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
+            t = pairtest(epochresponse,cond.i...).stat
+            t_dog = clampscale(dogfilter(t),2)
+            t_dog_color = map(i->cm[i],t_dog)
+
+            foreach(ext->save(joinpath(resultdir,"t$ext"),t_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"t_color$ext"),t_dog_color),figfmt)
+
+            jldsave(joinpath(resultdir,"isi.jld2");cond,epochresponse,t,exenv,siteid)
+        end
+    else
         jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,exenv,siteid)
-    elseif ex["ID"] in ["ISIEpoch2Color","ISIEpochFlash2Color"]
-        t_dog_color = map(i->cm[i],t_dog)
-        foreach(ext->save(joinpath(resultdir,"t$ext"),t_dog),figfmt)
-        foreach(ext->save(joinpath(resultdir,"t_color$ext"),t_dog_color),figfmt)
-        jldsave(joinpath(resultdir,"isi.jld2");ctc,epochresponse,t,exenv,siteid)
     end
     
     printstyled("Finish Online Analysis: $test\n\n",color=:green,reverse=true)
 end
 
-function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,figfmt = [".png"],showprogress=true)
+function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,figfmt = [".png"],showprogress=true,offline=false)
     test = splitdir(testroot)[end]
     exfile = joinpath(testroot,"$test.yaml")
     metafile = joinpath(testroot,"$test.meta")
@@ -162,7 +212,6 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
     modulateduty = envparam["ModulateDuty"]
     exenv=Dict{Any,Any}("ID"=>ex["ID"],"eye"=>ex["Eye"])
     if ex["ID"] == "ISICycle2Color"
-        F1polarity = F1polarity_dog = F1polarity_ahe = nothing
         # cos phase(maxcolor:0->mincolor:π->maxcolor:2π) to linear normalized polarity(mincolor:0->maxcolor:1)
         pha2pol(p,s=0) = abs.(mod2pi.(p .+ s) .- π) ./ π
         
@@ -221,6 +270,7 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
 
         printstyled("Cycle $ncycle Frames $(cyclestartframe)-$(cyclestopframe) Ready ...\n",color=:red)
         crdir = joinpath(resultdir,"Cycle$ncycle");mkpath(crdir)
+        printstyled("Online Analyzing ...\n",color=:yellow)
         if eachcycle # only current cycle
             F1 .+= dft_imager(imagefile[cyclestartframe:cyclestopframe],w,h,fps,baseresponse,freq)[1]
             cyclestartframe=cyclestopframe+1
@@ -248,12 +298,49 @@ function online_cycle_imager(testroot,resultroot;dt=5,tout=15,eachcycle=true,fig
         end
     end
 
-    if ex["ID"] == "ISICycle2Color"
-        F1polarity_dog_color = map(a->HSV(cmfun(a/2,p=0.5)),F1polarity_dog)
-        foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_color$ext"),F1polarity_dog_color),figfmt)
-        foreach(ext->save(joinpath(resultdir,"F1Polarity_dog$ext"),F1polarity_dog),figfmt)
-        foreach(ext->save(joinpath(resultdir,"F1Polarity_ahe$ext"),F1polarity_ahe),figfmt)
-        jldsave(joinpath(resultdir,"isi.jld2");imagefile,freq,F1,F1polarity,exenv,siteid)
+    if offline
+        printstyled("\nOffline Analyzing ...\n",color=:magenta)
+        freqs = (f1=modulatefreq,f2=2modulatefreq)
+        frameindex = epoch2sampleindex([0 1000ncycle/modulatefreq].+(preicidur+delay),fps,maxsampleindex=length(imagefile))
+        Fs = dft_imager(imagefile[frameindex],w,h,fps,baseresponse,freqs...)
+
+        F1phase = angle.(Fs[1]) # [-π, π]
+        F1mag = abs.(Fs[1])
+        F2phase = angle.(Fs[2]) # [-π, π]
+        F2mag = abs.(Fs[2])
+        F1phase01 = mod2pi.(F1phase) ./ (2π)
+        F2phase01 = mod2pi.(F2phase) ./ (2π)
+        F1mag01 = clampscale(F1mag,3)
+        F2mag01 = clampscale(F2mag,3)
+
+        foreach(ext->save(joinpath(resultdir,"F1Phase$ext"),F1phase01),figfmt)
+        foreach(ext->save(joinpath(resultdir,"F1Mag$ext"),F1mag01),figfmt)
+        foreach(ext->save(joinpath(resultdir,"F2Phase$ext"),F2phase01),figfmt)
+        foreach(ext->save(joinpath(resultdir,"F2Mag$ext"),F2mag01),figfmt)
+
+        if ex["ID"] == "ISICycle2Color"
+            F1polarity = pha2pol(F1phase)
+            F1polarity_dog = clampscale(dogfilter(F1polarity),2)
+            F1polarity_ahe = ahe(F1polarity)
+
+            F2polarity = pha2pol(F2phase)
+            F2polarity_dog = clampscale(dogfilter(F2polarity),2)
+            F2polarity_ahe = ahe(F2polarity)
+
+            F1polarity_dog_color = map(a->HSV(cmfun(a/2,p=0.5)),F1polarity_dog)
+            F1polarity_dog_colormag = map((a,m)->HSV(a.h,a.s,m),F1polarity_dog_color,F1mag01)
+
+            foreach(ext->save(joinpath(resultdir,"F1Polarity$ext"),F1polarity),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog$ext"),F1polarity_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_ahe$ext"),F1polarity_ahe),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity$ext"),F2polarity),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity_dog$ext"),F2polarity_dog),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F2Polarity_ahe$ext"),F2polarity_ahe),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_color$ext"),F1polarity_dog_color),figfmt)
+            foreach(ext->save(joinpath(resultdir,"F1Polarity_dog_colormag$ext"),F1polarity_dog_colormag),figfmt)
+
+            jldsave(joinpath(resultdir,"isi.jld2");imagefile,freqs,Fs,F1polarity,F2polarity,exenv,siteid)
+        end
     end
     
     printstyled("Finish Online Analysis: $test\n\n",color=:green,reverse=true)
