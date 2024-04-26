@@ -4,7 +4,7 @@
 
 - Start Host (`Alt + H`) in **Command**. If **Environment** is used to present stimuli, check and set **Command** IP address in **Environment** so it can connect to **Command**.
 
-- Initialize parameters in **ConditionTest** which should be the first one in experiment list when **Command** started. This experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will inherite proper parameters.
+- Initialize parameters in **ConditionTest** which should be the first one in experiment list when **Command** started. This experiment has no parameters been marked as inheritable(Green), so we can set global parameters here once, then all subsequent experiments will be able to inherite proper parameters.
 
     Experiment Panel:
     - Experimenter, Subject, DataDir, Hemisphere, Eye,  RecordSession, RecordSite, Display, etc.
@@ -20,9 +20,11 @@
 
 0. Focus and illuminate evenly on cortex. Adjust depth of field(shallow) and image dynamic range. Protect optics from movement and external light.  Save `bloodvessel` image under green and red light.
 
-0. **ISIEpochOri8**, episodic drifting square gratings for ocular dominence map, direction map, and orientation map.
+0. **ISIEpochOri8**, episodic drifting square gratings for ocular dominence map.
     - Left Eye
     - Right Eye
+
+0. **ISIEpochOri12**, episodic drifting square gratings for direction map and orientation map.
     - Both Eyes
 
 0. **ISICycle2Color**, temporal modulation of maximum cone isolating colors for cone-opponent functional domains.

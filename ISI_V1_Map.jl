@@ -11,8 +11,8 @@ function drawcontour!(img,ct,color=oneunit(eltype(img));fill=false)
 end
 
 dataroot = "I:/"
-resultroot = "Z:/"
-subject = "AG5";recordsession = "";recordsite = "Full"
+resultroot = "Y:/"
+subject = "AG6";recordsession = "";recordsite = "Full"
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
@@ -24,7 +24,7 @@ function orimap(siteresultdir,test;datafile="isi.jld2",filter=x->dogfilter(x,hσ
     complexmap([opt;opt],2deg2rad.(os);rsign=repeat([-1,1],inner=length(opt)),filter)
 end
 
-cmap,amap,mmap = orimap(siteresultdir,"AG5_Full_ISIEpochOri8_0",filter=x->dogfilter(x,hσ=5,lσ=25))
+cmap,amap,mmap = orimap(siteresultdir,"$(siteid)_ISIEpochOri8_0",filter=x->dogfilter(x,hσ=5,lσ=25))
 orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
 oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
 
@@ -63,7 +63,7 @@ function odmap(siteresultdir,lrtests::NTuple{2,String};datafile="isi.jld2")
     pairtest(ler,rer).stat
 end
 
-t = odmap(siteresultdir,("AG5_Full_ISIEpochOri8_1","AG5_Full_ISIEpochOri8_2"))
+t = odmap(siteresultdir,("$(siteid)_ISIEpochOri8_0","$(siteid)_ISIEpochOri8_1"))
 od = clampscale(dogfilter(t,lσ=50),3)
 h,w = size(od)
 save(joinpath(siteresultdir,"OD.png"),od)
@@ -156,7 +156,7 @@ function cofdmap(siteresultdir,test;datafile="isi.jld2")
     (;cofd,color,minmaxcolor)
 end
 
-cofd,color,minmaxcolor = cofdmap(siteresultdir,"AG5_Full_ISIEpochFlash2Color_5")
+cofd,color,minmaxcolor = cofdmap(siteresultdir,"$(siteid)_ISIEpochFlash2Color_0")
 cofd = clampscale(dogfilter(cofd),3)
 save(joinpath(siteresultdir,"COFD_$(color).png"),cofd)
 

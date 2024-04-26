@@ -43,7 +43,7 @@ end
 
 
 resultroot = "Y:/"
-rootdir = "I:/Test/Test_Full/"
+rootdir = "I:/AG6/AG6_Full/"
 
 const ST = serve(rootdir;resultroot);
 unserve(rootdir,ST)
