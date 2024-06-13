@@ -1,4 +1,4 @@
-using NeuroAnalysis,DataFrames,JLD2,StatsBase,StatsPlots,VegaLite,XLSX,Combinatorics,DataStructures,CircStats,HypothesisTests
+using NeuroAnalysis,DataFrames,JLD2,StatsBase,StatsPlots,VegaLite,XLSX,Combinatorics,DataStructures,CircStats,HypothesisTests,AlgebraOfGraphics
 
 function collectorisf(indir;unit=DataFrame(),datafile="orisfdataset.jld2",cch=["A","L","M","S"])
     for (root,dirs,files) in walkdir(indir)
@@ -36,7 +36,7 @@ layercg = cgrad(:tab10,nlbt,categorical=true)
 allcu = load(joinpath(resultroot,"allcu.jld2"),"allcu")
 allcsu = subset(allcu,:good)
 penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"Sheet1"))
-select!(penetration,[:siteid,:od,:cofd,:ori_lhi,:pid],:cofd=>ByRow(i->ismissing(i) ? i : first.(split(i,", ")) |> join ∘ sort)=>:cofd_type)
+select!(penetration,[:siteid,:od,:cofd,:ori_lhi,:ori_lr,:pid],:cofd=>ByRow(i->ismissing(i) ? i : first.(split(i,", ")) |> join ∘ sort)=>:cofd_type)
 
 orisfcu = innerjoin(allcu,orisfunit,on=[:siteid,:id])
 excludesites = ["AG1_V1_ODR8","AG1_V1_ODL17","AG2_V1_ODL18"]
@@ -57,10 +57,11 @@ figfmt = [".svg",".png"]
 
 
 import CairoMakie as mk
-function plotdepthhist(unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=nothing,xlabel="Number of Units",
+function plotdepthhist(unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=nothing,xlabel="Number of Units",ts="",
                 siteid="All",ylabel="Normalized Cortical Depth",size=(450,750),palette=:tab20,binedges=0:0.02:1)
     sunit = siteid=="All" ? unit : filter(r->r.siteid==siteid,unit)
-    title="$(siteid)_DepthHist_$g"
+    ts = isempty(ts) ? ts : "_"*ts
+    title="$(siteid)_DepthHist_$g$ts"
     # try
     group = sunit[!,g]
     ug = unique(group) |> sort!
@@ -90,12 +91,18 @@ function plotdepthhist(unit;g=:responsive,dir=nothing,figfmt=[".png"],layer=noth
     # end
 end
 
-function plotdepthscatter(unit;x=:Diameter,xfun=first,g=:rc,dir=nothing,siteid="All",figfmt=[".png"],layer=nothing,xlabel="$x",ts="",
+function plotdepthscatter(unit;x=:Diameter,xfun=first,upv=nothing,g=:rc,dir=nothing,siteid="All",figfmt=[".png"],layer=nothing,xlabel="$x",ts="",
             ylabel="Normalized Cortical Depth",size=(450,750),palette=:tab20,ma=-0.7,
             gwfun=x->isempty(x) ? 0 : median(x),gwbfun=(x->isempty(x) ? 0 : percentile(x,25),x->isempty(x) ? 0 : percentile(x,75)))
     sunit = siteid=="All" ? unit : filter(r->r.siteid==siteid,unit)
+    if isnothing(upv)
+        pvstr=""
+    else
+        sunit = filter(r->r[upv.first]==upv.second,sunit)
+        pvstr="_$(upv.first)=$(upv.second)"
+    end
     ts = isempty(ts) ? ts : "_"*ts
-    title="$(siteid)_Depth-$(x)_$g$ts"
+    title="$(siteid)$(pvstr)_Depth-$(x)_$g$ts"
     xx = xfun.(sunit[!,x])
     yy = sunit.aligndepth
     group = sunit[!,g]
@@ -144,6 +151,7 @@ end
 
 plotdepthhist(allcsu;g=:spiketype,layer)
 # plotdepthhist(allcsu;g=:spiketype,layer,dir=resultroot,figfmt)
+plotdepthhist(orisfrcsu;g=:spiketype,layer)
 
 plotdepthhist(orisfcsu;g=:responsive,layer)
 plotdepthhist(orisfrcsu;g=:RTYPE,layer)
@@ -173,10 +181,24 @@ foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LHI$ext"),pl),figfmt)
 pl = select(orisfrcsu,[:siteid,:ori_lhi]) |> @vlplot(:bar,x={:ori_lhi,bin=true},y={"count()",axis={title="Number of Responsive Unit"}})
 foreach(ext->save(joinpath(orisfdir,"rUnit_ORI_LHI$ext"),pl),figfmt)
 
+pl = select(orisfrcsu,[:siteid,:ori_lr]) |> unique |> @vlplot(:bar,x={"ori_lr",bin=true},y={"count()",axis={title="Number of Penetration"}})
+foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LR$ext"),pl),figfmt)
+pl = select(orisfrcsu,[:siteid,:ori_lr]) |> @vlplot(:bar,x={:ori_lr,bin=true},y={"count()",axis={title="Number of Responsive Unit"}})
+foreach(ext->save(joinpath(orisfdir,"rUnit_ORI_LR$ext"),pl),figfmt)
 
-t |> @vlplot(mark={:boxplot, extent="min-max"},x=:osi,y=:spiketype)
+df = combine(groupby(orisfrcsu,:siteid),[:ori_lhi,:ori_lr,:cofd_N].=>first.=>identity)
+plt = data(df)*mapping(:ori_lhi,:ori_lr)*(linear()+visual(mk.Scatter,color=:gray40))
+f=draw(plt,figure=(size=(600,500),))
+foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LHI-LR$ext"),f),figfmt)
 
-@df t boxplot(:spiketype,:osi,color=:gray)
+pl = df |> @vlplot(:bar,x={"ori_lhi",bin=true},y={"count()",axis={title="Number of Penetration"}},color={"cofd_N:n"})
+foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LHI$ext"),pl),figfmt)
+pl = df |> @vlplot(:bar,x={"ori_lr",bin=true},y={"count()",axis={title="Number of Penetration"}},color={"cofd_N:n"})
+foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LHI$ext"),pl),figfmt)
+jlskdjfsdf
+plt=data(df)*frequency()*mapping(:ori_lr)*mapping(color=:cofd_N,dodge=:cofd_N)
+draw(plt)
+
 
 ## Spectral Mixing of PSTH F1
 f1mix = (RTYPE,ccode,f1o0,f1mag,f1phase) -> begin
@@ -245,12 +267,16 @@ circ_dist(0,1.5π)
 
 
 
+
+
+
 ## OriSF tuning properties across layers
 acolor = RGB(0.3,0.3,0.3)
 lcolor = ColorMaps["lms_mccliso"].colors[end]
 mcolor = ColorMaps["lms_mccmiso"].colors[end]
 scolor = ColorMaps["lms_mccsiso"].colors[end]
 cc = Dict('A'=>acolor,'L'=>lcolor,'M'=>mcolor,'S'=>scolor)
+scc = Dict("A"=>acolor,"T"=>lcolor,"N"=>:darkblue,"M"=>:darkgreen,"W"=>:darkred)
 aoricg = cgrad(fill(acolor,2))
 loricg = cgrad(fill(lcolor,2))
 moricg = cgrad(fill(mcolor,2))
@@ -260,11 +286,11 @@ function getfrf(unit;c='A',cch="ALMS")
     ci = findfirst(c,cch)
     frf = transform(unit,:Ori_Final=>ByRow(i->ismissing(i[ci]) ? missing : i[ci])=>identity,:SpatialFreq=>ByRow(i->ismissing(i[ci]) ? missing : i[ci])=>identity) |> dropmissing!
     select!(frf,Not([:Ori_Final,:SpatialFreq]),:Ori_Final=>ByRow(i->
-        (;oup=i.oup,ou=i.oup>=0.05,dup=i.dup,du=i.dup>=0.05,ocv=i.ocv,dcv=i.dcv,
-        osi=i.fit.osi2[2],dsi=i.fit.osi2[1],hw=mean(i.fit.ohw),pd=mod(i.fit.po+90,360),po=mod(i.fit.po,180)))=>AsTable,
-        :SpatialFreq=>ByRow(i->(;sfup=i.up,sfu=i.up>=0.05,psf=i.fit.psf,
-        sfhw=i.fit.sfhw,sfpt=i.fit.sfpt,sfbw=i.fit.sfbw))=>AsTable)
-    transform(groupby(frf,:siteid),[:osi,:dsi,:ocv,:dcv,:hw].=>zscore.=>[:zosi,:zdsi,:zocv,:zdcv,:zhw])
+        (;oup=i.oup,ou=i.oup>=0.05,dup=i.dup,du=i.dup>=0.05,ocv=i.ocv,dcv=i.dcv,osi=i.fit.osi2[2],dsi=i.fit.osi2[1],ocm=i.ocm,dcm=i.dcm,
+        maxo=mod(i.max.first,180),maxd=mod(i.max.first+90,360),hw=mean(i.fit.ohw),pd=mod(i.fit.po+90,360),po=mod(i.fit.po,180)))=>AsTable,
+        :SpatialFreq=>ByRow(i->(;sfup=i.up,sfu=i.up>=0.05,sfm=i.sfm,maxsf=i.max.first,psf=i.fit.psf,
+        sfhw=i.fit.sfhw,sfpt=i.fit.sfpt,sfbw=i.fit.sfbw,sfpw=i.fit.sfpw,sfqf=i.fit.psf/sum(i.fit.sfhw)))=>AsTable)
+    transform(groupby(frf,:siteid),[:osi,:dsi,:ocv,:dcv,:hw,:po,:pd,:psf].=>zscore.=>[:zosi,:zdsi,:zocv,:zdcv,:zhw,:zpo,:zpd,:zpsf])
 end
 
 cfrf = Dict(c=>getfrf(orisfrcsu;c) for c in ['A','L','M','S'])
@@ -272,11 +298,15 @@ cfrf = Dict(c=>getfrf(orisfrcsu;c) for c in ['A','L','M','S'])
 plotdepthhist(cfrf['A'];g=:ou,layer)
 plotdepthscatter(cfrf['A'];layer,x=:ocv,g=:responsive)
 plotdepthscatter(cfrf['A'];layer,x=:hw,g=:responsive)
-plotdepthscatter(cfrf['A'];layer,x=:po,g=:responsive)
+plotdepthscatter(cfrf['A'];layer,x=:osi,g=:responsive)
+plotdepthscatter(cfrf['A'];layer,x=:zpo,g=:responsive)
+plotdepthscatter(cfrf['A'];layer,x=:zpd,g=:responsive)
 
+plotdepthhist(cfrf['A'];g=:sfu,layer)
+plotdepthscatter(cfrf['A'];layer,x=:sfbw,g=:responsive,upv=:sfpt=>'B')
+plotdepthscatter(cfrf['A'];layer,x=:sfqf,g=:responsive,upv=:sfpt=>'B')
 plotdepthhist(cfrf['A'];g=:sfpt,layer)
-plotdepthscatter(cfrf['A'];layer,x=:sfbw,g=:responsive)
-plotdepthscatter(cfrf['A'];layer,x=:psf,g=:responsive)
+plotdepthscatter(cfrf['A'];layer,x=:zpsf,g=:responsive)
 
 for c in keys(cfrf)
     # plotdepthscatter(cfrf[c];layer,x=:ocv,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
@@ -285,23 +315,100 @@ for c in keys(cfrf)
     # plotdepthscatter(cfrf[c];layer,x=:zocv,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
     # plotdepthscatter(cfrf[c];layer,x=:zhw,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
     # plotdepthscatter(cfrf[c];layer,x=:zosi,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
-
-    plotdepthscatter(cfrf[c];layer,x=:osi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
-    plotdepthscatter(cfrf[c];layer,x=:zosi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
-
+    plotdepthscatter(cfrf[c];layer,x=:po,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
+    
     # plotdepthscatter(cfrf[c];layer,x=:dcv,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
     # plotdepthscatter(cfrf[c];layer,x=:dsi,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
     # plotdepthscatter(cfrf[c];layer,x=:zdcv,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
     # plotdepthscatter(cfrf[c];layer,x=:zdsi,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
+    plotdepthscatter(cfrf[c];layer,x=:pd,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
 
-    plotdepthscatter(cfrf[c];layer,x=:dsi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
-    plotdepthscatter(cfrf[c];layer,x=:zdsi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
+    # plotdepthhist(cfrf[c];layer,g=:sfpt,dir=orisfdir,figfmt,ts=c)
+    # plotdepthscatter(cfrf[c];layer,x=:sfbw,g=:responsive,upv=:sfpt=>'B',dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
+    # plotdepthscatter(cfrf[c];layer,x=:sfqf,g=:responsive,upv=:sfpt=>'B',dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
+    # plotdepthscatter(cfrf[c];layer,x=:psf,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
+
+
+
+
+    # plotdepthscatter(cfrf[c];layer,x=:osi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
+    # plotdepthscatter(cfrf[c];layer,x=:zosi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
+
+   
+
+    # plotdepthscatter(cfrf[c];layer,x=:dsi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
+    # plotdepthscatter(cfrf[c];layer,x=:zdsi,g=:cofd_N,dir=orisfdir,figfmt,ts=c,palette=[cc[c],RGB(0,0,1)])
 
     # plotdepthscatter(cfrf[c];layer,x=:po,g=:responsive,dir=orisfdir,figfmt,ts=c,palette=[cc[c]])
 end
 
+ccfrf = mapreduce(c->insertcols(cfrf[c],:Color=>c),append!,['A','L','M','S'])
+filter!(r->r.layer≠"1",ccfrf)
+
+function plotlayerdist(unit;x=:osi,dir=nothing,figfmt=[".png"],size=(900,600),cc=cc,plottype=:box)
+    if plottype == :box
+        p = data(unit)*mapping(:layer,x,dodge=:Color,color=:Color)*visual(mk.BoxPlot,show_outliers=false,gap=0.3)
+        f=draw(p,palettes=(color=collect(pairs(cc)),),figure=(size=size,))
+        title = "LayerBox-$x"
+    elseif plottype==:density
+        p = data(unit)*mapping(x,col=:layer,color=:Color)*AlgebraOfGraphics.density()
+        f=draw(p,palettes=(color=collect(pairs(cc)),),figure=(size=size,))
+        title = "LayerDensity-$x"
+    end
+    isnothing(dir) ? f : foreach(ext->save(joinpath(dir,"$title$ext"),f),figfmt)
+end
+
+plotlayerdist(ccfrf,x=:osi)
+plotlayerdist(ccfrf,x=:hw,plottype=:density)
+
+plt = data(ccfrf)*mapping(:layer,:osi,dodge=:Color,color=:Color,row=:spiketype)*visual(mk.BoxPlot,show_outliers=false,gap=0.3)
+fig=draw(plt,palettes=(color=collect(pairs(cc)),),figure=(size=(900,600),))
+
+plt = data(ttt)*mapping(:osi,col=:layer,row=:cofd_N,color=:Color)*AlgebraOfGraphics.density()
+fig=draw(plt,axis=(limits=(nothing,(0,2)),),palettes=(color=collect(pairs(cc)),),figure=(size=(1000,1000),))
+plt = data(ttt)*mapping(:osi,col=:layer,row=:cofd_N,color=:Color,stack=:Color)*AlgebraOfGraphics.histogram()
+
+fig=draw(plt,palettes=(color=collect(pairs(cc)),),figure=(size=(1000,1000),))
+
+
+
 
 t=cfrf['A']
+t=filter(r->r.layer≠"1",t)
+t=filter(r->r.spiketype in ["N","M","W"],t)
+t=filter(r->0.08<=r.aligndepth<0.3,t)
+
+
+plotlayerscatter = (unit;x=:ori_lhi,y=:hw,dir=nothing,figfmt=[".png"],size=(200,250),cc=scc,g=nothing,ts="",
+                    xlims=(0,1),ylims=nothing,nol1=true,noatspike=true,markersize=4,strokewidth=1,msca=0.7)->begin
+    nol1 && (unit = filter(r->r.layer≠"1",unit))
+    noatspike && (unit = filter(r->r.spiketype ∉ ["A","T"],unit))
+    nl = levels(unit.layer) |> length
+    ts = isempty(ts) ? ts : "_$ts"
+    gs = isnothing(g) ? "" : "_$g"
+    title = "LayerScatter_$x-$(y)_$gs$ts"
+    plt=data(unit)*mapping(x,y,col=:layer)
+    isnothing(g) || (plt*=mapping(color=g,row=g))
+    plt*=(linear()+visual(mk.Scatter;markersize,strokewidth,color=RGBA(0,0,0,0),strokecolor=(acolor,msca)))
+    f = draw(plt,palettes=(color=collect(pairs(cc)),),axis=(limits=(xlims,ylims),),figure=(size=(size[1]*nl,2.3*size[2]),))
+    isnothing(dir) ? f : foreach(ext->save(joinpath(dir,"$title$ext"),f),figfmt)
+
+end
+
+plotlayerscatter(cfrf['A'],y=:osi,x=:ori_lr,ts='A',g=:spiketype,msca=0)
+plotlayerscatter(cfrf['A'],y=:osi,x=:ori_lhi,dir=orisfdir,ts='A',g=:spiketype,msca=0)
+
+plt=data(t)*mapping(:osi,:aligndepth,color=:ori_lhi)
+plt=data(t)*mapping(:ori_lhi,:ocv,row=:layer)
+plt=data(t)*mapping(:ori_lhi,:ocv,col=:layer)
+plt=data(t)*mapping(:ori_lhi,:osi)
+f=plt*(linear()+visual(mk.Scatter,markersize=4,strokewidth=1,color=coloralpha(acolor,0)))#+plt*AlgebraOfGraphics.density()*visual(mk.Contour)
+f=plt*(smooth()+visual(mk.Scatter,markersize=5,markerstrokewidth=1))
+
+draw(f,axis=(type=gmk.Axis3,yreversed=true,),figure=(size=(300,600),))
+draw(f,axis=(limits=((0,1),nothing),),figure=(size=(200,900),))
+draw(f,axis=(yreversed=true,),figure=(size=(600,1000),))
+draw(f,axis=(limits=((0,1),nothing),),figure=(size=(900,200),))
 
 @df t scatter(:ori_lhi,:osi,group=:layer)
 
@@ -312,11 +419,40 @@ t=cfrf['A']
 
 
 
+plt=data(orisfrcsu)*frequency()*mapping(:ori_lr,color=:cofd_N)
+draw(plt)
 
+
+
+combine(groupby(filter(r->contains(r.RTYPE,"LM"),ttt),:id),vcat.([:osi,:dsi],[:Color]).=>((s,c)->s[c.=='M']).=>first)
+combine(groupby(filter(r->contains(r.RTYPE,"LM"),ttt),:id),vcat.([:osi,:dsi],[:Color]).=>((s,c)->[s[c.=='L']-s[c.=='M']]).=>first)
+combine(groupby(ttt,:id),append!.([:Color,:RTYPE],[:osi,:dsi]).=>((s,c)->[s.-s[c.=='L']]).=>first)
+
+
+mdfun = (s,c)->begin
+    ps=[]
+    for (i,j) in combinations(['A','L'],2)
+    # for (i,j) in combinations(['A','L','M','S'],2)
+        if contains(r[1],join((i,j)))
+            push!(ps,Symbol(join((i,'-',j)))=>s[c.==i]-s[c.==j])
+        end
+    end
+    NamedTuple(ps)
+end
+
+lmt=innerjoin(cfrf['A'],cfrf['L'],on=:id,makeunique=true)
+lmtt = select(lmt,[:id,:layer,:aligndepth,:responsive],[:ocv,:ocv_1]=>((i,j)->(i.-j)./(i.+j))=>:osi_diff)
+
+plotdepthscatter(lmtt;layer,x=:osi_diff,g=:responsive)
+
+
+ttt.RTYPE
+
+filter(i->i[1].,groupby(ttt,:id))
 
 using PairPlots
 
-
+fill('a',4)
 
 df = select(filter(r->0.0<= r.aligndepth <0.3,t),[:ori_lhi,:dcv,:dsi,:hw])
 df = select(filter(r->r.layer=="6B",t),[:ori_lhi,:ocv,:osi,:hw])
@@ -330,7 +466,6 @@ pairplot(df=>(PairPlots.Scatter(markersize=5),PairPlots.TrendLine(),PairPlots.Co
 
 pl = select(orisfrcsu,[:siteid,:ori_lhi,:cofd_type,:cofd_N,:cofd_A,:cofd_C]) |> unique |> @vlplot(:bar,x={"ori_lhi",bin=true},y={"count()",axis={title="Number of Penetration"}},color=:cofd_A)
 foreach(ext->save(joinpath(orisfdir,"Penetration_ORI_LHI$ext"),pl),figfmt)
-
 
 
 

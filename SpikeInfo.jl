@@ -455,13 +455,13 @@ plotcluwaveform=(wys,clu;fs=30e3,isalign=true,isnorm=true,ismean=true,n=50,color
     end
 end
 
-clucode = Dict(1=>"tp",2=>"E",3=>"A",4=>"I",5=>"En")
+clucode = Dict(1=>"M",2=>"A",3=>"W",4=>"N",5=>"T")
 plotcluwaveform(csuwy,clu;ismean=true,clucode)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_mwave$ext")),figfmt)
 plotcluwaveform(csuwy,clu;ismean=false)
 foreach(ext->savefig(joinpath(unitfeaturedir,"csu_cfeature_clu_wave$ext")),figfmt)
 
-gmclucode = Dict(1=>"E",2=>"I",3=>"En",4=>"tp",5=>"A")
+gmclucode = Dict(1=>"M",2=>"T",3=>"N",4=>"A",5=>"W")
 plotcluwaveform(gmsuwy,gmclu;ismean=true,clucode=gmclucode)
 foreach(ext->savefig(joinpath(unitfeaturedir,"gmsu_cfeature_clu_mwave$ext")),figfmt)
 plotcluwaveform(gmsuwy,gmclu;ismean=false)

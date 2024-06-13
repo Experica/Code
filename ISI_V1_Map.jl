@@ -10,23 +10,32 @@ function drawcontour!(img,ct,color=oneunit(eltype(img));fill=false)
     return img
 end
 
-dataroot = "I:/"
-resultroot = "Y:/"
-subject = "AG6";recordsession = "";recordsite = "Full"
+dataroot = "H:/ImagerData/"
+resultroot = "Z:/"
+subject = "AG2";recordsession = "";recordsite = ""
 siteid = join(filter!(!isempty,[subject,recordsession,recordsite]),"_")
 siteresultdir = joinpath(resultroot,subject,siteid)
 
 
 ## orientation map
-function orimap(siteresultdir,test;datafile="isi.jld2",filter=x->dogfilter(x,hσ=3,lσ=25))
+function orimap(siteresultdir,test;datafile="isi.jld2",filter=x->dogfilter(x,hσ=3,lσ=25),mnorm=:r)
+    if eltype(test)==String
+        opt1,op1 = load(joinpath(siteresultdir,test[1],datafile),"opt","op")
+        os1 = vec(stack(op1)')
+        opt2,op2 = load(joinpath(siteresultdir,test[2],datafile),"opt","op")
+        os2 = vec(stack(op2)')
+        return complexmap([opt1;opt1;opt2;opt2],2deg2rad.([os1;os2]);rsign=repeat([-1,1],inner=length(opt1),outer=2),filter,mnorm)
+    end
     opt,op = load(joinpath(siteresultdir,test,datafile),"opt","op")
     os = vec(stack(op)')
-    complexmap([opt;opt],2deg2rad.(os);rsign=repeat([-1,1],inner=length(opt)),filter)
+    complexmap([opt;opt],2deg2rad.(os);rsign=repeat([-1,1],inner=length(opt)),filter,mnorm)
 end
 
-cmap,amap,mmap = orimap(siteresultdir,"$(siteid)_ISIEpochOri8_0",filter=x->dogfilter(x,hσ=5,lσ=25))
+# cmap,amap,mmap = orimap(siteresultdir,["$(siteid)_ISIEpochOri8_3","$(siteid)_ISIEpochOri8_4"],filter=x->dogfilter(x,hσ=5,lσ=25),mnorm=:r)
+cmap,amap,mmap = orimap(siteresultdir,"$(siteid)_ISIEpochOri8_3",filter=x->dogfilter(x,hσ=5,lσ=25),mnorm=:r)
 orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
 oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+Gray.(mmap)
 
 save(joinpath(siteresultdir,"ori_anglemap.png"),orianglemap)
 save(joinpath(siteresultdir,"ori_polarmap.png"),oripolarmap)
@@ -37,20 +46,37 @@ penetration = DataFrame(XLSX.readtable(joinpath(resultroot,"penetration.xlsx"),"
 pidx = findall(r->r.Subject_ID==subject && !ismissing(r.coord),eachrow(penetration))
 pcoord = map(i->parse.(Int,split(i,", ")),penetration.coord[pidx])
 ppum = penetration.ppmm[pidx[1]]/1000 # pixels/micrometer
-rs = map(i->localhomoindex(amap,i;σ=120ppum),pcoord)
+lhis = map(i->localhomoindex(amap,i;σ=110ppum),pcoord)
 
 XLSX.openxlsx(joinpath(resultroot,"penetration.xlsx"),mode="rw") do f
     s = f["Sheet1"]
     ci = findfirst(i->i=="ori_lhi",names(penetration))
-    for (i,r) in zip(pidx,rs)
-        s[i+1,ci] = first(r)
+    for (i,r) in zip(pidx,lhis)
+        s[i+1,ci] = r.lhi
     end
 end
 
 pmapdir = joinpath(resultroot,"PenetrationMap");mkpath(pmapdir)
-poamap = [alphamask(map(a->HSV(rad2deg(a),1,1),last(r)))[1] for r in rs]
-foreach(i->i[map(c->c:c+1,floor.(Int,size(i)./2))...].=HSVA(0.0,0,0.1,1),poamap)
-foreach((m,id)->save(joinpath(pmapdir,"$(id)_ori.png"),m),poamap,penetration.siteid[pidx])
+poamap = [alphamask(map(a->HSV(rad2deg(a),1,1),amap[r.roi...]))[1] for r in lhis]
+foreach(i->i[map(c->c:c+1,floor.(Int,size(i)./2))...].=HSVA(0,0,0.1,1),poamap)
+foreach((m,id)->save(joinpath(pmapdir,"$(id)_ori_lhi.png"),m),poamap,penetration.siteid[pidx])
+
+
+## orientation local r(1-circ_var) of penetrations
+lrs = map(i->localaverage(mmap,i;σ=40ppum),pcoord)
+
+XLSX.openxlsx(joinpath(resultroot,"penetration.xlsx"),mode="rw") do f
+    s = f["Sheet1"]
+    ci = findfirst(i->i=="ori_lr",names(penetration))
+    for (i,r) in zip(pidx,lrs)
+        s[i+1,ci] = r.la
+    end
+end
+
+poammap = [alphamask(map((a,m)->HSV(rad2deg(a),1,m),amap[r.roi...],mmap[r.roi...]))[1] for r in lhis]
+foreach(i->i[map(c->c:c+1,floor.(Int,size(i)./2))...].=HSVA(0,0,0.9,1),poammap)
+# foreach(i->draw!(i,Ellipse(CirclePointRadius(floor.(Int,size(i)./2)...,round(Int,3*40*ppum);thickness=4,fill=false)),HSVA(0,0,0.9,1)),poammap)
+foreach((m,id)->save(joinpath(pmapdir,"$(id)_ori_lr.png"),m),poammap,penetration.siteid[pidx])
 
 
 ## ocular dominance
