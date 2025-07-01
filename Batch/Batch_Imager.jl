@@ -22,6 +22,8 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
 
     # Prepare Frame
     imagefile = dataset["imagefile"]
+    # ds = "H:\\ImagerData"
+    # imagefile = map(f->ds * splitdrive(f)[2],imagefile)
     nepoch = dataset["imagenepoch"]
     nframe = length(imagefile)
     framerate = dataset["meta"]["AcquisitionControl"]["AcquisitionFrameRate"]
@@ -93,7 +95,7 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
         end
         jldsave(joinpath(resultdir,"isi.jld2");freqs,Fs,F1phase01,F2phase01,exenv,siteid)
     elseif ex["ID"] == "ISICycle2Color"
-        # cos phase(maxcolor:0->mincolor:π->maxcolor:2π) to linear normalized polarity(mincolor:0->maxcolor:1)
+        # dft cos phase(max:0->min:π->max:2π) to normalized polarity(min:0->max:1)
         pha2pol(p,s=0) = abs.(mod2pi.(p .+ s) .- π) ./ π
         F1polarity = pha2pol(F1phase)
         F1polarity_dog = clampscale(dogfilter(F1polarity),2)
@@ -108,6 +110,7 @@ function process_cycle_imager(files,param;uuid="",log=nothing,plot=true)
         maxcolor = RGBA(envparam["MaxColor"]...)
         exenv["minmaxcolor"] = (;mincolor,maxcolor)
         colordist = maxcolor-mincolor
+        # if ISI response to cos min/max color modulation is a same phase cos signal, then polarity(0/1) maps to color(min/max)
         if modulatetype == "Sinusoidal"
             # Cos modulation between MinColor and MaxColor
             cmfun = (a;f=1,p=0) -> mincolor + colordist * ((cos(2π*(f*a+p))+1)/2)
@@ -166,44 +169,50 @@ function process_epoch_imager(files,param;uuid="",log=nothing,plot=true)
     pixmax = 2^12 - 1
 
     # Epoch Response
-    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : conddur/2 # hemodynamic delay, here use the late near saturated responses
+    responsedelay = haskey(param,:responsedelay) ? param[:responsedelay] : conddur/2 # hemodynamic delay(usually 500ms), here use the late near saturated responses
     baseframeindex = epoch2sampleindex([0 preicidur],framerate,maxsampleindex=minframe)
     frameindex = epoch2sampleindex([0 conddur].+(preicidur+responsedelay),framerate,maxsampleindex=minframe)
     epochresponse = Array{Float64}(undef,h,w,nepoch)
     p = ProgressMeter.Progress(nepoch,desc="Epoch Response ... ")
+    # ds = "H:\\ImagerData"
+    # ds = "D:\\"
     Threads.@threads for i in 1:nepoch
+        # imgfile = map(f->ds * splitdrive(f)[2],imagefile[i])
+        # epochresponse[:,:,i] = frameresponse_imager(imgfile,w,h,frameindex,baseframeindex)
         epochresponse[:,:,i] = frameresponse_imager(imagefile[i],w,h,frameindex,baseframeindex)
         next!(p)
     end
 
-    if ex["ID"] == "ISIEpochOri8"
-        ds = cond.Ori.+90
-        os = unique(cond.Ori.%180)
-        qs = unique(os.%90)
+    if ex["ID"] in ["ISIEpochOri8","ISIEpochOri12"]
+        ds = (cond.Ori.+90).%360
+        os = cond.Ori.%180
+        qs = cond.Ori.%90
+        uo = unique(os)
+        uq = unique(qs)
 
-        dp = map(i->mod.([i,i+180].+90,360),os)
-        dpi = map(i->cond.i[indexin([i,i+180],cond.Ori)],os)
-        dpt = map(is->pairtest(epochresponse,is[1],is[2]).stat,dpi)
-        dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([os;os.+180].+90),rsign=repeat([-1,1],inner=length(dpt)))
+        dp = map(o->mod.([o,o+180].+90,360),uo)
+        dpi = map(p->map(d->cond.i[d.==ds],p),dp)
+        dpt = map(is->pairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).stat,dpi)
+        dcmap,amap,mmap = complexmap([dpt;dpt],deg2rad.([uo;uo.+180].+90),rsign=repeat([-1,1],inner=length(dpt)))
         diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
         dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
 
-        op = map(i->[i,i+90],qs)
-        opi = map(i->dpi[indexin(i,os)],op)
+        op = map(q->[q,q+90],uq)
+        opi = map(p->map(o->cond.i[o.==os],p),op)
         opt = map(is->pairtest(epochresponse,vcat(is[1]...),vcat(is[2]...)).stat,opi)
-        ocmap,amap,mmap = complexmap([opt;opt],2deg2rad.([qs;qs.+90]),rsign=repeat([-1,1],inner=length(opt)))
-        orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
-        oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+        ocmap,amap,mmap = complexmap([opt;opt],deg2rad.([uq;uq.+90]),n=2,rsign=repeat([-1,1],inner=length(opt)))
+        orianglemap = map(a->HSV(rad2deg(2a),1,1),amap)
+        oripolarmap = map((a,m)->HSV(rad2deg(2a),1,m),amap,mmap)
 
-        # cr,_ = condresponse(epochresponse,cond.i)
-        # dcmap,amap,mmap = complexmap(cr,deg2rad.(ds))
+        # rs = condresponse(epochresponse,cond.i).m
+        # dcmap,amap,mmap = complexmap(rs,deg2rad.(ds))
         # diranglemap = map(a->HSV(rad2deg(a),1,1),amap)
         # dirpolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
 
-        # ocr = @views map(i->dropdims(mean(cr[:,:,indexin([i,i+180],cond.Ori)],dims=3),dims=3),os)
-        # ocmap,amap,mmap = complexmap(ocr,2deg2rad.(os))
-        # orianglemap = map(a->HSV(rad2deg(a),1,1),amap)
-        # oripolarmap = map((a,m)->HSV(rad2deg(a),1,m),amap,mmap)
+        # or = @views map(o->dropdims(mean(rs[:,:,o.==os],dims=3),dims=3),uo)
+        # ocmap,amap,mmap = complexmap(or,deg2rad.(uo),n=2)
+        # orianglemap = map(a->HSV(rad2deg(2a),1,1),amap)
+        # oripolarmap = map((a,m)->HSV(rad2deg(2a),1,m),amap,mmap)
         
         if plot
             for (p,t) in zip(dp,dpt)

@@ -620,4 +620,90 @@ Gray.(tt)
 
 Gray.(F2mag01)
 
+data(cfrf['A'])*mapping(:po)*AlgebraOfGraphics.histogram() |> draw
+histogram(cfrf['A'].po)
 
+r=rand(100)*150 .+800
+b=rand(100)*100 .+1000
+
+z1=log2.(r./b)
+z2 = log2.(r./b)
+z2=(r.-b)./(r.+b)
+
+scatter(z1,z2)
+
+UnequalVarianceTTest(z1,z2)
+
+UnequalVarianceTTest(randn(100).-5,randn(100).+1)
+
+
+
+Gray.(epochresponse[:,:,1])
+
+
+
+
+jldsave("temp.jld2";epochresponse)
+epochresponse = load("temp.jld2","epochresponse")
+
+
+
+
+heatmap(ode,yflip=true,ratio=1,color=:turbo,size=(600,600))
+heatmap(dogfilter(t),yflip=true,ratio=1,color=:turbo,size=(600,600))
+heatmap(clampscale(dogfilter(t)),yflip=true,ratio=1,color=:turbo,size=(600,600))
+
+
+Gray.(clampscale(ode))
+Gray.(F1polarity_ahe)
+Fs_old=Fs
+
+Gray.(F1polarity)
+
+Gray.(od)
+
+
+histogram(vec(F1polarity_ahe))
+
+clampscale(dogfilter(F1phase),2) .|> Gray
+
+
+
+
+
+
+
+
+roi=(700:970,600:900)
+Gray.(F1polarity_dog[roi])
+
+roi=CartesianIndices((940:970,960:990))
+roi=CartesianIndices((880:900,863:880))
+roi=CartesianIndices((890:913,810:830))
+roi=CartesianIndices((888:908,776:792))
+
+
+x = range(-0.2,length=length(dps),step=0.1)
+x = range(0,length=6400,step=0.1)
+A = 0.01
+f = modulatefreq
+p = 0.25
+a=A*cos.(2π.*(f .* x .+ p))
+plot(x,a)
+F = dft(a,10,f)
+
+rad2deg(angle(F[1]))
+abs(F[1])
+
+
+
+
+dps = pixelresponse_imager(imagefile,w,h,baseresponse,roi)
+fdps = hlpass([dps dps]',10;high=0.011,low=0.019)
+
+plot(x,[a dps fdps[1,:]],size=(800,400))
+
+
+
+
+process_cycle_imager(files,param)

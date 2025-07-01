@@ -13,10 +13,10 @@ meta = readmeta(joinpath(param[:dataexportroot],"metadata.mat"))
 
 ## Query Tests
 tests = select!(filter(meta) do r
-                    r.Subject_ID in ["AG5"] &&
+                    # r.Subject_ID in ["AG5"] &&
                     # r.RecordSession == "V1" &&
                     # r.RecordSite == "1R" &&
-                    r.ID in ["Color"] &&
+                    r.ID in ["Flash2Color"] &&
                     r.sourceformat == "SpikeGLX"
                 end,
                 [:files,:ID,:UUID,:sourceformat])
@@ -30,6 +30,14 @@ pyplot()
 
 # only process and save spike data
 param[:onlyspike] = true
+# define blank condition
+param[:blank] = :SpatialFreq=>0
+# define response window duration
+param[:rdur] = 150
+# define pre-response window duration
+param[:prdur] = 300
+# define suf-response window duration
+param[:srdur] = 300
 # images responses linear model
 param[:model] = [:STA]
 # images responses ePPR model
@@ -39,4 +47,4 @@ param[:batchunit] = batchunit
 
 
 ## Batch Tests
-batchtests(tests,param,plot=true)
+batchtests(tests,param;as="Color",plot=false)
